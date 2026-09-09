@@ -81,7 +81,7 @@
     "includeAiServices": { "type": "boolean", "default": false },
     "database": {
       "type": "string",
-      "enum": ["AzureSQL", "SQLServer"],
+      "enum": ["AzureSQL", "SQLServer", "PostgreSQL"],
       "default": "AzureSQL"
     },
     "migrationLifecycle": {
@@ -369,7 +369,7 @@
       "required": ["name", "type"],
       "properties": {
         "name": { "type": "string" },
-        "type": { "type": "string", "enum": ["AzureServiceBus", "EventGrid", "EventHubs"] }
+        "type": { "type": "string", "enum": ["AzureServiceBus", "EventGrid", "EventHubs", "RabbitMQ"] }
       }
     },
     "messagingChannel": {
