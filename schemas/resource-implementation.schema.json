@@ -4,68 +4,37 @@
   "title": "Resource Implementation",
   "description": "Phase 2 output: maps domain to Aspire/Azure resources and datatypes. Schema reference: ai/resource-implementation-schema.md",
   "type": "object",
-  "required": [
-    "scaffoldMode",
-    "testingProfile",
-    "entities",
-    "externalDependencyModes",
-    "packageStrategy",
-    "packagePrefix",
-    "migrationLifecycle",
-    "databaseProviders"
-  ],
+  "required": ["scaffoldMode", "testingProfile", "entities", "externalDependencyModes", "packageStrategy", "packagePrefix", "migrationLifecycle", "databaseProviders"],
   "properties": {
     "scaffoldMode": {
       "type": "string",
-      "enum": [
-        "full",
-        "lite",
-        "api-only"
-      ],
+      "enum": ["full", "lite", "api-only"],
       "default": "full"
     },
     "testingProfile": {
       "type": "string",
-      "enum": [
-        "minimal",
-        "balanced",
-        "comprehensive"
-      ],
+      "enum": ["minimal", "balanced", "comprehensive"],
       "default": "balanced"
     },
     "functionProfile": {
       "type": "string",
-      "enum": [
-        "starter",
-        "full"
-      ],
+      "enum": ["starter", "full"],
       "default": "starter"
     },
     "unoProfile": {
       "type": "string",
-      "enum": [
-        "starter",
-        "full"
-      ],
+      "enum": ["starter", "full"],
       "default": "starter"
     },
     "packageStrategy": {
       "type": "string",
-      "enum": [
-        "feed",
-        "local",
-        "hybrid"
-      ],
+      "enum": ["feed", "local", "hybrid"],
       "default": "local",
       "description": "How shared base-type contracts are sourced. feed: NuGet from customNugetFeeds. local: generated under src/Packages/<packagePrefix>.<Layer>. hybrid: feed plus locally-generated layers in localPackageLayers."
     },
     "applicationStyle": {
       "type": "string",
-      "enum": [
-        "service",
-        "cqrs",
-        "switch"
-      ],
+      "enum": ["service", "cqrs", "switch"],
       "default": "service",
       "description": "Application endpoint/application shape. service emits service endpoints only. cqrs emits CQRS request handlers/endpoints only. switch emits both and gates route mapping via Application:Style plus <APP>_APPLICATION_STYLE."
     },
@@ -77,52 +46,24 @@
     },
     "customNugetFeeds": {
       "type": "array",
-      "items": {
-        "type": "string"
-      },
+      "items": { "type": "string" },
       "default": [],
       "description": "Private NuGet feed URLs. Required when packageStrategy is feed or hybrid; ignored when local."
     },
     "localPackageLayers": {
       "type": "array",
-      "items": {
-        "type": "string"
-      },
+      "items": { "type": "string" },
       "default": [],
       "description": "Layer names generated under src/Packages/<packagePrefix>.<Layer> (e.g., Domain, Domain.Contracts, Data, Data.Contracts, Common, Common.Contracts, CQRS). Required when packageStrategy is local (full layer set) or hybrid (layers the feed does not provide)."
     },
-    "includeApi": {
-      "type": "boolean",
-      "default": true
-    },
-    "includeGateway": {
-      "type": "boolean",
-      "default": false
-    },
-    "includeFunctionApp": {
-      "type": "boolean",
-      "default": false
-    },
-    "includeScheduler": {
-      "type": "boolean",
-      "default": false
-    },
-    "includeUnoUI": {
-      "type": "boolean",
-      "default": false
-    },
-    "includeBlazorUI": {
-      "type": "boolean",
-      "default": false
-    },
-    "includeReactUI": {
-      "type": "boolean",
-      "default": false
-    },
-    "includeNotifications": {
-      "type": "boolean",
-      "default": false
-    },
+    "includeApi": { "type": "boolean", "default": true },
+    "includeGateway": { "type": "boolean", "default": false },
+    "includeFunctionApp": { "type": "boolean", "default": false },
+    "includeScheduler": { "type": "boolean", "default": false },
+    "includeUnoUI": { "type": "boolean", "default": false },
+    "includeBlazorUI": { "type": "boolean", "default": false },
+    "includeReactUI": { "type": "boolean", "default": false },
+    "includeNotifications": { "type": "boolean", "default": false },
     "includeFlowEngine": {
       "type": "boolean",
       "default": false,
@@ -130,44 +71,22 @@
     },
     "flowEngineDbStrategy": {
       "type": "string",
-      "enum": [
-        "same-db-separate-schema",
-        "separate-db"
-      ],
+      "enum": ["same-db-separate-schema", "separate-db"],
       "default": "same-db-separate-schema",
       "description": "Variant A (same-db-separate-schema, default) keeps the FE outbox transactionally co-located with workflow state - message/integration/agent delivery is atomic. Variant B/C (separate-db) splits FE into its own database; outbox delivery degrades to best-effort and the integrator must wire FE message nodes through the app's existing at-least-once publisher. Ignored when includeFlowEngine is false."
     },
-    "includeIaC": {
-      "type": "boolean",
-      "default": true
-    },
-    "includeGitHubActions": {
-      "type": "boolean",
-      "default": false
-    },
-    "includeAzd": {
-      "type": "boolean",
-      "default": false
-    },
-    "includeAiServices": {
-      "type": "boolean",
-      "default": false
-    },
+    "includeIaC": { "type": "boolean", "default": true },
+    "includeGitHubActions": { "type": "boolean", "default": false },
+    "includeAzd": { "type": "boolean", "default": false },
+    "includeAiServices": { "type": "boolean", "default": false },
     "database": {
       "type": "string",
-      "enum": [
-        "AzureSQL",
-        "SQLServer",
-        "PostgreSQL"
-      ],
+      "enum": ["AzureSQL", "SQLServer", "PostgreSQL"],
       "default": "AzureSQL"
     },
     "migrationLifecycle": {
       "type": "string",
-      "enum": [
-        "preserved-append-only",
-        "unreleased-resettable"
-      ],
+      "enum": ["preserved-append-only", "unreleased-resettable"],
       "default": "preserved-append-only",
       "description": "Migration compatibility contract. preserved-append-only is required once any shared or preserved environment exists. unreleased-resettable permits guarded baseline regeneration only while no data or compatibility history must be preserved."
     },
@@ -175,78 +94,35 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": {
-        "type": "string",
-        "minLength": 1
-      },
-      "default": [
-        "SqlServer"
-      ],
+      "items": { "type": "string", "minLength": 1 },
+      "default": ["SqlServer"],
       "description": "Every EF Core provider that owns migrations for the application model, for example SqlServer or PostgreSQL. AzureSQL uses the SqlServer EF provider. Every listed provider must pass model-drift and migration-parity verification."
     },
     "caching": {
       "type": "string",
-      "enum": [
-        "FusionCache+Redis",
-        "DistributedMemory",
-        "None"
-      ],
+      "enum": ["FusionCache+Redis", "DistributedMemory", "None"],
       "default": "FusionCache+Redis"
     },
-    "includeKeyVault": {
-      "type": "boolean",
-      "default": false
-    },
+    "includeKeyVault": { "type": "boolean", "default": false },
     "deployTarget": {
       "type": "string",
-      "enum": [
-        "ContainerApps",
-        "AppService",
-        "AKS"
-      ],
+      "enum": ["ContainerApps", "AppService", "AKS"],
       "default": "ContainerApps"
     },
-    "useAspire": {
-      "type": "boolean",
-      "default": true
-    },
-    "gatewayAuth": {
-      "type": "string",
-      "default": "EntraExternal"
-    },
-    "apiAuth": {
-      "type": "string",
-      "default": "EntraID"
-    },
-    "tokenRelay": {
-      "type": "boolean",
-      "default": true
-    },
-    "tenantIdType": {
-      "type": "string",
-      "default": "Guid"
-    },
-    "includeArchitectureTests": {
-      "type": "boolean",
-      "default": false
-    },
+    "useAspire": { "type": "boolean", "default": true },
+    "gatewayAuth": { "type": "string", "default": "EntraExternal" },
+    "apiAuth": { "type": "string", "default": "EntraID" },
+    "tokenRelay": { "type": "boolean", "default": true },
+    "tenantIdType": { "type": "string", "default": "Guid" },
+    "includeArchitectureTests": { "type": "boolean", "default": false },
     "includeE2ETests": {
       "type": "boolean",
       "default": false,
       "description": "Test.E2E tier (WebApplicationFactory + Testcontainers SQL): multi-endpoint workflows against real SQL. Distinct from includePlaywrightUITests (browser/WASM UI)."
     },
-    "includeLoadTests": {
-      "type": "boolean",
-      "default": false
-    },
-    "includeBenchmarkTests": {
-      "type": "boolean",
-      "default": false
-    },
-    "includeMutationTests": {
-      "type": "boolean",
-      "default": false
-    },
+    "includeLoadTests": { "type": "boolean", "default": false },
+    "includeBenchmarkTests": { "type": "boolean", "default": false },
+    "includeMutationTests": { "type": "boolean", "default": false },
     "includeAspireTests": {
       "type": "boolean",
       "default": false,
@@ -262,203 +138,98 @@
       "default": false,
       "description": "Test.Mobile tier (Uno native Appium). Off by default and additionally env-gated by {APP}_MOBILE_TESTS_ENABLED; requires includeUnoUI."
     },
-    "azureRegion": {
-      "type": "string",
-      "default": "eastus2"
-    },
+    "azureRegion": { "type": "string", "default": "eastus2" },
     "iacEnvironments": {
       "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "default": [
-        "dev",
-        "staging",
-        "prod"
-      ]
+      "items": { "type": "string" },
+      "default": ["dev", "staging", "prod"]
     },
-    "usePrivateEndpoints": {
-      "type": "boolean",
-      "default": false
-    },
+    "usePrivateEndpoints": { "type": "boolean", "default": false },
     "entities": {
       "type": "array",
       "minItems": 1,
-      "items": {
-        "$ref": "#/$defs/entityMapping"
-      }
+      "items": { "$ref": "#/$defs/entityMapping" }
     },
     "messagingProviders": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/messagingProvider"
-      }
+      "items": { "$ref": "#/$defs/messagingProvider" }
     },
     "messagingChannels": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/messagingChannel"
-      }
+      "items": { "$ref": "#/$defs/messagingChannel" }
     },
     "messagingSemantics": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/messagingSemantic"
-      }
+      "items": { "$ref": "#/$defs/messagingSemantic" }
     },
     "notifications": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/notification"
-      }
+      "items": { "$ref": "#/$defs/notification" }
     },
     "scheduledJobs": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/scheduledJob"
-      }
+      "items": { "$ref": "#/$defs/scheduledJob" }
     },
     "functionDefinitions": {
       "type": "array",
-      "items": {
-        "$ref": "#/$defs/functionDefinition"
-      }
+      "items": { "$ref": "#/$defs/functionDefinition" }
     },
-    "externalDependencyModes": {
-      "$ref": "#/$defs/externalDependencyModes"
-    },
+    "externalDependencyModes": { "$ref": "#/$defs/externalDependencyModes" },
     "aspireResources": {
       "type": "array",
       "description": "Optional documentation block for Aspire-hosted dependencies, especially non-baseline integrations. Records AppHost API, local mode, publish mode, connection names, and docs URL.",
-      "items": {
-        "$ref": "#/$defs/aspireResource"
-      }
+      "items": { "$ref": "#/$defs/aspireResource" }
     },
-    "aiServices": {
-      "$ref": "#/$defs/aiServices"
-    },
-    "compliance": {
-      "$ref": "#/$defs/compliance"
-    },
-    "moneyCalculationPolicy": {
-      "type": "object"
-    },
-    "timeBoundaryPolicy": {
-      "type": "object"
-    },
-    "entitlementPolicy": {
-      "type": "object"
-    },
-    "ingestionSemantics": {
-      "type": "object"
-    }
+    "aiServices": { "$ref": "#/$defs/aiServices" },
+    "compliance": { "$ref": "#/$defs/compliance" },
+    "moneyCalculationPolicy": { "type": "object" },
+    "timeBoundaryPolicy": { "type": "object" },
+    "entitlementPolicy": { "type": "object" },
+    "ingestionSemantics": { "type": "object" }
   },
   "allOf": [
     {
-      "if": {
-        "properties": {
-          "packageStrategy": {
-            "const": "feed"
-          }
-        },
-        "required": [
-          "packageStrategy"
-        ]
-      },
+      "if": { "properties": { "packageStrategy": { "const": "feed" } }, "required": ["packageStrategy"] },
       "then": {
         "properties": {
-          "customNugetFeeds": {
-            "minItems": 1
-          },
-          "localPackageLayers": {
-            "maxItems": 0
-          }
+          "customNugetFeeds": { "minItems": 1 },
+          "localPackageLayers": { "maxItems": 0 }
         },
-        "required": [
-          "customNugetFeeds"
-        ]
+        "required": ["customNugetFeeds"]
       }
     },
     {
-      "if": {
-        "properties": {
-          "packageStrategy": {
-            "const": "local"
-          }
-        },
-        "required": [
-          "packageStrategy"
-        ]
-      },
+      "if": { "properties": { "packageStrategy": { "const": "local" } }, "required": ["packageStrategy"] },
       "then": {
         "properties": {
-          "customNugetFeeds": {
-            "maxItems": 0
-          },
-          "localPackageLayers": {
-            "minItems": 1
-          }
+          "customNugetFeeds": { "maxItems": 0 },
+          "localPackageLayers": { "minItems": 1 }
         },
-        "required": [
-          "localPackageLayers"
-        ]
+        "required": ["localPackageLayers"]
       }
     },
     {
-      "if": {
-        "properties": {
-          "packageStrategy": {
-            "const": "hybrid"
-          }
-        },
-        "required": [
-          "packageStrategy"
-        ]
-      },
+      "if": { "properties": { "packageStrategy": { "const": "hybrid" } }, "required": ["packageStrategy"] },
       "then": {
         "properties": {
-          "customNugetFeeds": {
-            "minItems": 1
-          },
-          "localPackageLayers": {
-            "minItems": 1
-          }
+          "customNugetFeeds": { "minItems": 1 },
+          "localPackageLayers": { "minItems": 1 }
         },
-        "required": [
-          "customNugetFeeds",
-          "localPackageLayers"
-        ]
+        "required": ["customNugetFeeds", "localPackageLayers"]
       }
     },
     {
-      "if": {
-        "properties": {
-          "includeAiServices": {
-            "const": true
-          }
-        },
-        "required": [
-          "includeAiServices"
-        ]
-      },
+      "if": { "properties": { "includeAiServices": { "const": true } }, "required": ["includeAiServices"] },
       "then": {
-        "required": [
-          "aiServices"
-        ],
+        "required": ["aiServices"],
         "properties": {
           "aiServices": {
-            "required": [
-              "foundry"
-            ],
+            "required": ["foundry"],
             "properties": {
               "foundry": {
-                "required": [
-                  "models"
-                ],
+                "required": ["models"],
                 "properties": {
-                  "models": {
-                    "minItems": 1
-                  }
+                  "models": { "minItems": 1 }
                 }
               }
             }
@@ -472,34 +243,21 @@
           "aiServices": {
             "properties": {
               "foundry": {
-                "properties": {
-                  "lifecycle": {
-                    "const": "existing"
-                  }
-                },
-                "required": [
-                  "lifecycle"
-                ]
+                "properties": { "lifecycle": { "const": "existing" } },
+                "required": ["lifecycle"]
               }
             },
-            "required": [
-              "foundry"
-            ]
+            "required": ["foundry"]
           }
         },
-        "required": [
-          "aiServices"
-        ]
+        "required": ["aiServices"]
       },
       "then": {
         "properties": {
           "aiServices": {
             "properties": {
               "foundry": {
-                "required": [
-                  "resourceName",
-                  "resourceGroup"
-                ]
+                "required": ["resourceName", "resourceGroup"]
               }
             }
           }
@@ -512,37 +270,21 @@
           "aiServices": {
             "properties": {
               "foundry": {
-                "properties": {
-                  "agentHosting": {
-                    "enum": [
-                      "prompt-agent",
-                      "pre-existing"
-                    ]
-                  }
-                },
-                "required": [
-                  "agentHosting"
-                ]
+                "properties": { "agentHosting": { "enum": ["prompt-agent", "pre-existing"] } },
+                "required": ["agentHosting"]
               }
             },
-            "required": [
-              "foundry"
-            ]
+            "required": ["foundry"]
           }
         },
-        "required": [
-          "aiServices"
-        ]
+        "required": ["aiServices"]
       },
       "then": {
         "properties": {
           "aiServices": {
             "properties": {
               "foundry": {
-                "required": [
-                  "projectName",
-                  "projectEndpoint"
-                ]
+                "required": ["projectName", "projectEndpoint"]
               }
             }
           }
@@ -553,63 +295,31 @@
   "$defs": {
     "entityMapping": {
       "type": "object",
-      "required": [
-        "name",
-        "dataStore"
-      ],
+      "required": ["name", "dataStore"],
       "properties": {
-        "name": {
-          "type": "string"
-        },
+        "name": { "type": "string" },
         "dataStore": {
           "type": "string",
-          "enum": [
-            "sql",
-            "cosmosdb",
-            "table",
-            "blob"
-          ]
+          "enum": ["sql", "cosmosdb", "table", "blob"]
         },
-        "partitionKeyProperty": {
-          "type": "string"
-        },
-        "throughputProfile": {
-          "type": "string"
-        },
-        "retentionPolicy": {
-          "type": "string"
-        },
-        "replayWindow": {
-          "type": "string"
-        },
+        "partitionKeyProperty": { "type": "string" },
+        "throughputProfile": { "type": "string" },
+        "retentionPolicy": { "type": "string" },
+        "replayWindow": { "type": "string" },
         "properties": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/typedProperty"
-          }
+          "items": { "$ref": "#/$defs/typedProperty" }
         },
         "children": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": [
-              "name",
-              "entity",
-              "relationship"
-            ],
+            "required": ["name", "entity", "relationship"],
             "properties": {
-              "name": {
-                "type": "string"
-              },
-              "entity": {
-                "type": "string"
-              },
-              "relationship": {
-                "type": "string"
-              },
-              "joinEntity": {
-                "type": "string"
-              }
+              "name": { "type": "string" },
+              "entity": { "type": "string" },
+              "relationship": { "type": "string" },
+              "joinEntity": { "type": "string" }
             }
           }
         },
@@ -617,23 +327,12 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": [
-              "name",
-              "entity"
-            ],
+            "required": ["name", "entity"],
             "properties": {
-              "name": {
-                "type": "string"
-              },
-              "entity": {
-                "type": "string"
-              },
-              "required": {
-                "type": "boolean"
-              },
-              "deleteRestrict": {
-                "type": "boolean"
-              }
+              "name": { "type": "string" },
+              "entity": { "type": "string" },
+              "required": { "type": "boolean" },
+              "deleteRestrict": { "type": "boolean" }
             }
           }
         },
@@ -641,18 +340,12 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": [
-              "name"
-            ],
+            "required": ["name"],
             "properties": {
-              "name": {
-                "type": "string"
-              },
+              "name": { "type": "string" },
               "properties": {
                 "type": "array",
-                "items": {
-                  "$ref": "#/$defs/typedProperty"
-                }
+                "items": { "$ref": "#/$defs/typedProperty" }
               }
             }
           }
@@ -661,237 +354,97 @@
     },
     "typedProperty": {
       "type": "object",
-      "required": [
-        "name",
-        "type"
-      ],
+      "required": ["name", "type"],
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "type": {
-          "type": "string"
-        },
-        "maxLength": {
-          "type": "integer"
-        },
-        "precision": {
-          "type": "integer"
-        },
-        "scale": {
-          "type": "integer"
-        },
-        "required": {
-          "type": "boolean"
-        }
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "maxLength": { "type": "integer" },
+        "precision": { "type": "integer" },
+        "scale": { "type": "integer" },
+        "required": { "type": "boolean" }
       }
     },
     "messagingProvider": {
       "type": "object",
-      "required": [
-        "name",
-        "type"
-      ],
+      "required": ["name", "type"],
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "type": {
-          "type": "string",
-          "enum": [
-            "AzureServiceBus",
-            "EventGrid",
-            "EventHubs",
-            "RabbitMQ"
-          ]
-        }
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["AzureServiceBus", "EventGrid", "EventHubs", "RabbitMQ"] }
       }
     },
     "messagingChannel": {
       "type": "object",
-      "required": [
-        "name",
-        "provider",
-        "pattern"
-      ],
+      "required": ["name", "provider", "pattern"],
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "provider": {
-          "type": "string"
-        },
-        "pattern": {
-          "type": "string",
-          "enum": [
-            "topic",
-            "queue"
-          ]
-        }
+        "name": { "type": "string" },
+        "provider": { "type": "string" },
+        "pattern": { "type": "string", "enum": ["topic", "queue"] }
       }
     },
     "messagingSemantic": {
       "type": "object",
-      "required": [
-        "channel"
-      ],
+      "required": ["channel"],
       "properties": {
-        "channel": {
-          "type": "string"
-        },
-        "deliveryMode": {
-          "type": "string",
-          "enum": [
-            "at-least-once",
-            "at-most-once",
-            "exactly-once"
-          ]
-        },
-        "outboxEnabled": {
-          "type": "boolean"
-        },
-        "idempotencyKey": {
-          "type": "string"
-        },
-        "deduplicationWindow": {
-          "type": "string"
-        }
+        "channel": { "type": "string" },
+        "deliveryMode": { "type": "string", "enum": ["at-least-once", "at-most-once", "exactly-once"] },
+        "outboxEnabled": { "type": "boolean" },
+        "idempotencyKey": { "type": "string" },
+        "deduplicationWindow": { "type": "string" }
       }
     },
     "notification": {
       "type": "object",
-      "required": [
-        "name",
-        "trigger",
-        "channel"
-      ],
+      "required": ["name", "trigger", "channel"],
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "trigger": {
-          "type": "string"
-        },
-        "channel": {
-          "type": "string",
-          "enum": [
-            "email",
-            "push",
-            "sms",
-            "in-app"
-          ]
-        },
-        "template": {
-          "type": "string"
-        },
-        "recipients": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
+        "name": { "type": "string" },
+        "trigger": { "type": "string" },
+        "channel": { "type": "string", "enum": ["email", "push", "sms", "in-app"] },
+        "template": { "type": "string" },
+        "recipients": { "type": "array", "items": { "type": "string" } }
       }
     },
     "scheduledJob": {
       "type": "object",
-      "required": [
-        "name",
-        "schedule"
-      ],
+      "required": ["name", "schedule"],
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "schedule": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        },
-        "targetService": {
-          "type": "string"
-        },
-        "method": {
-          "type": "string"
-        }
+        "name": { "type": "string" },
+        "schedule": { "type": "string" },
+        "description": { "type": "string" },
+        "targetService": { "type": "string" },
+        "method": { "type": "string" }
       }
     },
     "functionDefinition": {
       "type": "object",
-      "required": [
-        "name",
-        "trigger"
-      ],
+      "required": ["name", "trigger"],
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "trigger": {
-          "type": "string",
-          "enum": [
-            "serviceBusTopic",
-            "httpTrigger",
-            "timerTrigger",
-            "blobTrigger",
-            "queueTrigger"
-          ]
-        },
-        "channel": {
-          "type": "string"
-        },
-        "subscription": {
-          "type": "string"
-        },
-        "schedule": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        }
+        "name": { "type": "string" },
+        "trigger": { "type": "string", "enum": ["serviceBusTopic", "httpTrigger", "timerTrigger", "blobTrigger", "queueTrigger"] },
+        "channel": { "type": "string" },
+        "subscription": { "type": "string" },
+        "schedule": { "type": "string" },
+        "description": { "type": "string" }
       }
     },
     "externalDependencyModes": {
       "type": "object",
       "properties": {
-        "sql": {
-          "$ref": "#/$defs/dependencyMode"
-        },
-        "redis": {
-          "$ref": "#/$defs/dependencyMode"
-        },
-        "serviceBus": {
-          "$ref": "#/$defs/dependencyMode"
-        },
-        "eventGrid": {
-          "$ref": "#/$defs/dependencyMode"
-        },
-        "keyVault": {
-          "$ref": "#/$defs/dependencyMode"
-        },
-        "blobStorage": {
-          "$ref": "#/$defs/dependencyMode"
-        },
-        "cosmosDb": {
-          "$ref": "#/$defs/dependencyMode"
-        },
-        "aiServices": {
-          "$ref": "#/$defs/dependencyMode"
-        },
+        "sql": { "$ref": "#/$defs/dependencyMode" },
+        "redis": { "$ref": "#/$defs/dependencyMode" },
+        "serviceBus": { "$ref": "#/$defs/dependencyMode" },
+        "eventGrid": { "$ref": "#/$defs/dependencyMode" },
+        "keyVault": { "$ref": "#/$defs/dependencyMode" },
+        "blobStorage": { "$ref": "#/$defs/dependencyMode" },
+        "cosmosDb": { "$ref": "#/$defs/dependencyMode" },
+        "aiServices": { "$ref": "#/$defs/dependencyMode" },
         "externalApis": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": [
-              "name",
-              "mode"
-            ],
+            "required": ["name", "mode"],
             "properties": {
-              "name": {
-                "type": "string"
-              },
-              "mode": {
-                "$ref": "#/$defs/dependencyMode"
-              }
+              "name": { "type": "string" },
+              "mode": { "$ref": "#/$defs/dependencyMode" }
             }
           }
         }
@@ -899,73 +452,29 @@
     },
     "dependencyMode": {
       "type": "string",
-      "enum": [
-        "emulator",
-        "lazy-optional",
-        "no-op stub",
-        "deployment-only"
-      ]
+      "enum": ["emulator", "lazy-optional", "no-op stub", "deployment-only"]
     },
     "aspireResource": {
       "type": "object",
-      "required": [
-        "name",
-        "service",
-        "appHostApi",
-        "localMode",
-        "publishMode"
-      ],
+      "required": ["name", "service", "appHostApi", "localMode", "publishMode"],
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "service": {
-          "type": "string"
-        },
-        "appHostApi": {
-          "type": "string"
-        },
+        "name": { "type": "string" },
+        "service": { "type": "string" },
+        "appHostApi": { "type": "string" },
         "localMode": {
           "type": "string",
-          "enum": [
-            "RunAsEmulator",
-            "RunAsContainer",
-            "RunAsFoundryLocal",
-            "sdk-direct-api-host",
-            "RunAsExisting",
-            "AsExisting",
-            "local-container",
-            "local-project",
-            "none",
-            "deployment-only",
-            "lazy-optional",
-            "no-op stub"
-          ]
+          "enum": ["RunAsEmulator", "RunAsContainer", "RunAsFoundryLocal", "sdk-direct-api-host", "RunAsExisting", "AsExisting", "local-container", "local-project", "none", "deployment-only", "lazy-optional", "no-op stub"]
         },
         "publishMode": {
           "type": "string",
-          "enum": [
-            "provision",
-            "PublishAsExisting",
-            "AsExisting",
-            "container",
-            "connection-string",
-            "none",
-            "deployment-only"
-          ]
+          "enum": ["provision", "PublishAsExisting", "AsExisting", "container", "connection-string", "none", "deployment-only"]
         },
         "connectionNames": {
           "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "items": { "type": "string" }
         },
-        "docs": {
-          "type": "string"
-        },
-        "notes": {
-          "type": "string"
-        }
+        "docs": { "type": "string" },
+        "notes": { "type": "string" }
       }
     },
     "aiServices": {
@@ -974,181 +483,72 @@
         "foundry": {
           "type": "object",
           "properties": {
-            "projectName": {
-              "type": "string"
-            },
-            "lifecycle": {
-              "type": "string",
-              "enum": [
-                "local-or-provision",
-                "existing"
-              ]
-            },
+            "projectName": { "type": "string" },
+            "lifecycle": { "type": "string", "enum": ["local-or-provision", "existing"] },
             "localRuntimeMode": {
               "type": "string",
-              "enum": [
-                "RunAsFoundryLocal",
-                "sdk-direct-api-host"
-              ],
+              "enum": ["RunAsFoundryLocal", "sdk-direct-api-host"],
               "default": "sdk-direct-api-host",
               "description": "Local Foundry runtime path. 'RunAsFoundryLocal' = preferred/target Aspire path, usable once Aspire.Hosting.Foundry bundles Foundry Local SDK >= 1.x. 'sdk-direct-api-host' = temporary workaround in effect now: the AppHost wires NO foundry/chat resource (no ConnectionStrings:chat) and only forwards the opt-in env var to the API host, which drives Microsoft.AI.Foundry.Local directly. Has no effect on the Azure path."
             },
-            "resourceName": {
-              "type": "string"
-            },
-            "resourceGroup": {
-              "type": "string"
-            },
-            "connectionName": {
-              "type": "string"
-            },
+            "resourceName": { "type": "string" },
+            "resourceGroup": { "type": "string" },
+            "connectionName": { "type": "string" },
             "models": {
               "type": "array",
               "items": {
                 "type": "object",
-                "required": [
-                  "name",
-                  "purpose"
-                ],
+                "required": ["name", "purpose"],
                 "properties": {
-                  "name": {
-                    "type": "string"
-                  },
-                  "purpose": {
-                    "type": "string",
-                    "enum": [
-                      "agent-reasoning",
-                      "embedding",
-                      "completion"
-                    ]
-                  },
-                  "deploymentName": {
-                    "type": "string"
-                  },
-                  "localModel": {
-                    "type": "string"
-                  }
+                  "name": { "type": "string" },
+                  "purpose": { "type": "string", "enum": ["agent-reasoning", "embedding", "completion"] },
+                  "deploymentName": { "type": "string" },
+                  "localModel": { "type": "string" }
                 }
               }
             },
-            "agentHosting": {
-              "type": "string",
-              "enum": [
-                "code-hosted",
-                "prompt-agent",
-                "pre-existing"
-              ]
-            },
-            "projectEndpoint": {
-              "type": "string"
-            }
+            "agentHosting": { "type": "string", "enum": ["code-hosted", "prompt-agent", "pre-existing"] },
+            "projectEndpoint": { "type": "string" }
           }
         },
         "search": {
           "type": "object",
           "properties": {
-            "provider": {
-              "type": "string",
-              "enum": [
-                "AzureAISearch",
-                "None"
-              ]
-            },
-            "indexes": {
-              "type": "array",
-              "items": {
-                "type": "object"
-              }
-            },
-            "embeddingModel": {
-              "type": "string"
-            },
-            "embeddingDimensions": {
-              "type": "integer"
-            },
-            "vectorizationStrategy": {
-              "type": "string",
-              "enum": [
-                "on-write",
-                "batch",
-                "change-feed"
-              ]
-            }
+            "provider": { "type": "string", "enum": ["AzureAISearch", "None"] },
+            "indexes": { "type": "array", "items": { "type": "object" } },
+            "embeddingModel": { "type": "string" },
+            "embeddingDimensions": { "type": "integer" },
+            "vectorizationStrategy": { "type": "string", "enum": ["on-write", "batch", "change-feed"] }
           }
         },
         "agents": {
           "type": "object",
           "properties": {
-            "framework": {
-              "type": "string",
-              "enum": [
-                "AgentFramework"
-              ]
-            },
-            "agents": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/aiAgent"
-              }
-            },
-            "workflow": {
-              "type": "object"
-            }
+            "framework": { "type": "string", "enum": ["AgentFramework"] },
+            "agents": { "type": "array", "items": { "$ref": "#/$defs/aiAgent" } },
+            "workflow": { "type": "object" }
           }
         }
       }
     },
     "aiAgent": {
       "type": "object",
-      "required": [
-        "name",
-        "type",
-        "model"
-      ],
+      "required": ["name", "type", "model"],
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "type": {
-          "type": "string",
-          "enum": [
-            "ChatClientAgent",
-            "FoundryAgent",
-            "CustomAgent"
-          ]
-        },
-        "model": {
-          "type": "string"
-        },
-        "systemPrompt": {
-          "type": "string"
-        },
-        "tools": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "groundingSource": {
-          "type": "string"
-        },
-        "humanInLoop": {
-          "type": "boolean"
-        }
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["ChatClientAgent", "FoundryAgent", "CustomAgent"] },
+        "model": { "type": "string" },
+        "systemPrompt": { "type": "string" },
+        "tools": { "type": "array", "items": { "type": "string" } },
+        "groundingSource": { "type": "string" },
+        "humanInLoop": { "type": "boolean" }
       }
     },
     "compliance": {
       "type": "object",
       "properties": {
-        "defaultClassification": {
-          "type": "string"
-        },
-        "entities": {
-          "type": "array",
-          "items": {
-            "type": "object"
-          }
-        }
+        "defaultClassification": { "type": "string" },
+        "entities": { "type": "array", "items": { "type": "object" } }
       }
     }
   }
