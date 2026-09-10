@@ -124,7 +124,6 @@ public override async Task<Uri> UploadAsync(
 {
     var container = _clientFactory.CreateClient(_settings.BlobServiceClientName)
         .GetBlobContainerClient(containerName);
-    await container.CreateIfNotExistsAsync(cancellationToken: ct);
     var blob = container.GetBlobClient(blobName);
     await blob.UploadAsync(
         content,
@@ -143,6 +142,8 @@ public override async Task<Stream> DownloadAsync(
     return response.Value.Content;
 }
 ```
+
+**Provision once, never per repository call.** Register a startup/deployment task that creates each configured container before the host reports ready, then set `CreateContainerIfNotExist: false` for normal repository operations. The startup task may call `CreateIfNotExistsAsync`, is idempotent, and uses a distributed coordination primitive only when concurrent creation is unsafe. Upload/download/delete paths assume provisioning completed and surface a missing-container failure instead of adding a control-plane call to every request. Apply the same rule to S3 buckets, tables, search indexes, and broker topology. See [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Data-Path Rules.
 
 **`BlobContainerClient.GetBlobsAsync` signature gotcha.** The current Azure SDK requires **positional** arguments: `GetBlobsAsync(BlobTraits.None, BlobStates.None, prefix, cancellationToken)`. The named-argument form `GetBlobsAsync(prefix: "...", cancellationToken: ct)` that older Microsoft samples show **does not compile** - the method exposes no parameters by those names. Use positional, or assign through the well-named overload of `BlobContainerClient`.
 

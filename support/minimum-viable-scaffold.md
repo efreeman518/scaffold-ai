@@ -9,7 +9,7 @@ The shortest path from "empty repo" to "passing API with one entity" using this 
 - Dependencies outside MVS scope use explicit no-op or deployment-only modes. Relational persistence is not lazy optional: the default AppHost supplies SQL, or a non-Aspire variant must configure an explicit reachable SQL endpoint.
 - Auth runs in scaffold mode (config-driven principal). Live identity provider is deferred.
 
-You should reach a green `dotnet build` + `dotnet test`, working `/healthz` plus `/readyz` probes, and SQL-backed CRUD under `/api/v1/{entity-route}` in under a day of focused work. Everything beyond that is incremental.
+You should reach a green `dotnet build` + `dotnet test`, working `/healthz/live` plus `/healthz/ready` probes, and SQL-backed CRUD under `/api/v1/{entity-route}` in under a day of focused work. Everything beyond that is incremental.
 
 ## When to use MVS vs the full workflow
 
@@ -187,7 +187,7 @@ Skip runtime concerns: gateway, multi-tenant, caching, observability, security.
 Wire both DbContexts to the Aspire SQL resource and run the AppHost startup, health, and SQL-backed CRUD gate.
 ```
 
-**Done when:** `dotnet build` green, `dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint"` green, the AppHost starts, `/healthz` plus `/readyz` return 200, and one SQL-backed CRUD cycle works under `/api/v1/{entity-route}`.
+**Done when:** `dotnet build` green, `dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint"` green, the AppHost starts, `/healthz/live` plus `/healthz/ready` return 200, and one SQL-backed CRUD cycle works under `/api/v1/{entity-route}`.
 
 ## "You are done" check
 
@@ -199,7 +199,7 @@ dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint"
 dotnet run --project src\Host\Aspire\AppHost
 # Discover the API URL in the Aspire dashboard, then use it from another shell:
 # GET {api-url}/healthz -> 200 OK
-# GET {api-url}/readyz -> 200 OK
+# GET {api-url}/healthz/ready -> 200 OK
 # POST {api-url}/api/v1/{entity-route} -> 201 + Location header
 ```
 

@@ -334,6 +334,9 @@ DEPLOYMENT_HARDENING_CONTRACT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "without rebuilding",
         "`%NUGET_AUTH_TOKEN%`",
         "re-resolve each action to its latest stable release",
+        "Do not add `push: main` CI",
+        "capture container state, port mappings, and scoped service logs before the graph teardown step",
+        "Never consume a floating `latest` tag",
     ),
     "skills/security.md": (
         "### GitHub Dependabot",
@@ -353,6 +356,59 @@ DEPLOYMENT_HARDENING_CONTRACT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         '"databaseProviders"',
         '"preserved-append-only"',
         '"unreleased-resettable"',
+        '"hostingLanes"',
+        '"hostingLaneDefaults"',
+        '"runtimeProfile"',
+        '"healthProbes"',
+    ),
+    "ai/resource-implementation-schema.md": (
+        "`hostingLanes`",
+        "`hostingLaneDefaults`",
+        "environment > config > lane default > hard default",
+        "/healthz/live",
+        "/healthz/ready",
+    ),
+    "support/scalability-and-hosting.md": (
+        "## Workload Envelope Before Architecture",
+        "## Independent Provider Switches",
+        "## Lane Presets",
+        "## Async and Hot-Path Discipline",
+        "## Health Probe Contract",
+        "## Deployment and Verification Matrix",
+        "Unknown configured values fail startup",
+        "Never consume a floating `latest` tag",
+    ),
+    "support/scaffold-proof-scale-audit-2026-09-04-to-2026-09-09.md": (
+        "[PR 10]",
+        "[PR 11]",
+        "[PR 12]",
+        "## Selection Rule",
+        "## Follow-On Defects That Changed Scaffold Policy",
+    ),
+    "skills/messaging.md": (
+        "### Transactional Producer: Outbox",
+        "### At-Least-Once Consumer: Inbox",
+        "### Provider Switch and Transport Boundary",
+        "### Broker Trace Context",
+        "Never acknowledge a failed or malformed message as success",
+    ),
+    "skills/data-persistence.md": (
+        "### Provider Branch and Concurrency Discipline",
+        "Clamp every caller-supplied page size on the server",
+        "SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct)",
+        "Missing required `If-Match` returns 428; a stale value returns 412",
+    ),
+    "patterns/infrastructure-wiring.md": (
+        '"/healthz/live"',
+        '"/healthz/ready"',
+        "operator aggregate",
+        "Readiness is host-specific",
+    ),
+    "skills/observability.md": (
+        "### Broker Hops",
+        "W3C `traceparent`/`tracestate`",
+        "`/healthz/live`",
+        "`/healthz/ready`",
     ),
 }
 
@@ -360,6 +416,23 @@ DEPLOYMENT_HARDENING_FORBIDDEN_CLAIMS: dict[str, tuple[str, ...]] = {
     "skills/ui-uno-platforms.md": (
         "intentionally ungated",
         "refresh is the fix",
+    ),
+    "patterns/infrastructure-wiring.md": (
+        'WithImageTag("latest")',
+        'WithImageTag("2025-latest")',
+        '"/readyz"',
+    ),
+    "skills/aspire.md": (
+        'WithImageTag("latest")',
+        'WithImageTag("2025-latest")',
+        "Pin every emulator to `latest`",
+    ),
+    "templates/dockerfile-template.md": (
+        "dotnet/sdk:latest",
+        "readiness against `/readyz`",
+    ),
+    "skills/data-persistence.md": (
+        "SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, ct)",
     ),
 }
 

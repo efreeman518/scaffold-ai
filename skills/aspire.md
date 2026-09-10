@@ -136,7 +136,7 @@ if (!builder.ExecutionContext.IsPublishMode)
     {
         c.WithHostPort(38433)            // first-class on SqlServerServerResource
          .WithPassword(sqlPassword)
-         .WithImageTag("2025-latest");
+         .WithImageTag("<resolved-stable-sql-tag>");
         // Persistent lifetime + named volume are a local `dotnet run` convenience. Under test
         // (IsAspireTesting()) leave the container ephemeral so DisposeAsync owns teardown - see Rules below.
         if (!IsAspireTesting())
@@ -216,7 +216,7 @@ The AppHost wiring snippet (Azure branch + local var-forward + existing-account)
 
 ## ServiceDefaults Pattern
 
-`AddServiceDefaults` (OpenTelemetry, health checks, service discovery, HTTP resilience) and the `/healthz` + `/readyz` probes are owned by [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section ServiceDefaults Configuration, loaded in the same Phase 5b session. Do not restate the method body here.
+`AddServiceDefaults` (OpenTelemetry, health checks, service discovery, HTTP resilience) and the `/healthz/live` + `/healthz/ready` + `/healthz` probes are owned by [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section ServiceDefaults Configuration, loaded in the same Phase 5b session. Do not restate the method body here.
 
 ---
 
@@ -242,13 +242,13 @@ var eventHubs = builder.AddAzureEventHubs("eventhubs").RunAsEmulator();
 
 ### Emulator Image Pinning (and the Service Bus SQL sidecar)
 
-Pin every emulator to `latest` the same way you pin SQL/Redis. A bare `.RunAsEmulator()` rides whatever tag the hosting package defaults to, which drifts and can pull an image older than the rest of the stack:
+Resolve a concrete, reviewed tag for every emulator at scaffold time and record it in the implementation plan. A bare `.RunAsEmulator()` rides whatever tag the hosting package defaults to, while a floating `latest` tag changes without a source diff. Both make CI and local topology nondeterministic:
 
 ```csharp
 var storage = builder.AddAzureStorage("storage")
-    .RunAsEmulator(e => e.WithImageTag("latest"));
+    .RunAsEmulator(e => e.WithImageTag("<resolved-stable-azurite-tag>"));
 var serviceBus = builder.AddAzureServiceBus("servicebus")
-    .RunAsEmulator(e => e.WithImageTag("latest"));
+    .RunAsEmulator(e => e.WithImageTag("<resolved-stable-servicebus-tag>"));
 ```
 
 **The Service Bus emulator bundles its own SQL Server sidecar** - a separate container named `{servicebus}-mssql`. The Aspire package **hardcodes that SQL image tag**, and the `RunAsEmulator` callback **cannot reach it** (the callback configures only the emulator container, not the sidecar). Left alone it pulls a different, usually older SQL Server major than your `sql` resource - so the machine ends up with two full SQL images. Override it by pulling the resource out of the model right after `RunAsEmulator` and re-tagging it to match `sql`:
@@ -259,7 +259,7 @@ var serviceBus = builder.AddAzureServiceBus("servicebus")
 // builder.Resources.Single(...) needs System.Linq in scope.
 builder.CreateResourceBuilder(
         (ContainerResource)builder.Resources.Single(r => r.Name == "servicebus-mssql"))
-    .WithImageTag("2025-latest");
+    .WithImageTag("<resolved-stable-sql-tag>");
 ```
 
 > **Compatibility caveat.** The Service Bus emulator is validated against its bundled SQL version, so forcing a newer major is a mild risk. Verify the emulator still reaches a healthy state after re-tagging (a mesh/Aspire test that exercises the bus is enough). If it regresses, drop the override and accept the second image.
@@ -318,7 +318,7 @@ var redisPwd = builder.AddParameter(
     secret: true);
 
 var redis = builder.AddRedis("redis", port: isTesting ? null : 6379, password: redisPwd)
-    .WithImageTag("latest");
+    .WithImageTag("<resolved-stable-redis-tag>");
 
 if (!isTesting)
 {
@@ -342,7 +342,7 @@ Pin the AMQP port for SDK clients and expose an HTTP management endpoint for adm
 var serviceBus = builder.AddAzureServiceBus("servicebus")
     .RunAsEmulator(emulator =>
     {
-        var serviceBusEmulator = emulator.WithImageTag("latest");
+        var serviceBusEmulator = emulator.WithImageTag("<resolved-stable-servicebus-tag>");
 
         if (!isTesting)
         {
@@ -415,8 +415,8 @@ Fixed ports and explorer UIs are **local-dev affordances only**. In test runs:
 4. Use `WaitFor(...)` for startup ordering dependencies; database-touching runtime hosts also take `WaitForCompletion(migrator)` on the one-shot `{Host}.DatabaseMigrator` resource (graph owner: [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section Aspire Resource Wiring).
 5. Keep Gateway as public ingress, backend hosts internal.
 6. Keep AppHost resource names aligned with IaC modules in [iac.md](iac.md).
-7. Pin SQL Server containers to `WithImageTag("2025-latest")`; EF SQL registrations must use `UseCompatibilityLevel(170)`.
-8. Pin every emulator image to `latest` and override the Service Bus emulator's hidden SQL sidecar tag - see *Emulator Image Pinning (and the Service Bus SQL sidecar)* above.
+7. Resolve and pin a concrete SQL Server image tag; EF SQL registrations must use the selected compatibility level.
+8. Pin every emulator to a concrete reviewed tag, never `latest`, and override the Service Bus emulator's hidden SQL sidecar tag - see *Emulator Image Pinning (and the Service Bus SQL sidecar)* above.
 
 ---
 
@@ -460,7 +460,7 @@ var sqlPassword = builder.AddParameter("sql-password", LocalSqlSettings.SharedSa
 var sqlServer = builder.AddSqlServer("sql", sqlPassword)
     .WithLifetime(ContainerLifetime.Persistent)
     .WithDataVolume("{project}-sql-data")
-    .WithImageTag("2025-latest");
+    .WithImageTag("<resolved-stable-sql-tag>");
 ```
 
 `AppHost/appsettings.Development.json` and `appsettings.Testing.json` must **not** contain a `Parameters` section. Leave them as `{}`.

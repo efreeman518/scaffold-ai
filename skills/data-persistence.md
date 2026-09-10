@@ -130,6 +130,16 @@ See [troubleshooting.md](../support/troubleshooting.md) for the canonical paging
 
 Aggregate counts (dashboard tiles, badge numbers) come from a count query over mapped columns, never from counting a fetched page - a 100-row page silently undercounts. When the natural filter property is `[NotMapped]`/computed and will not translate, filter on the underlying mapped columns instead of pulling rows into memory.
 
+Clamp every caller-supplied page size on the server. Offset paging is acceptable for small/admin lists. High-cardinality or mutation-heavy feeds use keyset/cursor paging with a deterministic total order, including a unique ID tie-breaker, and fetch `limit + 1` rows to derive `HasMore` without a mandatory count query. Cursor payloads bind tenant, sort mode, sort key, and last ID; malformed, cross-tenant, or mismatched-sort cursors fail with 400 instead of silently restarting. Run the same page-through test against every configured database provider.
+
+### Provider Branch and Concurrency Discipline
+
+When `databaseProviders` contains more than one provider, keep one shared model and one provider-options branch. Provider selection, migrations assembly, history table, retry settings, and provider-only types belong in that branch; business repositories do not check the active provider. Generate a migration assembly and model-drift check per provider, then run the same integration/E2E behavior suite for every arm.
+
+SQL Server `rowversion` and PostgreSQL `xmin` are acceptable provider-specific tokens for a single-provider app. A multi-provider API that exposes one aggregate ETag should prefer an app-managed `long Version` concurrency token stamped in `SaveChanges`, because its type and HTTP representation stay stable across providers. Record this choice explicitly; do not pretend two native tokens form one provider-neutral contract.
+
+Externally mutable aggregates use fail-on-conflict semantics. Missing required `If-Match` returns 428; a stale value returns 412 with the current ETag. `ClientWins` is allowed only for an explicitly recorded last-write-wins path. A broad `catch (Exception)` must not swallow `DbUpdateConcurrencyException` before the exception handler maps it.
+
 ---
 
 ## Entity Configuration
@@ -185,14 +195,14 @@ Load [../support/data-persistence-advanced.md](../support/data-persistence-advan
 `DbContextBase.SaveChangesAsync(CancellationToken)` **ALWAYS throws `NotImplementedException`** by design. The 1-param overload is intentionally blocked to force use of the concurrency-safe path.
 
 ```csharp
-// CORRECT -- always use the 2-param overload
-await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, ct);
+// CORRECT -- always use the 2-param overload; fail visibly on a concurrent write
+await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 
 // WRONG -- throws NotImplementedException at runtime
 await repoTrxn.SaveChangesAsync(ct);
 ```
 
-The 2-param overload retries on `DbUpdateConcurrencyException` using either client-wins or database-wins strategy.
+The 2-param overload applies the selected concurrency policy. Use `Throw` for normal application writes so HTTP/application conflict handling remains reachable. Use client-wins or database-wins only when the design decision explicitly accepts one side overwriting the other.
 
 > **Important:** `OptimisticConcurrencyWinner` is in `EF.Data.Contracts`. Add `global using EF.Data.Contracts;` to `Application.Services/GlobalUsings.cs`.
 
@@ -204,7 +214,7 @@ The 2-param overload retries on `DbUpdateConcurrencyException` using either clie
 var entity = await repoTrxn.Get{Entity}Async(id, false, ct);
 if (entity == null) return Result.Success(); // idempotent
 repoTrxn.Delete(entity);                     // marks for deletion
-await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, ct);
+await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 ```
 
 ## Verification
@@ -215,6 +225,9 @@ await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, ct);
 - [ ] Each entity has explicit `IEntityTypeConfiguration<T>` inheriting `EntityBaseConfiguration<TEntity, TId>`
 - [ ] `EntityBaseConfiguration<TEntity, TId>` configures `HasKey`, `ValueGeneratedNever`, `IsRowVersion()`
 - [ ] Repositories are split for write and read concerns
+- [ ] Multi-provider apps have one provider-options branch, one migration assembly per provider, and the same real-database suite per arm
+- [ ] Caller page size is clamped; high-cardinality cursor sorts include a unique tie-breaker
+- [ ] Externally mutable aggregates surface concurrency conflicts instead of silently applying `ClientWins`
 - [ ] Read queries use projector expressions
 - [ ] Update paths use updater sync pattern for child collections
 - [ ] Design-time factory exists and uses `EFCORETOOLSDB` env var

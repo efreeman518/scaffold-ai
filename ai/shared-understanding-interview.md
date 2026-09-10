@@ -118,6 +118,7 @@ Parent decisions must close before child decisions:
 - Compliance classification -> audit/retention/encryption -> data store -> tests/IaC.
 - UI/client needs -> API shape -> DTO/search filters -> endpoint tests.
 - External dependency mode -> local boot behavior -> no-op stubs/emulators -> final scaffold gate.
+- Workload envelope -> hosting lanes -> provider switches -> state/affinity -> health and deployment proof.
 
 If a child branch exposes a parent conflict, pause and reopen the parent branch.
 
@@ -191,6 +192,24 @@ Record a **persona -> UI-surface mapping** in `.scaffold/DESIGN-DECISIONS.md`, f
 ```
 
 Mechanically, a second head means enabling a second per-stack host flag (`includeUnoUI` / `includeBlazorUI` / `includeReactUI`) - see [resource-implementation-schema.md section Discovery Conversation Pattern](resource-implementation-schema.md#discovery-conversation-pattern) (Question 2) and the sibling-layout guidance in [../skills/ui-blazor.md](../skills/ui-blazor.md). No schema change is required; the decision must record which persona drives which head. If the answer is deferred, mark it `deferred` with `Needed Before: Phase 2` (the host flags are set in Phase 2), not later - the topology cannot float into Phase 4.
+
+## Hosting and Scale Decision
+
+When the developer asks for high scale, high availability, cloud portability, or more than one hosting target, do not infer an architecture from a user-count headline. Close these questions before Phase 2:
+
+1. What peak requests per second, concurrent connections, payload sizes, read/write ratio, data growth, p95/p99 latency, recovery target, replica count, and cost ceiling must the design meet?
+2. Which deployment lanes must ship now? Default to one lane. A second lane must name its compute topology and retained cloud dependencies.
+3. Which provider families vary by lane: relational database, broker, object storage, read model, audit sink, search, AI, Data Protection persistence, configuration, identity, and telemetry?
+4. Which per-provider selections must remain independently overridable after a lane is chosen?
+5. Which hosts keep process-local state? Blazor Server circuits, Data Protection keys, in-memory queues, caches, rate limits, and locks need an affinity, distributed-state, or loss/degradation decision.
+6. Where does public TLS terminate, which hosts remain internal HTTP, and which dependencies make each host unready without making it non-live?
+7. Which expensive test/deployment lanes run on every PR, on explicit dispatch, or only in a deployment environment?
+
+Record answers in `.scaffold/DESIGN-DECISIONS.md`. Phase 2 writes `hostingLanes`, `hostingLaneDefaults`, supported provider arrays, `deployTargets`, `healthProbes`, and any measured `runtimeProfile` entries into `.scaffold/resource-implementation.yaml`.
+
+A lane is a preset of provider defaults, not a second runtime branch. Explicit provider config overrides its lane default, and explicit invalid values fail startup. Do not default to CQRS, microservices, gRPC, distributed locks, hedging, Native AOT, or sharding without a workload or isolation reason.
+
+Canonical policy and proof requirements: [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md).
 
 ## Sensitive-Data Trigger
 

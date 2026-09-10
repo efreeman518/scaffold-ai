@@ -427,7 +427,7 @@ group.MapGet("/{id:guid}", GetById)
 - [ ] `global using EF.AspNetCore;` present in `GlobalUsings.cs`
 - [ ] Validation and business errors return `ProblemDetails`/`ValidationProblem`
 - [ ] Swagger/Scalar is gated by `OpenApiSettings:Enable`
-- [ ] `/healthz` and `/alive` run only `live` checks; `/readyz` and `/health` run only `ready` checks
+- [ ] `/healthz/live` and optional `/alive` run only `live` checks; `/healthz/ready` and optional `/health` run only `ready` checks; `/healthz` is the operator aggregate
 - [ ] Entra auth uses `AddMicrosoftIdentityWebApi` (service-to-service)
 - [ ] `X-Orig-Request` is parsed only after the caller token matches the allowlisted gateway identity; see [gateway.md](gateway.md#forwarded-claims-trust-boundary)
 - [ ] Cross-check with [endpoint-template.md](../templates/endpoint-template.md) and [application-layer.md](application-layer.md)

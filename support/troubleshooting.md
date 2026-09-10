@@ -201,7 +201,7 @@ Do not switch renderers, change launch ports, or rewrite app startup before ruli
 
 ```csharp
 var taskflowDb = builder.AddSqlServer("sql")
-    .WithImageTag("2025-latest")
+    .WithImageTag("<resolved-stable-sql-tag>")
     .AddDatabase("taskflow-db");
 
 var api = builder.AddProject<Projects.TaskFlow_Api>("api")
@@ -249,7 +249,7 @@ For phase gates and validation commands, see [execution-gates.md](execution-gate
 | Search/list returns generic 500; server exception says LINQ expression could not be translated | Predicate uses member access on a value-converted property (`e.TenantId.Value`, `u.Email.Value.Contains(...)`) | Reproduce the predicate against the real SQL provider, read the actual `InvalidOperationException`, then build typed IDs/value objects outside the expression and compare the whole property (`e.TenantId == tenantId`, `u.Email == email`) |
 | Same EF translation bug appears in one failing endpoint | The same boundary antipattern is usually copied into latent query/message paths without direct E2E coverage | Sweep all `ListAsync`, `Where`, `Any`, `First`, `Single`, `QuerySpec`, search handler, and message-handler predicates for the same pattern and fix the class, not only the failing call path |
 | Tenant-scoped queries return empty | `IRequestContext.TenantId` is null in test host | Override request context with fixed `TestTenantId` |
-| All writes return `NotImplementedException` | Wrong `SaveChangesAsync` overload used | Use `SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, ct)` |
+| All writes return `NotImplementedException` | Wrong `SaveChangesAsync` overload used | Use the two-parameter overload; normal application writes use `SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct)` |
 | Delete test passes but entity still exists | `Delete(entity)` not called | Call `repoTrxn.Delete(entity)` before save |
 | FK violation in assign/reference tests | FK uses random GUID not existing row | Create related records first |
 | Rate-limited 429 in integration tests | API rate limiter enabled in test host | Override limiter to `GetNoLimiter` in test factory |
@@ -346,7 +346,7 @@ services.AddRateLimiter(options =>
 #### 5) SaveChangesAsync Overload
 
 ```csharp
-await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, ct);
+await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 ```
 
 #### 6) ProblemDetails Debug Leak Guard

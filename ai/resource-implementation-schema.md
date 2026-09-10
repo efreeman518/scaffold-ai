@@ -1,6 +1,6 @@
 # Resource Implementation Schema (Phase 2 Output)
 
-Maps domain constructs from [domain-specification-schema.md](domain-specification-schema.md) to concrete Aspire/Azure resources, datatypes, and infrastructure.
+Maps domain constructs from [domain-specification-schema.md](domain-specification-schema.md) to concrete runtime providers, Aspire resources, hosting lanes, datatypes, and infrastructure.
 
 When `useAspire: true`, resource selection must use the current Aspire integration catalog before declaring a dependency unsupported or inventing local wiring. Start with [skills/aspire.md](../skills/aspire.md) section Official Integration Catalog Awareness, then consult the linked Aspire docs for the selected service.
 
@@ -48,6 +48,10 @@ includeAiServices: false
 useAspire: true
 migrationLifecycle: preserved-append-only  # preserved-append-only | unreleased-resettable
 databaseProviders: [SqlServer]              # every EF provider that owns migrations
+deployTarget: ContainerApps                 # default/legacy scalar
+deployTargets: [ContainerApps]              # every supported deployment topology
+hostingLanes: [Azure]                       # lane presets; keep one unless another lane is required
+healthProbes: { live: /healthz/live, ready: /healthz/ready, aggregate: /healthz }
 ```
 
 ## Scaffold Configuration
@@ -273,9 +277,9 @@ Selection rules:
 
 | Input | Default | Values |
 |---|---|---|
-| `database` | `AzureSQL` | `AzureSQL`, `SQLServer` |
+| `database` | `AzureSQL` | `AzureSQL`, `SQLServer`, `PostgreSQL` |
 | `migrationLifecycle` | `preserved-append-only` | `preserved-append-only`, `unreleased-resettable` |
-| `databaseProviders` | `[SqlServer]` | Non-empty unique list of configured EF providers; Azure SQL uses `SqlServer` |
+| `databaseProviders` | `[SqlServer]` | `SqlServer`, `PostgreSql`; non-empty unique list of configured EF providers; Azure SQL uses `SqlServer` |
 | `caching` | `FusionCache+Redis` | `FusionCache+Redis`, `DistributedMemory`, `None` |
 | `includeKeyVault` | `false` | |
 
@@ -292,13 +296,16 @@ messagingSemantics:
   - { channel: DomainEvents, deliveryMode: at-least-once, outboxEnabled: true, idempotencyKey: MessageId, deduplicationWindow: "PT1H" }
 ```
 
-Options: Azure Service Bus, Event Grid, Event Hubs. See [skills/messaging.md](../skills/messaging.md).
+Options: Azure Service Bus, RabbitMQ, Event Grid, Event Hubs. See [skills/messaging.md](../skills/messaging.md).
 
 ### Hosting
 
 | Input | Default | Values |
 |---|---|---|
 | `deployTarget` | `ContainerApps` | `ContainerApps`, `AppService`, `AKS` |
+| `deployTargets` | `[ContainerApps]` | `ContainerApps`, `AppService`, `AKS`, `DockerCompose`, `Kubernetes` |
+| `hostingLanes` | `[Azure]` | Named presets such as `Azure`, `Portable`, or a project-defined lane |
+| `hostingLaneDefaults` | omitted for one lane | Per-lane defaults for independent provider switches |
 | `useAspire` | `true` | local orchestration |
 | `includeApi` | `true` | |
 | `includeGateway` | `false` | |
@@ -312,6 +319,50 @@ Options: Azure Service Bus, Event Grid, Event Hubs. See [skills/messaging.md](..
 | `includeNotifications` | `false` | |
 | `includeFlowEngine` | `false` | Enables `EF.FlowEngine` (durable JSON workflow orchestration). Generates a dedicated FE DbContext + registration partial + workflow seeding + admin endpoints + test project. See [../skills/flowengine.md](../skills/flowengine.md). |
 | `flowEngineDbStrategy` | `same-db-separate-schema` | `same-db-separate-schema` (Variant A - preserves atomic outbox; default), `separate-db` (Variant B/C - outbox best-effort). See [../support/ef-packages-reference.md](../support/ef-packages-reference.md) section FlowEngine Data-Layout Variants. |
+
+For more than one lane, declare the supported provider arrays and a `hostingLaneDefaults` entry for each lane. A lane seeds defaults only. Each provider resolver follows `environment > config > lane default > hard default`; explicit unknown values fail startup instead of silently selecting another provider. Keep provider selection out of Domain and Application code, and keep each provider family independently overridable.
+
+```yaml
+hostingLanes: [Azure, Portable]
+hostingLaneDefaults:
+  Azure:
+    databaseProvider: SqlServer
+    messagingProvider: ServiceBus
+    storageProvider: AzureBlob
+    readModelProvider: Cosmos
+    auditProvider: AzureTable
+    searchProvider: AzureAiSearch
+    aiProvider: AzureInference
+    dataProtectionPersistence: AzureBlob
+  Portable:
+    databaseProvider: PostgreSql
+    messagingProvider: RabbitMq
+    storageProvider: S3
+    readModelProvider: Relational
+    auditProvider: Relational
+    searchProvider: Sql
+    aiProvider: OpenAICompatible
+    dataProtectionPersistence: Redis
+
+storageProviders: [AzureBlob, S3]
+readModelProviders: [Cosmos, Relational]
+auditProviders: [AzureTable, Relational]
+searchProviders: [AzureAiSearch, PgVector, Sql]
+aiProviders: [AzureInference, OpenAICompatible, FoundryLocal, None]
+dataProtectionPersistence: [AzureBlob, Redis, None]
+deployTargets: [ContainerApps, DockerCompose]
+```
+
+Record per-host runtime choices only when measured or required, and keep the common probe contract explicit:
+
+```yaml
+runtimeProfile:
+  Api: { gc: ServerGC+DATAS, readyToRun: true, invariantGlobalization: false }
+  DatabaseMigrator: { gc: Workstation }
+healthProbes: { live: /healthz/live, ready: /healthz/ready, aggregate: /healthz }
+```
+
+Full decision, runtime, and verification rules: [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md).
 
 ### UI Hosting (if applicable)
 
@@ -379,7 +430,7 @@ aiServices:
 
   # --- Semantic Search ---
   search:
-    provider: AzureAISearch            # AzureAISearch | None
+    provider: AzureAISearch            # AzureAISearch | PgVector | Sql | None
     indexes:
       - name: products-index
         sourceEntity: Product

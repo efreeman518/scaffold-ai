@@ -77,14 +77,17 @@ public static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicati
 
 **One shared telemetry resource.** In cloud there is exactly **one** shared, workspace-based Application Insights resource fanned to every host via `APPLICATIONINSIGHTS_CONNECTION_STRING` - never a per-host ad-hoc component. The resource lives in IaC ([../skills/iac.md](../skills/iac.md) section App Insights); this seam only consumes the injected connection string. App-level logging/metrics/tracing conventions are owned by [../skills/observability.md](../skills/observability.md); the Functions worker's instrumentation caveat by [../skills/function-app.md](../skills/function-app.md) section Telemetry.
 
-`MapDefaultEndpoints` maps two probes with distinct semantics - keep both:
+`MapDefaultEndpoints` maps three probes with distinct semantics - keep all three:
 
 ```csharp
-app.MapHealthChecks("/healthz", new HealthCheckOptions { Predicate = r => r.Tags.Contains("live") }).AllowAnonymous();
-app.MapHealthChecks("/readyz",  new HealthCheckOptions { Predicate = r => r.Tags.Contains("ready") }).AllowAnonymous();
+app.MapHealthChecks("/healthz/live",  new HealthCheckOptions { Predicate = r => r.Tags.Contains("live") }).AllowAnonymous();
+app.MapHealthChecks("/healthz/ready", new HealthCheckOptions { Predicate = r => r.Tags.Contains("ready") }).AllowAnonymous();
+app.MapHealthChecks("/healthz",       new HealthCheckOptions()).AllowAnonymous();
 ```
 
-`/healthz` reports only the self check tagged `live`; `/readyz` reports dependency checks tagged `ready` (e.g. DB reachable, migrations applied). **Why:** dependency failure must remove a host from traffic without turning a healthy process into a liveness failure and restart loop. Tests and orchestration gate on `WaitForResourceHealthyAsync` + `/readyz`, never on a resource merely reaching `Running`. Verify a failed dependency makes `/readyz` unhealthy while `/healthz` stays healthy.
+`/healthz/live` reports only the self check tagged `live`; `/healthz/ready` reports critical dependency checks tagged `ready` (e.g. DB reachable, migrations applied); `/healthz` is the operator aggregate and is never an orchestrator liveness target. **Why:** dependency failure must remove a host from traffic without turning a healthy process into a liveness failure and restart loop. Tests and orchestration gate on `WaitForResourceHealthyAsync` + `/healthz/ready`, never on a resource merely reaching `Running`. Verify a failed critical dependency makes `/healthz/ready` unhealthy while `/healthz/live` stays healthy.
+
+Readiness is host-specific. Exclude an optional cache or telemetry sink when the host has a tested degraded path, and include broker/outbox/scheduler checks only on hosts that require them. Multi-lane provider selection and the full probe contract are owned by [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md).
 
 **Non-negotiable:** do NOT add `http.AddHeaderPropagation()` in `AddServiceDefaults` unless a host also registers the `UseHeaderPropagation` middleware AND configures which headers to propagate. The handler alone throws `InvalidOperationException: HeaderPropagationValues.Headers not initialized` the moment an `HttpClient` is used outside an inbound HTTP request scope - a Blazor Server circuit, a background service, or any startup task. Forward cross-cutting context (tenant, correlation) explicitly with a per-client `DelegatingHandler` instead (see [../skills/ui-blazor.md](../skills/ui-blazor.md) section Dev Tenant Header).
 
@@ -105,12 +108,12 @@ var isTesting = builder.Environment.EnvironmentName == "Testing";
 // -- Shared infrastructure (persistent in dev, fresh per test run)
 var sqlPassword = builder.AddParameter("sql-password", secret: true);
 var sql = builder.AddSqlServer("sql", sqlPassword, port: isTesting ? null : 38433)
-    .WithImageTag("2025-latest");
+    .WithImageTag("<resolved-stable-sql-tag>");
 if (!isTesting)
     sql = sql.WithLifetime(ContainerLifetime.Persistent).WithDataVolume("{project}-sql-data");
 var db = sql.AddDatabase("{project}db");
 
-var redis = builder.AddRedis("redis").WithImageTag("latest");
+var redis = builder.AddRedis("redis").WithImageTag("<resolved-stable-redis-tag>");
 if (!isTesting)
     redis = redis.WithLifetime(ContainerLifetime.Persistent).WithDataVolume("{project}-redis-data");
 

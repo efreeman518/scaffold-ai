@@ -133,12 +133,15 @@ builder.Services
 
 var app = builder.Build();
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error", createScopeForErrors: true); app.UseHsts(); }
-app.UseHttpsRedirection();
+// Emit only when this host owns public TLS. Omit when Container Apps, Caddy, or another edge owns TLS.
+if (builder.Configuration.GetValue<bool>("Hosting:RedirectToHttps")) app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseAntiforgery();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.Run();
 ```
+
+`Hosting:RedirectToHttps` defaults to `false` when every public request crosses an edge that terminates TLS. An unconditional redirect on an internal HTTP endpoint can redirect Aspire/mesh tests to an untrusted development certificate or create a proxy loop. Set it only for a lane where Blazor itself owns the public HTTPS listener, and test the public URL through the selected edge.
 
 ## Program.cs - WebAssembly
 
