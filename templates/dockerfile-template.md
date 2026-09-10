@@ -12,7 +12,7 @@ Use this pattern for all host projects (API, Gateway, Scheduler, Functions).
 
 ```dockerfile
 # ===== Stage 1: Restore (cached layer) =====
-FROM mcr.microsoft.com/dotnet/sdk:latest AS restore
+FROM mcr.microsoft.com/dotnet/sdk:<target-dotnet-major>.0 AS restore
 WORKDIR /src
 
 # Copy only project files + central package management for restore cache
@@ -115,11 +115,11 @@ Two provider-driven escalations are hard rules, silent until runtime:
 ## Rules
 
 - **Always use chiseled base images** for production - smaller attack surface, no shell. Default to the most-chiseled variant (`-noble-chiseled`) and escalate to `-noble-chiseled-extra` only when needed - see *Chiseled variant selection* above.
-- **Base image versions track the latest .NET** - build on `sdk:latest`; pin the chiseled runtime to the current .NET major (`10.0` today, `-noble-chiseled` has no floating tag). These advance with each .NET release. Keep the runtime major aligned with the project's `TargetFramework` - `sdk:latest` can roll ahead of the pinned runtime major, so bump the runtime tag in the same change that raises the TFM.
+- **Base image versions track the target .NET major without floating tags** - substitute `<target-dotnet-major>` at scaffold time for both SDK and runtime images. Keep the image major aligned with `TargetFramework`; update both in the same change that raises the TFM.
 - **Restore layer caching:** Copy `.csproj` files first, then `dotnet restore`, then copy source. This ensures source changes don't invalidate the restore cache.
 - **Port:** Default to `8080` for ASP.NET hosts (API/Gateway/Scheduler) on Container Apps. **Exception: Azure Functions isolated worker listens on 80** - see the Function App variant above.
 - **Non-root:** Chiseled images run as non-root by default.
-- **Health probes:** Configure orchestrator liveness against `/healthz` and readiness against `/readyz`; do not swap their roles or use an all-check endpoint for liveness.
+- **Health probes:** Configure orchestrator liveness against `/healthz/live` and readiness against `/healthz/ready`; `/healthz` is the operator aggregate and must not be used for liveness.
 - **No secrets in image:** Use Aspire/Container Apps environment injection for connection strings.
 - Adjust COPY lines to match your actual solution project structure - add or remove projects as needed.
 

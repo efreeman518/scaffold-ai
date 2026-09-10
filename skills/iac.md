@@ -91,6 +91,8 @@ param containerAppsEnvId string
 param registryServer string
 param identityId string
 param imageName string
+@description('Immutable sha256 digest produced by the validated image build')
+param imageDigest string
 param isExternalIngress bool = false
 param minReplicas int = 1
 param maxReplicas int = 3
@@ -118,7 +120,7 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name: appName
-          image: '${registryServer}/${imageName}:latest'
+          image: '${registryServer}/${imageName}@${imageDigest}'
           env: env
         }
       ]

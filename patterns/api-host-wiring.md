@@ -111,10 +111,10 @@ public static WebApplication ConfigurePipeline(this WebApplication app)
         });
     }
 
-    // Scaffold ServiceDefaults maps /healthz and /readyz here.
+    // Scaffold ServiceDefaults maps /healthz/live, /healthz/ready, and /healthz here.
     app.MapDefaultEndpoints();
 
-    // Map backward-compatible aliases once; do not combine with the stock Aspire /health + /alive body.
+    // Optional backward-compatible aliases; canonical orchestrator targets stay under /healthz/*.
     app.MapHealthChecks("/health", new() { Predicate = r => r.Tags.Contains("ready") }).AllowAnonymous();
     app.MapHealthChecks("/alive", new() { Predicate = r => r.Tags.Contains("live") }).AllowAnonymous();
 

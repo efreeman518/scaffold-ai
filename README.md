@@ -363,6 +363,10 @@ Rule of thumb when adding new content: it goes in `skills/` if it's "how to do X
 
 Defaults: [ai/resource-implementation-schema.md](ai/resource-implementation-schema.md) **Canonical Defaults**. Load-set sizing: [ai/SKILL.md](ai/SKILL.md) section Load-Set Sizing.
 
+## Scalability and Hosting Lanes
+
+Phase 2 defaults to one Azure lane. Add another lane only when it must ship, then declare independent provider switches and executable proof for that lane instead of forking the application architecture. Workload-envelope questions, lane/provider precedence, health probes, runtime tuning boundaries, portable deployment rules, and the TaskFlow refactor evidence are in [support/scalability-and-hosting.md](support/scalability-and-hosting.md).
+
 ## Happy Path
 
 1. Prerequisites and repo setup (see [Quick Start](#quick-start) and [Prerequisites](#prerequisites))

@@ -192,7 +192,7 @@ Filled out at the end of the final enabled Phase 5 sub-phase, before closing the
 |------|---------|--------|-------|
 | Build | `dotnet build` | | |
 | Tests (all categories, unfiltered serial) | `dotnet test .\{SolutionName}.slnx --no-build -m:1` | | Include passing count, ignored count, inconclusive count |
-| Aspire AppHost startup | `dotnet run --project src/Host/Aspire/AppHost` | | Confirm every resource reached Running and `/healthz` plus `/readyz` return 200 |
+| Aspire AppHost startup | `dotnet run --project src/Host/Aspire/AppHost` | | Confirm every resource reached Running and `/healthz/live` plus `/healthz/ready` return 200 |
 | Blazor host (when enabled) | `dotnet run --project src/UI/{Project}.Blazor` | | Standalone + Aspire-registered (both) |
 | Uno host (when enabled) | Clean target browserwasm `bin` + `obj`, then `dotnet restore src/UI/{Project}.Uno/{Project}.Uno.csproj -p:BuildAllUnoTargets=true -p:EnableUnoWasm=true`; build selected target with `dotnet build ... -p:TargetFrameworkOverride=<target> --no-restore -m:1` + launch/wrapper-host check | | Per chosen platform target; iOS simulator/device requires macOS |
 | API smoke (one entity) | curl/HTTPie/Scalar against the gateway or API | | Record discovery method, not the ephemeral URL |

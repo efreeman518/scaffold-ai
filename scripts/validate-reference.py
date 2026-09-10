@@ -17,7 +17,7 @@ MARKDOWN_LINK_RE = re.compile(r"!?(?:\[[^\]]*\])\(([^)]+)\)")
 CODE_SPAN_RE = re.compile(r"`([^`]+)`")
 ACTION_REF_RE = re.compile(r"\buses:\s*([^\s@]+)@([^\s#]+)")
 SHA_REF_RE = re.compile(r"^[0-9a-f]{40}$")
-PROOF_ROOTS = (".scaffold/", ".github/", "src/", "tests/", "infra/")
+PROOF_ROOTS = (".scaffold/", ".github/", "deploy/", "src/", "tests/", "infra/")
 
 # Evidence is conditional on what the reference app itself declares in
 # .scaffold/resource-implementation.yaml: schema validation owns shape and
@@ -98,6 +98,22 @@ CONDITIONAL_EVIDENCE: tuple[
         ({"includeUnoUI": True}, {"includeBlazorUI": True}, {"includeReactUI": True}),
         (),
         ("tests/Test.UI/Test.UI.csproj",),
+    ),
+    (
+        ({"hostingLanes": ["Azure", "Portable"]},),
+        (
+            ("src/Application/TaskFlow.Application.Contracts/Configuration/HostingLaneSelector.cs", "TASKFLOW_LANE"),
+            ("src/Host/TaskFlow.Bootstrapper/Registration/ProviderSwitchAttribute.cs", "ProviderSwitchAttribute"),
+            ("src/Host/Aspire/ServiceDefaults/Extensions.cs", 'MapHealthChecks("/healthz/live"'),
+            ("src/Host/Aspire/ServiceDefaults/Extensions.cs", 'MapHealthChecks("/healthz/ready"'),
+        ),
+        (
+            "tests/Test.Architecture/ProviderSwitchArchitectureTests.cs",
+            "tests/Test.Aspire/AppHostLaneTopologyTests.cs",
+            "tests/Test.Endpoints/HealthProbeContractTests.cs",
+            "deploy/compose/docker-compose.yml",
+            ".github/workflows/deploy-vps.yml",
+        ),
     ),
 )
 
@@ -212,7 +228,18 @@ def check_declared_evidence(reference_root: Path, resource: dict) -> list[str]:
 
     for conditions, sentinels, paths in CONDITIONAL_EVIDENCE:
         matched = next(
-            (cond for cond in conditions if all(resource.get(k) == v for k, v in cond.items())),
+            (
+                cond for cond in conditions
+                if all(
+                    resource.get(key) == expected
+                    or (
+                        isinstance(resource.get(key), list)
+                        and isinstance(expected, list)
+                        and set(resource[key]) == set(expected)
+                    )
+                    for key, expected in cond.items()
+                )
+            ),
             None,
         )
         if matched is None:

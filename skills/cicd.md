@@ -30,6 +30,8 @@ Use GitHub Actions for:
 10. A deployment consumes one previously validated commit, builds each artifact once, records immutable image digests/artifact IDs, and rolls back from the previous release manifest without rebuilding.
 11. Tracked files contain no package credentials. Repository `nuget.config` may contain `%NUGET_AUTH_TOKEN%` only; secrets must not be echoed or included in diagnostic artifacts.
 12. **CI green must imply the deploy will compile.** Every compile surface the deploy pipeline builds - platform heads excluded from the fast lane for workload cost, container-only hosts, the migrator image - either gets a pre-merge compile gate (`dotnet build`, no tests, workloads installed) or the workflow states the required manual build explicitly. A fast lane that tests less than deploy compiles converts merge-time errors into deploy-time outages.
+13. Do not add `push: main` CI when protected PR CI already tested the exact merge candidate and post-merge work does not differ. Keep deploy/release triggers separate. Retesting an identical tree spends minutes without adding evidence.
+14. Pin dependency and emulator images to concrete reviewed tags in local/CI topology and deploy immutable digests. Never consume a floating `latest` tag.
 
 ### Registry choice is a scaffold input
 
@@ -201,6 +203,8 @@ The committed `nuget.config` uses an environment placeholder such as `<add key="
 
 Upload failure diagnostics with `if: failure() || cancelled()` and `if-no-files-found: error`. Upload successful benchmark, mutation, coverage, or release evidence on success when that evidence is the output of the lane. The producer and uploader must share the exact artifact path; fail fast when an expected file is missing.
 
+For a live Aspire/Compose mesh, capture container state, port mappings, and scoped service logs before the graph teardown step. Gate collection on the target mesh step's conclusion, not only the job's implicit success state. Diagnostic commands are non-fatal, redact environment values, and never upload connection strings or full environment dumps. A diagnostics step that runs after teardown preserves no primary evidence.
+
 For every configured EF provider, CI runs the non-destructive `has-pending-model-changes` or provider-parity verifier. Baseline regeneration is not a normal CI repair action and must not be implemented through a workflow that edits/deletes itself or pushes a cleanup branch.
 
 The self-modifying prohibition is general, not EF-specific: **routine maintenance is never a workflow that modifies workflows.** Action bumps, cleanups, and one-time repairs land as ordinary PR edits to the workflow files. Two consumer repos have independently burned double-digit commit counts on one-shot updater/cleanup workflows that never triggered reliably (eight trigger variations in one case) and then had to be removed by hand.
@@ -369,7 +373,7 @@ Rollback selects the recorded previous manifest, redeploys its exact image diges
 ### Build + Push - ACR variant
 
 - login via `azure/login@<latest-stable-sha>` + OIDC, then `az acr login`.
-- build each deployable image, push `:${{ github.sha }}` (+ optional `:latest`).
+- build each deployable image once and push `:${{ github.sha }}`; record the resolved digest for deployment.
 - ACA pull needs no secret (managed identity pulls ACR).
 
 ```yaml
@@ -627,12 +631,15 @@ For `scaffoldMode: lite`:
 - [ ] heavy tiers carry the `workflow_dispatch && inputs.<x>` gate, do not overlap, and use `-m:1`; Benchmarks use `dotnet run` and Mutation uses `dotnet stryker` (never `dotnet test`); disk reclaim covers Integration/Aspire/E2E
 - [ ] scheduled/manual acceptance provisions generated prerequisites, then runs unfiltered `dotnet test {SolutionName}.slnx --no-build -m:1`; filtered fast tiers remain diagnostic lanes, not acceptance
 - [ ] `ci.yml` cancels superseded runs, skips draft PR work, and includes `ready_for_review`; deployment queues with `cancel-in-progress: false`
+- [ ] no redundant main-push CI retests an already gated merge candidate; any post-merge trigger performs distinct work
+- [ ] mesh failure diagnostics are captured before teardown, target-step gated, non-fatal, and secret-safe
 - [ ] `cd.yml` defaults to `workflow_call` plus `workflow_dispatch` deploy/rollback inputs (push-to-main is opt-in, added after infra exists); deploy requires an exact `commit_sha`
 - [ ] `cd.yml` logs in with OIDC and pushes SHA-tagged images (ACR or GHCR per scaffold choice)
 - [ ] GHCR path: private package has `az containerapp registry set` pull cred per app
 - [ ] Migrator Container Apps Job runs BEFORE image swap; pipeline polls the execution to terminal status; runtime deploys gate on it
 - [ ] deployment step updates correct environment resources by SHA tag
 - [ ] requested SHA is green; one release manifest records image digests and immutable bundle IDs; expected files fail fast when absent
+- [ ] local/CI dependency images use concrete reviewed tags and deployment references immutable digests; no consumed image uses `latest`
 - [ ] internal DB-aware readiness, public full health, and functional smoke pass in order
 - [ ] previous/current successful manifests are authoritative and rollback reuses the previous manifest without rebuilding
 - [ ] scheduler deployment order includes prerequisite schema step

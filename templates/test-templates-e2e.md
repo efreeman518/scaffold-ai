@@ -63,7 +63,7 @@ public sealed class SqlApiFactory : WebApplicationFactoryBase<Program, {App}DbCo
 
         try
         {
-            _container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2025-latest").Build();
+            _container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:<resolved-stable-sql-tag>").Build();
             await _container.StartAsync();
             _connectionString = _container.GetConnectionString();
             _started = true;
@@ -97,7 +97,7 @@ public sealed class SqlApiFactory : WebApplicationFactoryBase<Program, {App}DbCo
 
 - `StartContainerAsync` is idempotent and **static** so multiple test classes can share the container without reference counting.
 - `_started` flag prevents redundant starts when the runner instantiates the factory more than once.
-- Pin the image tag (`mcr.microsoft.com/mssql/server:2025-latest`) - a `latest` rolling pull breaks CI on image rev.
+- Resolve and pin a concrete image tag at scaffold time. A floating `latest` pull breaks CI without a source change.
 - Container lifecycle is owned by the **test class**, not the factory instance - see `[ClassInitialize]` below.
 
 ---

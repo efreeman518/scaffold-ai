@@ -465,19 +465,28 @@ class ReferenceValidatorTests(unittest.TestCase):
         errors = reference_validator.check_declared_evidence(
             self.tmp, {"includeKeyVault": True, "useAspire": True}
         )
-        self.assertTrue(any("missing sentinel file: src/Host/Aspire/AppHost/AppHost.cs" in error for error in errors))
-        apphost = self.tmp / "src" / "Host" / "Aspire" / "AppHost" / "AppHost.cs"
-        apphost.parent.mkdir(parents=True, exist_ok=True)
-        apphost.write_text("// no key vault wiring", encoding="utf-8")
+        registration = (
+            self.tmp / "src" / "Host" / "TaskFlow.Bootstrapper" /
+            "Registration" / "RegisterServices.DataProtection.cs"
+        )
+        self.assertTrue(any(f"missing sentinel file: {registration.relative_to(self.tmp).as_posix()}" in error for error in errors))
+        registration.parent.mkdir(parents=True, exist_ok=True)
+        registration.write_text("// no key vault wiring", encoding="utf-8")
         errors = reference_validator.check_declared_evidence(
             self.tmp, {"includeKeyVault": True, "useAspire": True}
         )
-        self.assertTrue(any("AddAzureKeyVault" in error for error in errors))
+        self.assertTrue(any("ProtectKeysWithAzureKeyVault" in error for error in errors))
         # Turning the capability off removes the requirement - no scaffold edit needed.
         self.assertEqual(
             reference_validator.check_declared_evidence(self.tmp, {"includeKeyVault": False, "useAspire": True}),
             [],
         )
+        # A declared dual hosting lane requires selector, topology, probe, and deploy evidence.
+        errors = reference_validator.check_declared_evidence(
+            self.tmp, {"hostingLanes": ["Portable", "Azure"]}
+        )
+        self.assertTrue(any("HostingLaneSelector.cs" in error for error in errors))
+        self.assertTrue(any("AppHostLaneTopologyTests.cs" in error for error in errors))
         # Declared-config self-consistency is retained.
         errors = reference_validator.check_declared_evidence(
             self.tmp, {"includeNotifications": False, "notifications": [{"name": "x"}]}
@@ -551,12 +560,12 @@ class ReferenceValidatorTests(unittest.TestCase):
     def test_proof_path_extraction_ignores_identifiers(self):
         proof = self.tmp / "proof.md"
         proof.write_text(
-            "`src/Host/App`, `tests/Test.Unit/Test.Unit.csproj`, `ApplicationStyleResolver`\n",
+            "`src/Host/App`, `tests/Test.Unit/Test.Unit.csproj`, `deploy/compose/docker-compose.yml`, `ApplicationStyleResolver`\n",
             encoding="utf-8",
         )
         self.assertEqual(
             reference_validator.proof_paths(proof),
-            ["src/Host/App", "tests/Test.Unit/Test.Unit.csproj"],
+            ["src/Host/App", "tests/Test.Unit/Test.Unit.csproj", "deploy/compose/docker-compose.yml"],
         )
 
 

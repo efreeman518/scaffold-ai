@@ -13,7 +13,7 @@ A clean-architecture C#/.NET solution with:
 - Entity Framework Core data access with audit/tenant interceptors and integration tests using Testcontainers SQL.
 - DDD aggregate boundaries enforced in the generated write surface (GR-15): aggregate roots get the full slice, while internal children (1:N owned, M:N junction) are mutated only through the root's `Add*`/`Remove*` methods, the `{Root}Updater`, and nested sub-resource routes - no standalone child write handlers/services/endpoints. See [../skills/domain-model.md](../skills/domain-model.md) section Aggregate Roots vs Internal Children.
 - ASP.NET Core minimal-API host with `WebApplicationFactoryBase` test infrastructure.
-- Aspire AppHost orchestration and Azure-ready hosting patterns.
+- Aspire AppHost orchestration with an Azure default lane and optional independently tested portable provider/deployment lanes.
 - Optional hosts: YARP Gateway, Azure Functions, TickerQ scheduler, notifications, Blazor server/WASM, React/Vite SPA, Uno (desktop / WASM / mobile).
 - Shared base-type contracts (`EntityBase`, `DbContextBase`, `DomainResult`, `IRepositoryBase`, `IRequestContext`) sourced as `<packagePrefix>.*` packages via one of three strategies: `feed`, `local`, or `hybrid`.
 - Azure integrations as no-op stubs by default (Entra, Key Vault, AI Search, Foundry, ACS), promoted to live only when configured.
@@ -24,7 +24,7 @@ Phase 2-5 content. Everything below assumes a C#/.NET/Azure target and reference
 
 ### `ai/`
 
-- [`ai/resource-implementation-schema.md`](../ai/resource-implementation-schema.md) - Phase 2: maps domain to `packageStrategy`, `customNugetFeeds`, `localPackageLayers`, Aspire resources, SQL/CosmosDB/Table/Blob datastores.
+- [`ai/resource-implementation-schema.md`](../ai/resource-implementation-schema.md) - Phase 2: maps domain to package strategy, Aspire resources, data stores, provider matrices, hosting lanes, and deployment targets.
 - [`ai/implementation-plan.md`](../ai/implementation-plan.md) - Phase 3: NuGet feed wiring, `dotnet ef` tooling, Aspire, Function App, React/Vite, Uno platforms.
 - [`ai/contract-scaffolding.md`](../ai/contract-scaffolding.md) - Phase 4: `.slnx`, `Directory.Packages.props`, `DbContextBase<string, Guid?>`, EF interceptors, `WebApplicationFactoryBase`, Testcontainers SQL.
 - [`ai/SKILL.md`](../ai/SKILL.md) - Phase 5 load sets, sub-phase routing, non-negotiables, scaffold definition of done. Title reads "C#/.NET/Azure Profile - Phase 5 Skill Set."
@@ -53,13 +53,15 @@ C#-specific operator content:
 - [`support/vertical-slice-checklist.md`](../support/vertical-slice-checklist.md) - single-entity fast path.
 - [`support/final-scaffold-checklist.md`](../support/final-scaffold-checklist.md) - solution-level acceptance.
 - [`support/taskflow-proof-map.md`](../support/taskflow-proof-map.md) - pointer to the TaskFlow reference app (Aspire + dual DbContext + YARP + Uno + Blazor + React).
+- [`support/scalability-and-hosting.md`](../support/scalability-and-hosting.md) - conditional scale, provider-switch, multi-lane, runtime, health, and proof rules.
+- [`support/scaffold-proof-scale-audit-2026-09-04-to-2026-09-09.md`](../support/scaffold-proof-scale-audit-2026-09-04-to-2026-09-09.md) - dated evidence and promotion decisions from the TaskFlow scale refactor.
 - [`support/reference-app.md`](../support/reference-app.md) - consultation rules for TaskFlow.
 - [`support/OPERATIONS.md`](../support/OPERATIONS.md) - fail-fast, git checkpoint, missing-inputs, rollback, mixed-store gate. C#-bound through its examples; the operational concepts are reusable.
 - [`support/phase-1-worked-example.md`](../support/phase-1-worked-example.md) - transcript from the TaskFlow Phase 1 interview. Phase 1 itself is universal, but this example is a C#-bound illustration.
 
 ### `schemas/`
 
-- `schemas/resource-implementation.schema.json` - validates the Phase 2 output; encodes `packageStrategy`, `customNugetFeeds`, `localPackageLayers`, Aspire resource shape.
+- `schemas/resource-implementation.schema.json` - validates the Phase 2 output; encodes package strategy, Aspire resources, provider matrices, hosting lanes, runtime profiles, and probe contracts.
 - `schemas/domain-specification.schema.json` is **universal** - see below.
 
 ### `scripts/`

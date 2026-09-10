@@ -65,9 +65,10 @@ public class SomeService(IBackgroundTaskQueue taskQueue)
 
 ### Rules
 
-- Use for work that doesn't need persistence or retry - audit logging, cache invalidation, notifications.
+- Use only for disposable work that does not need persistence or retry, such as best-effort cache warm-up or telemetry enrichment.
 - For work that needs persistence, retry, or scheduling, use TickerQ instead.
 - The queue is in-memory - items are lost if the host crashes before processing.
+- Audit records, notifications with delivery commitments, and cross-service events are not disposable. Persist them through the transaction/outbox, scheduler, or broker path in [messaging.md](messaging.md).
 - Always create a new DI scope inside the work item if you need scoped services (DbContext, etc.). **Why:** Queued work can outlive the enqueueing request scope; capturing it can access disposed services or reuse one DbContext unit of work across items. Therefore resolve scoped dependencies inside each work item.
 
 ## Minimal Scheduler Structure

@@ -101,7 +101,7 @@ Service rules:
 4. Use transactional repo for writes, query repo for read/projection.
 5. Keep delete idempotent - for **hard delete**, call `repoTrxn.Delete(entity)` before `SaveChangesAsync`. For **soft delete** (main entities), flip flags: `entity.Update(flags: entity.Flags | {Entity}Flags.IsInactive)` then save. Both patterns wrap `SaveChangesAsync` in try/catch returning `Result.Failure(ex.GetBaseException().Message)`.
 6. **CreateAsync must apply ALL DTO properties** - `Entity.Create()` only takes factory args. Call `entity.Update(...)` afterward to apply remaining DTO fields (e.g., EstimatedHours, ActualHours). If `Update()` triggers `Valid()`, propagate failures.
-7. **SaveChangesAsync overload** - Always use `SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, ct)`. The parameterless `SaveChangesAsync(ct)` throws `NotImplementedException`.
+7. **SaveChangesAsync overload** - Always use the two-parameter overload. Default application writes to `SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct)` so conflict handling remains reachable. Use `ClientWins` only for a recorded last-write-wins requirement. The parameterless `SaveChangesAsync(ct)` throws `NotImplementedException`.
 8. **`BuildResponse` helper** - Each service should have a private static `BuildResponse({Entity}Dto dto)` that returns `new DefaultResponse<{Entity}Dto> { Item = dto }` (add `TenantInfo` when multi-tenant). Centralizes response construction.
 9. **`ErrorConstants`** - Use `ErrorConstants.ERROR_ITEM_NOTFOUND` in Update not-found paths (not inline strings).
 10. **`nameof({Entity})`** - Use in all boundary-validator calls and error messages.

@@ -81,7 +81,7 @@ public class {Entity}Service(
     {
         // ... create entity logic ...
 
-        await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, ct);
+        await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 
         // Publish event after successful save.
         // Use Topic for fan-out handlers.
@@ -149,7 +149,7 @@ public class RescheduleCallRequestHandler(
 
         // Apply side effect
         entity.Update(/* ... */);
-        await repo.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, ct);
+        await repo.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
     }
 }
 ```

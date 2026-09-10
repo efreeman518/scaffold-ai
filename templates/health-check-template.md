@@ -37,15 +37,16 @@ services.AddHealthChecks()
 ## Endpoint Mapping
 
 ```csharp
-app.MapHealthChecks("/healthz", new() { Predicate = r => r.Tags.Contains("live") }).AllowAnonymous(); // liveness
-app.MapHealthChecks("/readyz", new() { Predicate = r => r.Tags.Contains("ready") }).AllowAnonymous(); // readiness
+app.MapHealthChecks("/healthz/live", new() { Predicate = r => r.Tags.Contains("live") }).AllowAnonymous();  // liveness
+app.MapHealthChecks("/healthz/ready", new() { Predicate = r => r.Tags.Contains("ready") }).AllowAnonymous(); // readiness
+app.MapHealthChecks("/healthz", new()).AllowAnonymous(); // operator aggregate
 ```
 
 ## Rules
 
 - One `IHealthCheck` class per external dependency.
 - Tag dependency checks with `"ready"`; ServiceDefaults owns the `"self"` check tagged `"live"`.
-- `/healthz` runs only `"live"` checks. `/readyz` runs only `"ready"` checks.
+- `/healthz/live` runs only `"live"` checks. `/healthz/ready` runs only `"ready"` checks. `/healthz` runs the operator aggregate and is never the liveness target.
 - Do not duplicate ServiceDefaults self-liveness - add domain-specific readiness only.
 - **Why:** dependency failure must stop new traffic through readiness without making the orchestrator restart a healthy process through liveness.
-- Verify a failed dependency makes `/readyz` unhealthy while `/healthz` remains healthy.
+- Verify a failed critical dependency makes `/healthz/ready` unhealthy while `/healthz/live` remains healthy.

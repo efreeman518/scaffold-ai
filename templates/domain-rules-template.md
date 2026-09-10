@@ -237,7 +237,7 @@ public async Task<Result> DeactivateAsync(Guid id, CancellationToken ct = defaul
     var result = entity.Deactivate();
     if (result.IsFailure) return Result.Failure(result.ErrorMessage);
 
-    await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, ct);
+    await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
     return Result.Success();
 }
 ```

@@ -89,6 +89,10 @@ activity?.SetTag("tenant.id", tenantId.ToString());
 
 YARP preserves correlation headers by default. Forward: `X-Correlation-Id`, `traceparent`, `tracestate`. No additional config needed unless custom headers are required.
 
+### Broker Hops
+
+HTTP instrumentation does not propagate trace context through a broker automatically. Producers start a Producer activity and inject W3C `traceparent`/`tracestate` into transport headers. Consumers extract that context and start a Consumer activity with the extracted parent. Keep correlation/business identifiers in the versioned message envelope, but do not substitute them for trace parenting. Each transport adapter needs a parent-continuity test; see [messaging.md](messaging.md) section Broker Trace Context.
+
 ---
 
 ## Custom Metrics
@@ -128,9 +132,9 @@ s_cacheHit.Add(1, new KeyValuePair<string, object?>("key", cacheKey));
 **Required:** SQL connectivity (all hosts), Redis connectivity (if caching enabled).
 **Optional:** Downstream API (Gateway -> API), Blob storage, Service Bus, Cosmos DB.
 
-Implementation: Use `IHealthCheck` per dependency. Register with `services.AddHealthChecks().AddCheck<T>(name, tags: ["ready"])`. Map `/healthz` to `"live"` checks only and `/readyz` to `"ready"` checks. See [health-check-template.md](../templates/health-check-template.md) for the implementation pattern.
+Implementation: Use `IHealthCheck` per dependency. Register with `services.AddHealthChecks().AddCheck<T>(name, tags: ["ready"])`. Map `/healthz/live` to `"live"` checks only, `/healthz/ready` to `"ready"` checks, and `/healthz` to the operator aggregate. See [health-check-template.md](../templates/health-check-template.md) for the implementation pattern.
 
-Aspire wiring: ServiceDefaults calls `AddDefaultHealthChecks()` to register the `"self"` liveness check. Add domain-specific readiness checks in host registration. Dependency outages make readiness fail without triggering liveness restart loops.
+Aspire wiring: ServiceDefaults calls `AddDefaultHealthChecks()` to register the `"self"` liveness check. Add host-specific critical readiness checks in host registration. Dependency outages make readiness fail without triggering liveness restart loops. Optional dependencies with a proven degraded path report telemetry but do not make readiness fail.
 
 ---
 
@@ -143,6 +147,7 @@ Aspire wiring: ServiceDefaults calls `AddDefaultHealthChecks()` to register the 
 - [ ] Background jobs create explicit `Activity` spans
 - [ ] Custom metrics use `System.Diagnostics.Metrics` with `{Project}.{Layer}` naming
 - [ ] Health checks registered for SQL and Redis (if enabled)
-- [ ] `/healthz` (liveness) and `/readyz` (readiness) endpoints mapped
-- [ ] Dependency failure makes `/readyz` unhealthy while `/healthz` stays healthy
+- [ ] `/healthz/live` (liveness), `/healthz/ready` (readiness), and `/healthz` (operator aggregate) endpoints mapped
+- [ ] Critical dependency failure makes `/healthz/ready` unhealthy while `/healthz/live` stays healthy
+- [ ] Broker transports preserve W3C trace parenting across publish and consume
 - [ ] ServiceDefaults OpenTelemetry wiring not duplicated

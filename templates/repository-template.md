@@ -403,7 +403,7 @@ The `Delete` method is inherited from `RepositoryBase`. It marks the entity for 
 var entity = await repoTrxn.Get{Entity}Async(id, false, ct);
 if (entity == null) return Result.Success(); // idempotent - not-found returns success
 repoTrxn.Delete(entity);                     // marks for deletion
-await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, ct);
+await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 return Result.Success();
 ```
 
@@ -414,8 +414,8 @@ return Result.Success();
 `DbContextBase.SaveChangesAsync(CancellationToken)` **ALWAYS throws `NotImplementedException`** by design. Always use the 2-param overload:
 
 ```csharp
-// OK CORRECT - always use this
-await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, ct);
+// OK CORRECT - use the two-parameter overload and surface conflicts
+await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 
 // FAIL WRONG - throws NotImplementedException at runtime
 await repoTrxn.SaveChangesAsync(ct);
