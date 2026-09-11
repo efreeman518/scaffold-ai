@@ -31,6 +31,12 @@ multiTenant: true
 tenantIsolation: row-level
 authProvider: EntraID
 authScenario: enterprise
+ontology:
+  namespace: https://example.com/ontology/workboard/
+  owner: Delivery Operations
+  alignsWith:
+    - name: Enterprise Work Model
+      namespace: https://example.com/ontology/enterprise/
 valueObjects:
   - name: ProjectSchedule
     description: Project start and due dates
@@ -51,6 +57,9 @@ entities:
   - name: Project
     description: Work container owned by one tenant
     isTenantEntity: true
+    synonyms: [Initiative]
+    alignment:
+      specializes: https://example.com/ontology/enterprise/WorkContainer
     properties:
       - name: Name
         kind: string
@@ -69,6 +78,7 @@ entities:
         entity: WorkItem
         relationship: one-to-many
         cascadeDelete: false
+        predicate: has
     rules:
       - name: ProjectNameRequired
         condition: Name is required and max 200 chars
@@ -100,6 +110,7 @@ entities:
       - name: Project
         entity: Project
         required: true
+        predicate: belongsTo
     rules:
       - name: CompletedDateRequiredWhenDone
         condition: CompletedDate is required when Status is Done
@@ -141,6 +152,7 @@ workflows: []
 | `WorkItemBelongsToSameTenantAsProject` | policy | Work item and its project share a tenant. | Use as domain rule name. |
 | `GlobalAdmin` | role | Cross-tenant administrator. | Use for global admin role. |
 | `EntraID` | external-system | Enterprise identity provider. | Use in auth config. |
+| `Enterprise Work Model` | external-system | Upstream enterprise ontology that `Project` specializes. | Reference only through `ontology.alignsWith`. |
 | `enterprise` | auth scenario | Internal workforce auth scenario. | Use in domain spec. |
 
 ## Rejected Synonyms
@@ -173,6 +185,7 @@ D-001 --> D-003
 | D-001 | Tenancy | Tenant model | row-level tenant isolation | none | confirmed | Simple shared schema for scaffold. | Phase 1, Phase 2 |
 | D-002 | Auth | Auth provider | EntraID enterprise auth | D-001 | confirmed | Workforce SSO expected. | Phase 5e |
 | D-003 | Naming | Work item term | WorkItem instead of Task | none | confirmed | Avoid .NET type collision. | All phases |
+| D-004 | Ubiquitous language | Enterprise model alignment | opt in; `Project` specializes the Enterprise Work Model `WorkContainer` | none | confirmed | Analytics team consumes this domain as one module of the enterprise graph. | Phase 1 |
 ```
 
 ---
@@ -393,7 +406,7 @@ externalDependencyModes:
 
 Run these from the generated app root.
 
-After Phases 1-3, developer reviews the YAML artifacts (`.scaffold/domain-specification.yaml`, `.scaffold/UBIQUITOUS-LANGUAGE.md`, `.scaffold/DESIGN-DECISIONS.md`, `.scaffold/resource-implementation.yaml`, `.scaffold/implementation-plan.md`) against their schemas in `ai/`.
+After Phases 1-3, developer reviews the YAML artifacts (`.scaffold/domain-specification.yaml`, `.scaffold/UBIQUITOUS-LANGUAGE.md`, `.scaffold/DESIGN-DECISIONS.md`, `.scaffold/resource-implementation.yaml`, `.scaffold/implementation-plan.md`) against their schemas in `ai/`. Because the sample declares `ontology:`, `python {instructionsRoot}/scripts/generate-ontology.py --root . --check` must exit 0 after Phase 1 (see [ontology-projection.md](ontology-projection.md) section Check).
 
 After Phase 4:
 
@@ -422,4 +435,5 @@ Then walk through `support/final-scaffold-checklist.md`.
 - `Directory.Packages.props` owns all NuGet versions (feed-supplied `<packagePrefix>.*` packages plus transitive deps).
 - For `packageStrategy: feed` or `hybrid`: `nuget.config` maps `<packagePrefix>.*` to the private feed and `dotnet-ef` to `nuget.org`. For `local`: `nuget.config` only needs `nuget.org` (or may be absent).
 - App starts through Aspire and API health returns 200.
+- `.scaffold/ontology/` exists (the sample opts in) and `generate-ontology.py --root . --check` exits 0.
 - No `NotImplementedException` remains in generated source, except inside the scaffold-skipped surface allowed by `support/final-scaffold-checklist.md` (`NoOp*` fallback stubs and base-type overrides reachable only through them).

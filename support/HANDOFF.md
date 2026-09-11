@@ -126,6 +126,7 @@ Verify before closing the session. Per [../START-AI.md](../START-AI.md) section 
 - [ ] No new entity, relationship, lifecycle state, or schema change was introduced without updating `.scaffold/domain-specification.yaml`.
 - [ ] No new design decision (or revision of an earlier one) was introduced without an entry in `.scaffold/DESIGN-DECISIONS.md` (mark superseded entries; do not silently rewrite).
 - [ ] If drift was discovered between code and artifacts, the artifacts were updated to match accepted reality before closing.
+- [ ] If `.scaffold/ontology/` exists, `python .instructions/scripts/generate-ontology.py --root . --check` exits 0 (regenerated after every spec change this session; never hand-edited).
 
 Notes on artifact updates this session (term added, decision superseded, schema reshaped):
 

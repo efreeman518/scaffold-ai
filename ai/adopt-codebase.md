@@ -24,6 +24,8 @@ Same three files as a greenfield Phase 1. Create `.scaffold/` at project root if
 2. `.scaffold/UBIQUITOUS-LANGUAGE.md` - template: [../templates/ubiquitous-language-template.md](../templates/ubiquitous-language-template.md). Inferred from public type/property/method names across `Domain.Model`, `Application.Models`, `Application.Contracts`, and endpoint routes.
 3. `.scaffold/DESIGN-DECISIONS.md` - template: [../templates/design-decisions-template.md](../templates/design-decisions-template.md). Inferred from DI registrations, `RegisterServices.cs`, Aspire `AppHost`, `nuget.config` / `Directory.Packages.props`, and visible architectural choices (dual DbContext, gateway presence, multi-tenancy filter, caching strategy, identity provider).
 
+**Ontology opt-in is asked, never inferred.** After Pass 12, ask the enterprise-model question from [shared-understanding-interview.md](shared-understanding-interview.md) section Enterprise Model Alignment Decision. `yes` -> add the `ontology:` block with developer-supplied namespace, owner, and alignments (code cannot reveal them), then generate `.scaffold/ontology/` per [../support/ontology-projection.md](../support/ontology-projection.md) section Generate. `no` -> record it as defaulted.
+
 ## Pre-Flight
 
 - [ ] Solution builds: `dotnet build` exits 0. A non-building solution makes inference unreliable - fix or branch from a known-good commit first.
@@ -137,6 +139,7 @@ Before declaring the adopt session complete:
 - [ ] Every public type/property name in `Domain.Model` and `Application.Models` is either in `UBIQUITOUS-LANGUAGE.md` or explicitly excluded (e.g., framework base types).
 - [ ] At least one `D-###` exists for each visible architectural choice: package strategy, persistence stack, identity provider (if present), caching (if present), gateway (if present), multi-tenancy (if present), hosting model.
 - [ ] Every assumption raised during inspection is confirmed, corrected, or deferred with `Needed Before`.
+- [ ] The enterprise-model alignment question was asked once; when `ontology:` was added, `python {instructionsRoot}/scripts/generate-ontology.py --root . --check` exits 0.
 - [ ] `HANDOFF.md` written with `currentPhase: 2`.
 
 ## Non-Goals

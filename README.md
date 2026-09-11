@@ -114,6 +114,7 @@ This rule is enforced at every session boundary: [START-AI.md](START-AI.md) sect
 - **New entity, term, role, event, or domain action** -> append the term to `.scaffold/UBIQUITOUS-LANGUAGE.md` and update the relevant section of `.scaffold/domain-specification.yaml` (entity, customAction, event, etc.) before generating code. The `/vertical-slice` checklist enforces this as a pre-flight step.
 - **New design choice or revision of an earlier one** -> append to `.scaffold/DESIGN-DECISIONS.md`. Do not silently rewrite earlier entries; mark the prior decision as superseded and link forward, so the dependency graph remains traceable.
 - **Schema or relationship change** -> update `.scaffold/domain-specification.yaml` first, then propagate to EF configuration, repositories, DTOs, mappers, and tests in that order.
+- **Spec edit while `.scaffold/ontology/` exists** -> regenerate the projection in the same session (`python .instructions/scripts/generate-ontology.py --root .`); never hand-edit it. Owner: [support/ontology-projection.md](support/ontology-projection.md).
 
 **Drift signal.** If `.scaffold/UBIQUITOUS-LANGUAGE.md` and code identifiers diverge, the doc is wrong, not the code (per [support/final-scaffold-checklist.md](support/final-scaffold-checklist.md) language-failure rule). Update the doc to match accepted reality before changing code names. The same applies to `.scaffold/DESIGN-DECISIONS.md` - if the implemented architecture has moved past a recorded decision, supersede the entry rather than leaving the doc to contradict the code.
 
@@ -129,7 +130,7 @@ Each phase runs in its own AI session and produces artifacts the next phase cons
 
 | Phase | Purpose | Output |
 |---|---|---|
-| **1 - Domain Discovery** *(universal)* | Structured interview to reach shared understanding, define ubiquitous language, resolve decision dependencies, and capture entities, relationships, events, workflows, and business rules in pure business language - no implementation details. | `.scaffold/domain-specification.yaml`, `.scaffold/UBIQUITOUS-LANGUAGE.md`, `.scaffold/DESIGN-DECISIONS.md` |
+| **1 - Domain Discovery** *(universal)* | Structured interview to reach shared understanding, define ubiquitous language, resolve decision dependencies, and capture entities, relationships, events, workflows, and business rules in pure business language - no implementation details. | `.scaffold/domain-specification.yaml`, `.scaffold/UBIQUITOUS-LANGUAGE.md`, `.scaffold/DESIGN-DECISIONS.md`; `.scaffold/ontology/` (opt-in, generated) |
 | **2 - Resource Definition** *(C#/.NET/Azure profile)* | Map each resource requirement to concrete technology choices - data stores, messaging, AI capabilities, hosting models. | `.scaffold/resource-implementation.yaml` |
 | **3 - Implementation Planning** *(C#/.NET/Azure profile)* | Resolve open questions, verify tooling (NuGet feeds, CLIs), discover project-specific CLIs and MCP servers, and produce a sequenced build plan. | `.scaffold/implementation-plan.md` |
 | **4 - Contract Scaffolding** *(C#/.NET/Azure profile)* | Generate solution structure, interfaces, DTOs, entity shells, test infrastructure, and no-op DI stubs. Gate: `dotnet build` succeeds on the full solution. | Compilable skeleton |
@@ -347,7 +348,7 @@ A short map of the repo so you know which directory owns what kind of content. U
 | `patterns/` | Cross-project wiring (data layer, API host, infrastructure, expected output) | On-demand; index in `ai/SKILL.md` section Non-Negotiables |
 | `support/` | Operator-facing detail: execution gates, operations protocols, troubleshooting, HANDOFF template, MVS, golden path, prompt catalog, reference-app proof map | On failure, on session boundary, or on need |
 | `schemas/` | JSON Schemas for `.scaffold/domain-specification.yaml` and `.scaffold/resource-implementation.yaml` | Phase 1/2 validation |
-| `scripts/` | Author + operator tooling: install-to-project, configure-ef-packages-feed, validate-instructions | One-off |
+| `scripts/` | Author + operator tooling: install-to-project, configure-ef-packages-feed, generate-ontology, validate-instructions | One-off |
 
 Rule of thumb when adding new content: it goes in `skills/` if it's "how to do X", in `templates/` if it's "the shape of the file you generate", in `patterns/` if it's "how multiple projects wire together", in `support/` if it's operator-facing, and in `ai/` only if it's phase orchestration the AI needs at session start.
 

@@ -12,6 +12,7 @@ The scaffold scripts need Python for:
 
 - `scripts/install-to-project.py`
 - `.instructions/scripts/configure-ef-packages-feed.py`
+- `.instructions/scripts/generate-ontology.py` (also needs `pyyaml`: `python -m pip install pyyaml`)
 - `scripts/validate-instructions.py` in this instruction repo
 
 ## Windows Launcher Check

@@ -110,9 +110,70 @@
     },
     "aiCapabilities": {
       "$ref": "#/$defs/aiCapabilities"
+    },
+    "ontology": {
+      "$ref": "#/$defs/ontology"
     }
   },
   "$defs": {
+    "ontology": {
+      "type": "object",
+      "required": [
+        "namespace"
+      ],
+      "description": "Opt-in enterprise ontology projection. Presence of this block makes scripts/generate-ontology.py emit .scaffold/ontology/. See ai/domain-specification-schema.md and support/ontology-projection.md.",
+      "properties": {
+        "namespace": {
+          "type": "string",
+          "pattern": "^https?://\\S+[/#]$",
+          "description": "IRI base for every concept in this module; must end in / or #."
+        },
+        "boundedContext": {
+          "type": "string",
+          "description": "Bounded context label; defaults to ProjectName."
+        },
+        "owner": {
+          "type": "string",
+          "description": "Team or role that owns this module of the enterprise model, in business language."
+        },
+        "alignsWith": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "namespace"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "namespace": {
+                "type": "string",
+                "pattern": "^https?://\\S+[/#]$"
+              }
+            }
+          },
+          "description": "Upstream or enterprise ontologies that alignment.equivalentTo / specializes IRIs may point into."
+        }
+      }
+    },
+    "alignment": {
+      "type": "object",
+      "description": "Pointers from this concept into an upstream ontology listed under ontology.alignsWith.",
+      "properties": {
+        "equivalentTo": {
+          "type": "string",
+          "pattern": "^https?://\\S+$",
+          "description": "External class IRI this concept is equivalent to (owl:equivalentClass)."
+        },
+        "specializes": {
+          "type": "string",
+          "pattern": "^https?://\\S+$",
+          "description": "External class IRI this concept is a subclass of (rdfs:subClassOf)."
+        }
+      }
+    },
     "entity": {
       "type": "object",
       "required": [
@@ -156,6 +217,30 @@
         "aggregateParent": {
           "type": "string",
           "description": "When aggregateRole is owned-child or join, the name of the owning aggregate root."
+        },
+        "extends": {
+          "type": "string",
+          "pattern": "^[A-Z][a-zA-Z0-9]+$",
+          "description": "Ontology only: name of another entity in this file that this entity is a kind of (is-a). Projected as rdfs:subClassOf / baseEntityTypeId."
+        },
+        "synonyms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Ontology only: accepted alternate names. Rejected synonyms recorded in UBIQUITOUS-LANGUAGE.md never appear here."
+        },
+        "owner": {
+          "type": "string",
+          "description": "Ontology only: team or role owning this concept when it differs from ontology.owner."
+        },
+        "systemOfRecord": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ontology only: false marks a concept this application consumes from another system rather than masters."
+        },
+        "alignment": {
+          "$ref": "#/$defs/alignment"
         },
         "properties": {
           "type": "array",
@@ -297,6 +382,16 @@
         "description": {
           "type": "string"
         },
+        "synonyms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Ontology only: accepted alternate names."
+        },
+        "alignment": {
+          "$ref": "#/$defs/alignment"
+        },
         "fields": {
           "type": "array",
           "minItems": 1,
@@ -407,6 +502,11 @@
           "items": {
             "type": "string"
           }
+        },
+        "predicate": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9]*$",
+          "description": "Ontology only: verb phrase for the relationship read from the declaring entity (has, belongsTo, assignedTo)."
         }
       }
     },
@@ -426,6 +526,11 @@
         "required": {
           "type": "boolean",
           "default": false
+        },
+        "predicate": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9]*$",
+          "description": "Ontology only: verb phrase for the relationship read from the declaring entity (belongsTo, reportsTo)."
         }
       }
     },

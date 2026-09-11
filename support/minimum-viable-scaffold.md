@@ -53,6 +53,7 @@ Mode: minimum-viable-scaffold (API-only, one entity, no optional hosts).
 Set the generic prompt's entity list to exactly one entity: {EntityName} with fields {field1: type, field2: type, ...}.
 Run shared-understanding-interview.md but skip branches that don't apply to a single-entity API
 (messaging, scheduling, multi-host, multi-tenant unless explicitly required).
+Answer no to the enterprise-model alignment question; MVS does not declare ontology: or generate .scaffold/ontology/.
 Record the MVS profile in .scaffold/DESIGN-DECISIONS.md.
 ```
 
