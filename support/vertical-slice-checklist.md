@@ -72,7 +72,7 @@ Use this when adding a new entity to an **already-scaffolded** solution. Skip fu
 
 ### Validation
 
-Gate commands: [execution-gates.md](execution-gates.md) section Core Loop. Scope test filter to the new entity (`FullyQualifiedName~{Entity}`). For recurring test failures, see [troubleshooting.md](troubleshooting.md). After the gate passes, run the advisory drift scan `python {instructionsRoot}/scripts/check-artifact-drift.py --root .` - the new entity must appear in the Phase-1 artifacts, not just in code (GR-01).
+Gate commands: [execution-gates.md](execution-gates.md) section Core Loop. Scope test filter to the new entity (`FullyQualifiedName~{Entity}`). For recurring test failures, see [troubleshooting.md](troubleshooting.md). After the gate passes, run the advisory drift scan `python {instructionsRoot}/scripts/check-artifact-drift.py --root .` - the new entity must appear in the Phase-1 artifacts, not just in code (GR-01). If `.scaffold/ontology/` exists, regenerate it so the new entity reaches the projection: `python {instructionsRoot}/scripts/generate-ontology.py --root .` (never edit the folder by hand).
 
 ### Prompt Pattern
 

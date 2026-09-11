@@ -23,6 +23,7 @@ Run the Tooling Check from START-AI.md; use Microsoft Docs or Context7 only if c
 Generate a domain-specification YAML for a new application called {ProjectName}.
 The business is: {one-sentence business description}.
 Key entities: {entity list}.
+Enterprise or analytics model alignment: {none | name the shared glossary, upstream ontology, or Fabric IQ ontology to align with}.
 Follow .instructions/ai/shared-understanding-interview.md before writing final artifacts.
 Create .scaffold/domain-specification.yaml, .scaffold/UBIQUITOUS-LANGUAGE.md, and .scaffold/DESIGN-DECISIONS.md (create the .scaffold/ directory at project root if absent).
 Review each artifact against the Phase 1 schema before closing the session.

@@ -62,7 +62,7 @@ Walk these branches in order. Revisit earlier branches when a later answer chang
 |---|---|---|
 | Purpose | business problem, success criteria, explicit non-goals, primary users | none |
 | Actors and roles | human roles, system actors, permissions vocabulary | purpose |
-| Ubiquitous language | accepted terms, rejected synonyms, naming conflicts | purpose, actors |
+| Ubiquitous language | accepted terms, rejected synonyms, naming conflicts, enterprise model alignment (one question, opt-in) | purpose, actors |
 | Entities and aggregates | entities, ownership, aggregate roots, tenant scope | language |
 | Value objects | meaningful values, validation, equality, primitive-confusion risks | entities |
 | Relationships | ownership, reference, self-reference, many-to-many, polymorphic ownership | entities |
@@ -77,6 +77,8 @@ Walk these branches in order. Revisit earlier branches when a later answer chang
 > **Heads-up - Phase 2 will open with packaging strategy.** The very first Phase 2 question asks whether the project has a private NuGet feed for shared base contracts (e.g., `EF.*`) or whether the scaffold should generate equivalent packable projects under `src/Packages/<Prefix>.*`. Flag any constraints here (corporate feed policy, prefix conventions) so Phase 2 doesn't re-discover them. Full details: [resource-implementation-schema.md section Discovery Conversation Pattern](resource-implementation-schema.md#discovery-conversation-pattern).
 
 > **Heads-up - the Sensitive-Data Trigger fires in the Security branch.** A property holding PII, a secret, or regulated data raises a column-level-encryption decision. See [Sensitive-Data Trigger](#sensitive-data-trigger) below.
+
+> **Heads-up - the Ubiquitous-language branch asks one enterprise-model question.** If this domain must line up with a shared glossary, an upstream ontology, or an analytics ontology, the spec gains an opt-in `ontology:` block and Phase 1 generates a projection from it. Ask once; default is no. See [Enterprise Model Alignment Decision](#enterprise-model-alignment-decision) below.
 
 > **Heads-up - the Interfaces branch decides UI topology.** When the Actors-and-roles branch found more than one persona (e.g. a distinct admin/operator role vs the primary end user), the Interfaces branch must decide whether a **separate admin portal** is needed - not just which single UI stack to use. Resolve this before Phase 2 sets the host flags; a second head retrofitted after Phase 4 is expensive. See [Multi-Head UI Decision](#multi-head-ui-decision) below.
 
@@ -145,6 +147,7 @@ Before writing Phase 1 outputs, confirm:
 
 - [ ] Each branch is `confirmed`, `defaulted`, or `deferred`.
 - [ ] `applicationStyle` and `projectNamePrefix` are confirmed (or explicitly defaulted) and recorded in `.scaffold/DESIGN-DECISIONS.md`.
+- [ ] The enterprise-model alignment question was asked once: `no` is recorded as defaulted, or the `ontology:` block is captured with its `namespace` and a `D-###` in `.scaffold/DESIGN-DECISIONS.md`.
 - [ ] Every entity, state, event, command/action, role, policy, and value object has a language entry.
 - [ ] Each value object is justified by business meaning, validation, behavior, equality, or dangerous primitive confusion; otherwise keep primitive property.
 - [ ] Every rejected synonym or ambiguous term is recorded.
@@ -177,6 +180,21 @@ Ask the developer explicitly - do not assume the reference-app convention:
 - `none` - bare project names and namespaces; `OrganizationName` is not applied. Note the trade-off: bare top-level namespaces (`Domain.Model`, `Application.Services`) are generic and can collide when the assembly is consumed alongside other solutions.
 
 Either way the solution file is `{SolutionName}.slnx`. Record the choice as a decision in `.scaffold/DESIGN-DECISIONS.md` (it is structural and hard to reverse after Phase 4 creates the projects). Token mechanics: [placeholder-tokens.md - Derivation Rules](placeholder-tokens.md#derivation-rules).
+
+## Enterprise Model Alignment Decision
+
+Ask once, in the Ubiquitous-language branch, after accepted terms and rejected synonyms are settled:
+
+> Does this domain participate in an enterprise or analytics model - a shared business glossary, an upstream ontology, or a Fabric IQ ontology - that other systems must align with?
+
+- `no` (default) - record it as defaulted. The spec carries no `ontology:` block and nothing is generated. Minimum viable scaffold and api-only scaffolds answer `no`.
+- `yes` - capture, in this order, and write the answers into the optional fields described in [domain-specification-schema.md](domain-specification-schema.md) section Enterprise Ontology Alignment (Optional):
+  1. `ontology.namespace` (IRI base ending in `/` or `#`), `ontology.owner` (team or role), and `ontology.alignsWith[]` (name plus namespace of each upstream model). Add each upstream model to the UL External Systems rows.
+  2. Per entity, only where the default is wrong: `systemOfRecord: false` for concepts this app consumes rather than masters; `alignment.equivalentTo` or `alignment.specializes` pointing into an `alignsWith` namespace; `synonyms[]` (accepted alternates only - a rejected synonym never appears here); `extends` when one entity is a kind of another.
+  3. Per relationship, optional `predicate` (`has`, `belongsTo`, `assignedTo`) when the role name alone does not read as a sentence.
+  Record the opt-in as a `D-###` (branch Ubiquitous language). The projection itself - `.scaffold/ontology/` - is generated at the Phase 1 gate, never hand-written; command in [../support/ontology-projection.md](../support/ontology-projection.md) section Generate.
+
+The question is asked, never inferred: code and prompts cannot reveal namespace, ownership, or which upstream model a concept aligns to.
 
 ## Multi-Head UI Decision
 

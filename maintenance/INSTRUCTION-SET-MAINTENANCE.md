@@ -95,6 +95,8 @@ CANARIES = {
     "leftover manual snapshots": "support/context-tooling.md",  # graphify-out dated-snapshot cleanup rule; AGENTS.md (outside scan roots) carries only the concise end-of-session step + pointer
     "package-ecosystem:": "skills/security.md",  # Dependabot opt-in config + CI-breaking caveats live once with the dependency-scanning owner; cicd.md points here
     "Pipeline order alone does not reject anonymous callers": "skills/gateway.md",  # forwarded-claims trust boundary lives with Gateway; API wiring points here
+    "RelationshipTypes/{id}/definition.json": "support/ontology-projection.md",  # ontology projection outputs + mapping live once; schema doc, interview, gates carry only the command and a pointer
+    "participate in an enterprise or analytics model": "ai/shared-understanding-interview.md",  # the opt-in question verbatim lives with the interview; adopt-codebase and schema doc point here
 }
 roots = ["skills", "patterns", "ai", "support", "schemas", "profiles", "templates"]
 files = [p for r in roots for p in pathlib.Path(r).rglob("*.md")]
@@ -190,6 +192,9 @@ are pointers.
   single-entity overlays.
 - Uno enabled-target validation commands: [support/execution-gates.md](../support/execution-gates.md) section 5c.
   Uno skills keep project policy, asset-graph hazards, and diagnostics.
+- Ontology projection (outputs, mapping, Fabric IQ ingestion, check semantics):
+  [support/ontology-projection.md](../support/ontology-projection.md). The schema doc owns the optional fields,
+  the interview owns the opt-in question, gates and checklists carry only the `--check` command.
 
 Credential construction remains trust-boundary-specific across AI, Gateway, secrets, and migration consumers;
 forcing every `DefaultAzureCredential` or `ManagedIdentityCredential` mention into identity management would hide

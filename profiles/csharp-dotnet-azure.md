@@ -86,6 +86,8 @@ These files are stack-agnostic and should stay so. A second profile would consum
 - [`templates/ubiquitous-language-template.md`](../templates/ubiquitous-language-template.md) - domain vocabulary template.
 - [`templates/design-decisions-template.md`](../templates/design-decisions-template.md) - design-decision log template.
 - `schemas/domain-specification.schema.json` - JSON Schema for the Phase 1 output.
+- [`support/ontology-projection.md`](../support/ontology-projection.md) - opt-in Phase 1 ontology projection (Fabric IQ is an analytics target, not an application stack).
+- `scripts/generate-ontology.py` - deterministic projection of the Phase 1 spec into `.scaffold/ontology/`.
 - Phase-1 portions of [`START-AI.md`](../START-AI.md) (Session Model, Initial Load Rule, File Loading Rule, Phase-1 Artifact Lifecycle Rule, Phase 1 entry in the Phase Router).
 - Phase-1 portions of [`README.md`](../README.md) (Phase-1 Artifact Lifecycle section, Phase 1 row of the Phases table).
 

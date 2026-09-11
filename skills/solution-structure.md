@@ -170,7 +170,7 @@ Also **remove the line `*.e2e`** from the stock template. It targets a legacy Vi
 *.tmp.log
 ```
 
-Note: `.scaffold/` is a **tracked** directory - it holds the Phase 1/2/3 artifacts (`domain-specification.yaml`, `resource-implementation.yaml`, `UBIQUITOUS-LANGUAGE.md`, `DESIGN-DECISIONS.md`, `implementation-plan.md`) plus `INSTRUCTION-GAPS.md`. Do not add `.scaffold/` to `.gitignore`.
+Note: `.scaffold/` is a **tracked** directory - it holds the Phase 1/2/3 artifacts (`domain-specification.yaml`, `resource-implementation.yaml`, `UBIQUITOUS-LANGUAGE.md`, `DESIGN-DECISIONS.md`, `implementation-plan.md`) plus `INSTRUCTION-GAPS.md` and, when the spec opts in, the generated `ontology/` projection. Do not add `.scaffold/` to `.gitignore`.
 
 Failure mode is **invisible locally** (files on disk, build green) and surfaces only on a fresh clone or CI runner. The operator-setup post-generation step runs a `git ls-files` check to catch the same class of bug for any future scaffold folder whose name collides with a stock ignore pattern - see [../support/operator-setup.md](../support/operator-setup.md) section Tracked-Source Validation.
 

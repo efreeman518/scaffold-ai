@@ -45,6 +45,7 @@ if FAST:
 def load_module(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod  # dataclasses resolve string annotations through sys.modules
     spec.loader.exec_module(mod)
     return mod
 
@@ -53,6 +54,7 @@ installer = load_module("installer", REPO_ROOT / "scripts" / "install-to-project
 validator = load_module("validator", REPO_ROOT / "scripts" / "validate-instructions.py")
 reference_validator = load_module("reference_validator", REPO_ROOT / "scripts" / "validate-reference.py")
 goldenpath = load_module("goldenpath", REPO_ROOT / "tests" / "golden-path" / "run-golden-path.py")
+ontology = load_module("ontology", REPO_ROOT / "scripts" / "generate-ontology.py")
 
 
 class InstallerTests(unittest.TestCase):
@@ -940,6 +942,257 @@ class ValidatorMutationTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertEqual(self._run_validator(repo), 1)
+
+    def test_undeclared_phase1_fixture_key_fails(self):
+        """The schema/fixture parity guard still fires for keys next to the ontology block."""
+        repo = self._copy_repo()
+        target = repo / "support" / "golden-path-sample.md"
+        text = target.read_text(encoding="utf-8")
+        needle = "      namespace: https://example.com/ontology/enterprise/\n"
+        self.assertIn(needle, text)
+        target.write_text(text.replace(needle, needle + "ontologyExtra: x\n", 1), encoding="utf-8")
+        self.assertEqual(self._run_validator(repo), 1)
+
+
+WORKBOARD_SPEC_HEADING = "### `.scaffold/domain-specification.yaml`"
+
+
+@unittest.skipUnless(importlib.util.find_spec("yaml"), "pyyaml not installed")
+class OntologyGeneratorTests(unittest.TestCase):
+    """Drive scripts/generate-ontology.py against the WorkBoard fixture plus synthetic mutations."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import yaml
+        doc = goldenpath.GOLDEN_PATH_DOC.read_text(encoding="utf-8")
+        cls.fixture = yaml.safe_load(goldenpath.extract_fenced_block(doc, WORKBOARD_SPEC_HEADING, "yaml"))
+        cls.ns = cls.fixture["ontology"]["namespace"]
+
+    def _spec(self, mutate=None) -> dict:
+        spec = json.loads(json.dumps(self.fixture))
+        spec["entities"].append({
+            "name": "Incident", "extends": "WorkItem", "description": "Work item raised from an outage",
+            "properties": [{"name": "Severity", "kind": "enum", "values": ["Low", "High"]}],
+        })
+        spec["entities"][1]["properties"].append({"name": "ReporterEmail", "kind": "string", "sensitive": True})
+        if mutate:
+            mutate(spec)
+        return spec
+
+    def _root(self, spec: dict) -> Path:
+        import yaml
+        root = Path(tempfile.mkdtemp(prefix="tooling-onto-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        (root / ".scaffold").mkdir()
+        (root / ".scaffold" / "domain-specification.yaml").write_text(
+            yaml.safe_dump(spec, sort_keys=False), encoding="utf-8")
+        return root
+
+    def _run(self, root: Path, *flags: str) -> tuple[int, str]:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = ontology.main(["--root", str(root), *flags])
+        return code, buf.getvalue()
+
+    def _tree(self, root: Path) -> dict[str, bytes]:
+        out = root / ontology.OUTPUT_ROOT
+        return {p.relative_to(out).as_posix(): p.read_bytes() for p in out.rglob("*") if p.is_file()}
+
+    def _graph(self, root: Path) -> dict[str, dict]:
+        data = json.loads((root / ontology.OUTPUT_ROOT / "ontology.jsonld").read_text(encoding="utf-8"))
+        return {node["@id"]: node for node in data["@graph"]}
+
+    def _fabric(self, root: Path, kind: str) -> dict[str, dict]:
+        parts = {}
+        for path in (root / ontology.OUTPUT_ROOT / "fabric-iq" / kind).glob("*/definition.json"):
+            obj = json.loads(path.read_text(encoding="utf-8"))
+            parts[obj["name"]] = obj
+        return parts
+
+    def test_layout_and_determinism(self):
+        root = self._root(self._spec())
+        code, out = self._run(root)
+        self.assertEqual(code, 0, out)
+        tree = self._tree(root)
+        for rel in ("ontology.md", "ontology.jsonld", "manifest.json", "fabric-iq/.platform", "fabric-iq/definition.json"):
+            self.assertIn(rel, tree)
+        entity_types = self._fabric(root, "EntityTypes")
+        relationship_types = self._fabric(root, "RelationshipTypes")
+        self.assertEqual(set(entity_types), {"Project", "WorkItem", "Incident"})  # no EntityType for the value object
+        self.assertEqual(set(relationship_types), {"Project_WorkItems"})  # navigation folded into the child edge
+        for et in entity_types.values():
+            self.assertRegex(et["name"], ontology.FABRIC_NAME_RE)
+            for prop in et["properties"]:
+                self.assertRegex(prop["name"], ontology.FABRIC_NAME_RE)
+        for rt in relationship_types.values():
+            self.assertRegex(rt["name"], ontology.FABRIC_NAME_RE)
+        project_id = ontology.fabric_id(self.ns + "Project")
+        self.assertEqual(entity_types["Project"]["id"], project_id)
+        self.assertTrue((root / ontology.OUTPUT_ROOT / "fabric-iq" / "EntityTypes" / project_id / "definition.json").is_file())
+        manifest = json.loads(tree["manifest.json"])
+        self.assertEqual(manifest["formatVersion"], ontology.FORMAT_VERSION)
+        self.assertNotIn("manifest.json", manifest["files"])
+        for rel, digest in manifest["files"].items():
+            self.assertEqual(digest, ontology._sha256(tree[rel]))
+        for data in tree.values():
+            self.assertNotIn(b"\r\n", data)
+            self.assertFalse(data.startswith(b"\xef\xbb\xbf"))
+
+        second = self._root(self._spec())
+        self.assertEqual(self._run(second)[0], 0)
+        self.assertEqual(self._tree(second), tree)
+
+    def test_jsonld_and_fabric_semantics(self):
+        root = self._root(self._spec())
+        self.assertEqual(self._run(root)[0], 0)
+        graph = self._graph(root)
+        ns = self.ns
+        self.assertEqual(len(graph), len(json.loads((root / ontology.OUTPUT_ROOT / "ontology.jsonld").read_text(encoding="utf-8"))["@graph"]))
+        self.assertIn({"@id": ns + "WorkItem"}, graph[ns + "Incident"]["rdfs:subClassOf"])
+        enterprise = "https://example.com/ontology/enterprise/WorkContainer"
+        self.assertIn({"@id": enterprise}, graph[ns + "Project"]["rdfs:subClassOf"])
+        self.assertEqual(graph[enterprise]["@type"], "owl:Class")
+        self.assertEqual(graph[ns + "WorkItem/Project"]["owl:inverseOf"], {"@id": ns + "Project/WorkItems"})
+        self.assertEqual(graph[ns + "Project/WorkItems"]["owl:inverseOf"], {"@id": ns + "WorkItem/Project"})
+        self.assertEqual(graph[ns + "Project/WorkItems"]["rdfs:label"], "has")
+        self.assertEqual(graph[ns + "Project"]["scaffold:aggregateRole"], "root")
+        self.assertEqual(graph[ns + "WorkItem"]["scaffold:aggregateRole"], "owned-child")
+        self.assertEqual(graph[ns + "Incident"]["scaffold:aggregateRole"], "inherited")
+        self.assertEqual(graph[ns + "Project"]["skos:altLabel"], ["Initiative"])
+        self.assertIs(graph[ns + "WorkItem/ReporterEmail"]["scaffold:pii"], True)
+        self.assertNotIn("scaffold:pii", graph[ns + "WorkItem/Title"])
+        self.assertEqual(graph[ns + "ProjectSchedule"]["scaffold:conceptKind"], "value-object")
+        self.assertEqual(graph[ns + "Project/Schedule"]["rdfs:range"], {"@id": ns + "ProjectSchedule"})
+        self.assertEqual(graph[ns + "Project/Status/values/Draft"]["skos:inScheme"], {"@id": ns + "Project/Status/values"})
+        self.assertEqual(graph[ns.rstrip("/")]["scaffold:sourceHash"], ontology.spec_hash(self._spec()))
+
+        work_item = self._fabric(root, "EntityTypes")["WorkItem"]
+        by_name = {p["name"]: p for p in work_item["properties"]}
+        self.assertEqual(by_name["ReporterEmail"]["semanticEnrichment"]["customAttributes"]["pii"], "true")
+        self.assertEqual(work_item["entityIdParts"], [by_name["Id"]["id"]])
+        self.assertIn("TenantId", by_name)
+        self.assertEqual(work_item["displayNamePropertyId"], by_name["Title"]["id"])
+        project = self._fabric(root, "EntityTypes")["Project"]
+        project_props = {p["name"] for p in project["properties"]}
+        self.assertTrue({"ScheduleStartDate", "ScheduleDueDate"} <= project_props)  # value object flattened
+        incident = self._fabric(root, "EntityTypes")["Incident"]
+        self.assertEqual(incident["baseEntityTypeId"], work_item["id"])
+        self.assertEqual([p["name"] for p in incident["properties"]], ["Severity"])
+        edge = self._fabric(root, "RelationshipTypes")["Project_WorkItems"]
+        attrs = edge["semanticEnrichment"]["customAttributes"]
+        self.assertEqual(attrs["targetRole"], "Project")
+        self.assertEqual((attrs["sourceCardinality"], attrs["targetCardinality"]), ("1", "*"))
+        self.assertEqual(edge["source"]["entityTypeId"], project["id"])
+        self.assertEqual(edge["target"]["entityTypeId"], work_item["id"])
+
+    def test_mermaid_diagram(self):
+        root = self._root(self._spec())
+        self.assertEqual(self._run(root)[0], 0)
+        md = (root / ontology.OUTPUT_ROOT / "ontology.md").read_text(encoding="utf-8")
+        for needle in ("```mermaid\nclassDiagram", "<<root>>", "<<owned-child>>", "<<value-object>>", "<<external>>",
+                       "WorkItem <|-- Incident", 'Project "1" *-- "*" WorkItem : has', "Project --> ProjectSchedule : Schedule"):
+            self.assertIn(needle, md)
+        self.assertNotIn("classDef", md)
+        self.assertNotIn("classDiagram-v2", md)
+        self.assertIn("sourceHash: " + ontology.spec_hash(self._spec()), md.splitlines()[0])
+
+    def test_check_lifecycle(self):
+        root = self._root(self._spec())
+        self.assertEqual(self._run(root)[0], 0)
+        self.assertEqual(self._run(root, "--check")[0], 0)
+
+        spec_path = root / ".scaffold" / "domain-specification.yaml"
+        spec_path.write_text(spec_path.read_text(encoding="utf-8").replace("Work container owned by one tenant", "Edited"), encoding="utf-8")
+        code, out = self._run(root, "--check")
+        self.assertEqual(code, 1)
+        self.assertIn("spec changed", out)
+        self.assertEqual(self._run(root)[0], 0)
+        self.assertEqual(self._run(root, "--check")[0], 0)
+
+        md = root / ontology.OUTPUT_ROOT / "ontology.md"
+        md.write_text(md.read_text(encoding="utf-8") + "\nhand edit\n", encoding="utf-8")
+        code, out = self._run(root, "--check")
+        self.assertEqual(code, 1)
+        self.assertIn("ontology.md", out)
+        self.assertEqual(self._run(root)[0], 0)
+
+        for path in (root / ontology.OUTPUT_ROOT).rglob("*"):
+            if path.is_file():
+                path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+        self.assertEqual(self._run(root, "--check")[0], 0)  # autocrlf clones must not false-flag
+
+        removed = self._spec(lambda s: s["entities"].pop())  # drop Incident
+        incident_dir = root / ontology.OUTPUT_ROOT / "fabric-iq" / "EntityTypes" / ontology.fabric_id(self.ns + "Incident")
+        self.assertTrue(incident_dir.is_dir())
+        import yaml
+        spec_path.write_text(yaml.safe_dump(removed, sort_keys=False), encoding="utf-8")
+        code, out = self._run(root)
+        self.assertEqual(code, 0, out)
+        self.assertIn("1 pruned", out)
+        self.assertFalse(incident_dir.exists())
+        self.assertEqual(self._run(root, "--check")[0], 0)
+
+    def test_negative_paths(self):
+        no_block = self._root(self._spec(lambda s: s.pop("ontology")))
+        code, out = self._run(no_block)
+        self.assertEqual(code, 0)
+        self.assertIn("skipped", out)
+        self.assertFalse((no_block / ontology.OUTPUT_ROOT).exists())
+
+        (no_block / ontology.OUTPUT_ROOT).mkdir()
+        code, out = self._run(no_block)
+        self.assertEqual(code, 1)
+        self.assertIn("remove .scaffold/ontology/ or restore ontology:", out)
+
+        def set_block(value):
+            return lambda s: s.__setitem__("ontology", value)
+
+        self.assertEqual(self._run(self._root(self._spec(set_block({}))))[0], 2)
+
+        def bad_extends(s):
+            s["entities"][-1]["extends"] = "Nope"
+        self.assertEqual(self._run(self._root(self._spec(bad_extends)))[0], 2)
+
+        def cycle(s):
+            s["entities"][1]["extends"] = "Incident"  # WorkItem -> Incident -> WorkItem
+        self.assertEqual(self._run(self._root(self._spec(cycle)))[0], 2)
+
+        def member_clash(s):
+            s["entities"][1]["properties"].append({"name": "Project", "kind": "identifier"})
+        code, out = self._run(self._root(self._spec(member_clash)))
+        self.assertEqual(code, 2)
+        self.assertIn("Project", out)
+
+    def test_warnings_and_strict(self):
+        def noisy(s):
+            s["entities"][0]["properties"].append({"name": "Budget", "kind": "money"})
+            s["entities"][0]["properties"].append({"name": "Due Date", "kind": "date"})
+        root = self._root(self._spec(noisy))
+        code, out = self._run(root)
+        self.assertEqual(code, 0)
+        self.assertIn("money -> Double", out)
+        self.assertIn("'Project.Due Date' does not match", out)
+        md = (root / ontology.OUTPUT_ROOT / "ontology.md").read_text(encoding="utf-8")
+        self.assertIn("money -> Double", md)
+        self.assertEqual(self._run(root, "--strict")[0], 1)
+        self.assertEqual(self._run(root, "--check")[0], 0)
+
+    def test_module_constants(self):
+        self.assertEqual(ontology.META_NS, "urn:scaffold-ai:ontology-meta#")
+        self.assertEqual(ontology.OUTPUT_ROOT.as_posix(), ".scaffold/ontology")
+        self.assertEqual(set(ontology.FABRIC_VALUE_TYPE), set(ontology.XSD_RANGE))
+        self.assertEqual(set(ontology.CARDINALITY), {"one-to-many", "one-to-one", "many-to-many", "self-referencing", "polymorphic-join"})
+        fid = ontology.fabric_id("https://example.com/x")
+        self.assertTrue(0 < int(fid) <= 0x7FFF_FFFF_FFFF_FFFF)
+
+    @unittest.skipUnless(importlib.util.find_spec("jsonschema"), "jsonschema not installed")
+    def test_fixture_validates_against_schema(self):
+        import jsonschema
+        schema = json.loads((REPO_ROOT / "schemas" / "domain-specification.schema.json").read_text(encoding="utf-8"))
+        jsonschema.validate(self.fixture, schema)
+        jsonschema.validate(self._spec(), schema)
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(self._spec(lambda s: s.__setitem__("ontology", {})), schema)  # namespace required
 
 
 class GoldenPathTests(unittest.TestCase):

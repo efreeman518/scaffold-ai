@@ -12,6 +12,7 @@ Phase 1 also writes:
 
 - `.scaffold/UBIQUITOUS-LANGUAGE.md` - shared domain vocabulary for future AI/developer sessions.
 - `.scaffold/DESIGN-DECISIONS.md` - decision log and dependency graph for design choices.
+- `.scaffold/ontology/` - only when the spec declares `ontology:`; a generated projection of this YAML (regenerate, never edit). Command and outputs: [../support/ontology-projection.md](../support/ontology-projection.md) section Generate.
 
 Run the shared understanding interview before finalizing this YAML. See [shared-understanding-interview.md](shared-understanding-interview.md).
 
@@ -377,6 +378,53 @@ Identify decisions or processes where an AI agent could assist. Focus on what th
 
 Add AI capabilities when search should be meaning-based (not just keyword filters), decisions involve classification/ranking/NL reasoning, or content generation/summarization is needed. Implementation details (models, indexes, prompts) are Phase 2/4 concerns - see [skills/ai-integration.md](../skills/ai-integration.md).
 
+## Enterprise Ontology Alignment (Optional)
+
+Opt in by declaring a top-level `ontology:` block. Its presence makes `.scaffold/ontology/` a generated Phase 1 output (owner: [../support/ontology-projection.md](../support/ontology-projection.md)); its absence changes nothing. The interview asks the question once - see [shared-understanding-interview.md](shared-understanding-interview.md) section Enterprise Model Alignment Decision.
+
+```yaml
+ontology:
+  namespace: https://example.com/ontology/workboard/     # IRI base, ends in / or #
+  boundedContext: WorkBoard                               # optional, defaults to ProjectName
+  owner: Delivery Operations
+  alignsWith:
+    - name: Enterprise Work Model
+      namespace: https://example.com/ontology/enterprise/
+
+entities:
+  - name: Project
+    synonyms: [Initiative]
+    systemOfRecord: true
+    alignment:
+      specializes: https://example.com/ontology/enterprise/WorkContainer
+    children:
+      - { name: WorkItems, entity: WorkItem, relationship: one-to-many, predicate: has }
+  - name: Incident
+    extends: WorkItem
+    navigation:
+      - { name: Project, entity: Project, required: true, predicate: belongsTo }
+```
+
+| Field | Where | Meaning |
+|---|---|---|
+| `namespace` | `ontology` | IRI base for every concept in this module; required when the block exists. |
+| `boundedContext` | `ontology` | Label for the module; defaults to `ProjectName`. |
+| `owner` | `ontology` | Team or role that owns the module, in business language. |
+| `alignsWith[]` | `ontology` | Upstream or enterprise models (`name`, `namespace`) that `alignment` IRIs may point into. |
+| `extends` | entity | This entity is a kind of another entity in this file (is-a). |
+| `synonyms[]` | entity, value object | Accepted alternate names. |
+| `owner` | entity | Overrides `ontology.owner` for one concept. |
+| `systemOfRecord` | entity | `true` (default) this app masters the concept; `false` it consumes it from another system. |
+| `alignment.equivalentTo` / `alignment.specializes` | entity, value object | This concept is the same as, or a specialization of, an external concept IRI. |
+| `predicate` | child and navigation relationship | Verb read from the declaring entity (`has`, `belongsTo`, `assignedTo`). |
+
+Rules:
+
+- `extends` is is-a within this file only. It is how the shared-base-entity advice above (`Notification` with `EmailNotification`, `SmsNotification`) becomes expressible; it never replaces `children` or `navigation` ownership.
+- `systemOfRecord: false` marks a consumed concept. Keep the entity in the spec (the app still stores or caches it); the projection tells the enterprise model who masters it.
+- `synonyms` are accepted alternates. A term listed under Rejected Synonyms in `.scaffold/UBIQUITOUS-LANGUAGE.md` never appears here.
+- `sensitive: true` is exported as `pii`. Phase 1 introduces no separate classification taxonomy; graded classification stays a Phase 2 compliance concern.
+
 ---
 
 ## Tenancy & Auth Model
@@ -411,6 +459,7 @@ Work through these in order during Phase 1 after loading [shared-understanding-i
 7. **Workflows** - what multi-step processes exist beyond CRUD?
 8. **AI capabilities** - what searches should be "smart"? What decisions could an agent help with? What content should be generated or summarized?
 9. **Tenancy/auth** - who can see/do what?
+10. **Enterprise model alignment** - one question: does this domain align with a shared glossary, upstream ontology, or analytics ontology? Default no.
 
 After each branch, recap the current understanding, confirmed language, design decisions, open conflicts, and deferred items. Do not write final YAML until every branch is confirmed, defaulted, or deferred.
 
@@ -431,5 +480,6 @@ Before moving to Phase 2 (Resource Definition), verify all of the following:
 - [ ] `projectNamePrefix` is set (`solution-name` or `none`), confirmed with the developer, and recorded in `.scaffold/DESIGN-DECISIONS.md`
 - [ ] At least one entity is defined
 - [ ] If `aiCapabilities` is defined: every referenced entity exists, every `agentWorkflows` entry references defined entities, and `searchableFields` reference defined properties
+- [ ] If `ontology` is defined: `namespace` is set, every `extends` names an entity in this file, and `python {instructionsRoot}/scripts/generate-ontology.py --root . --check` exits 0 after generating `.scaffold/ontology/`
 - [ ] `.scaffold/UBIQUITOUS-LANGUAGE.md` contains every entity, state, event, command/action, role, policy, and value object name from this file
 - [ ] `.scaffold/DESIGN-DECISIONS.md` records non-obvious choices and marks each blocking Phase 2 decision `confirmed`, `defaulted`, or `deferred`
