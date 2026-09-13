@@ -123,7 +123,7 @@
       "uniqueItems": true,
       "items": { "type": "string", "minLength": 1 },
       "default": ["Azure"],
-      "description": "Named presets of defaults for independent provider switches. A lane is not a runtime branch outside the lane resolver and AppHost topology map."
+      "description": "Named presets of defaults for independent provider switches. Azure and NonAzure are the proven strict lanes; Portable is a deprecated input alias for NonAzure. A lane is not a runtime branch outside the lane resolver and AppHost topology map."
     },
     "hostingLaneDefaults": {
       "type": "object",
@@ -141,7 +141,12 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "type": "string", "enum": ["Cosmos", "Relational"] }
+      "items": {
+        "oneOf": [
+          { "type": "string", "enum": ["Cosmos", "PostgreSqlJsonb", "MongoDb"] },
+          { "const": "Relational", "deprecated": true, "description": "Deprecated one-release alias for PostgreSqlJsonb." }
+        ]
+      }
     },
     "auditProviders": {
       "type": "array",
@@ -370,7 +375,12 @@
         "databaseProvider": { "type": "string", "enum": ["SqlServer", "PostgreSql"] },
         "messagingProvider": { "type": "string", "enum": ["ServiceBus", "RabbitMq"] },
         "storageProvider": { "type": "string", "enum": ["AzureBlob", "S3"] },
-        "readModelProvider": { "type": "string", "enum": ["Cosmos", "Relational"] },
+        "readModelProvider": {
+          "oneOf": [
+            { "type": "string", "enum": ["Cosmos", "PostgreSqlJsonb", "MongoDb"] },
+            { "const": "Relational", "deprecated": true, "description": "Deprecated one-release alias for PostgreSqlJsonb." }
+          ]
+        },
         "auditProvider": { "type": "string", "enum": ["AzureTable", "Relational"] },
         "searchProvider": { "type": "string", "enum": ["AzureAiSearch", "PgVector", "Sql", "None"] },
         "aiProvider": { "type": "string", "enum": ["AzureInference", "OpenAICompatible", "FoundryLocal", "None"] },

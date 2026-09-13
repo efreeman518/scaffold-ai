@@ -56,7 +56,7 @@ deployTargets: [ContainerApps]
 Multi-lane projects declare every supported arm and the lane defaults:
 
 ```yaml
-hostingLanes: [Azure, Portable]
+hostingLanes: [Azure, NonAzure]
 hostingLaneDefaults:
   Azure:
     databaseProvider: SqlServer
@@ -67,18 +67,18 @@ hostingLaneDefaults:
     searchProvider: AzureAiSearch
     aiProvider: AzureInference
     dataProtectionPersistence: AzureBlob
-  Portable:
+  NonAzure:
     databaseProvider: PostgreSql
     messagingProvider: RabbitMq
     storageProvider: S3
-    readModelProvider: Relational
+    readModelProvider: PostgreSqlJsonb
     auditProvider: Relational
     searchProvider: Sql
     aiProvider: OpenAICompatible
     dataProtectionPersistence: Redis
 
 storageProviders: [AzureBlob, S3]
-readModelProviders: [Cosmos, Relational]
+readModelProviders: [Cosmos, PostgreSqlJsonb, MongoDb]
 auditProviders: [AzureTable, Relational]
 searchProviders: [AzureAiSearch, PgVector, Sql]
 aiProviders: [AzureInference, OpenAICompatible, FoundryLocal, None]
@@ -86,7 +86,7 @@ dataProtectionPersistence: [AzureBlob, Redis, None]
 deployTargets: [ContainerApps, DockerCompose]
 ```
 
-`Portable` means the selected application dependencies have non-Azure implementations. It does not promise cloud independence when identity, configuration, secrets, DNS, telemetry, or deployment still consumes an Azure service. List retained cloud dependencies explicitly.
+`NonAzure` means selected application dependencies have non-Azure implementations. It does not promise cloud independence when identity, configuration, secrets, DNS, telemetry, or deployment still consumes an Azure service. List retained cloud dependencies explicitly. `Portable` remains a one-release input alias for `NonAzure`; do not emit it as a canonical lane. `Relational` remains a one-release input alias for the default NonAzure `PostgreSqlJsonb` read model. `MongoDb` is the explicit document-database alternative.
 
 ## Statelessness and Stateful Exceptions
 

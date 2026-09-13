@@ -304,7 +304,7 @@ Options: Azure Service Bus, RabbitMQ, Event Grid, Event Hubs. See [skills/messag
 |---|---|---|
 | `deployTarget` | `ContainerApps` | `ContainerApps`, `AppService`, `AKS` |
 | `deployTargets` | `[ContainerApps]` | `ContainerApps`, `AppService`, `AKS`, `DockerCompose`, `Kubernetes` |
-| `hostingLanes` | `[Azure]` | Named presets such as `Azure`, `Portable`, or a project-defined lane |
+| `hostingLanes` | `[Azure]` | Named presets such as proven strict `Azure` and `NonAzure` lanes, or a project-defined lane; `Portable` is a deprecated input alias for `NonAzure` |
 | `hostingLaneDefaults` | omitted for one lane | Per-lane defaults for independent provider switches |
 | `useAspire` | `true` | local orchestration |
 | `includeApi` | `true` | |
@@ -323,7 +323,7 @@ Options: Azure Service Bus, RabbitMQ, Event Grid, Event Hubs. See [skills/messag
 For more than one lane, declare the supported provider arrays and a `hostingLaneDefaults` entry for each lane. A lane seeds defaults only. Each provider resolver follows `environment > config > lane default > hard default`; explicit unknown values fail startup instead of silently selecting another provider. Keep provider selection out of Domain and Application code, and keep each provider family independently overridable.
 
 ```yaml
-hostingLanes: [Azure, Portable]
+hostingLanes: [Azure, NonAzure]
 hostingLaneDefaults:
   Azure:
     databaseProvider: SqlServer
@@ -334,24 +334,26 @@ hostingLaneDefaults:
     searchProvider: AzureAiSearch
     aiProvider: AzureInference
     dataProtectionPersistence: AzureBlob
-  Portable:
+  NonAzure:
     databaseProvider: PostgreSql
     messagingProvider: RabbitMq
     storageProvider: S3
-    readModelProvider: Relational
+    readModelProvider: PostgreSqlJsonb
     auditProvider: Relational
     searchProvider: Sql
     aiProvider: OpenAICompatible
     dataProtectionPersistence: Redis
 
 storageProviders: [AzureBlob, S3]
-readModelProviders: [Cosmos, Relational]
+readModelProviders: [Cosmos, PostgreSqlJsonb, MongoDb]
 auditProviders: [AzureTable, Relational]
 searchProviders: [AzureAiSearch, PgVector, Sql]
 aiProviders: [AzureInference, OpenAICompatible, FoundryLocal, None]
 dataProtectionPersistence: [AzureBlob, Redis, None]
 deployTargets: [ContainerApps, DockerCompose]
 ```
+
+`Portable` remains a one-release input alias for `NonAzure`; do not emit it as a canonical lane. `Relational` remains a one-release input alias for `PostgreSqlJsonb`. `MongoDb` is an explicit NonAzure read-model alternative, not the default.
 
 Record per-host runtime choices only when measured or required, and keep the common probe contract explicit:
 
