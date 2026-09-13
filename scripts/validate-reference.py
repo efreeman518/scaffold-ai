@@ -100,9 +100,15 @@ CONDITIONAL_EVIDENCE: tuple[
         ("tests/Test.UI/Test.UI.csproj",),
     ),
     (
-        ({"hostingLanes": ["Azure", "Portable"]},),
         (
-            ("src/Application/TaskFlow.Application.Contracts/Configuration/HostingLaneSelector.cs", "TASKFLOW_LANE"),
+            {"hostingLanes": ["Azure", "NonAzure"]},
+            {"hostingLanes": ["Azure", "Portable"]},
+        ),
+        (
+            ("src/Shared/TaskFlow.Hosting/HostingLane.cs", 'LaneEnvironmentVariable = "TASKFLOW_LANE"'),
+            ("src/Shared/TaskFlow.Hosting/HostingLane.cs", 'normalized.Equals("Portable"'),
+            ("src/Shared/TaskFlow.Hosting/HostingLane.cs", '"PostgreSqlJsonb", "MongoDb"'),
+            ("src/Shared/TaskFlow.Hosting/HostingLane.cs", 'value.Equals("Relational"'),
             ("src/Host/TaskFlow.Bootstrapper/Registration/ProviderSwitchAttribute.cs", "ProviderSwitchAttribute"),
             ("src/Host/Aspire/ServiceDefaults/Extensions.cs", 'MapHealthChecks("/healthz/live"'),
             ("src/Host/Aspire/ServiceDefaults/Extensions.cs", 'MapHealthChecks("/healthz/ready"'),

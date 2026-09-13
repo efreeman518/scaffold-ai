@@ -483,17 +483,38 @@ class ReferenceValidatorTests(unittest.TestCase):
             reference_validator.check_declared_evidence(self.tmp, {"includeKeyVault": False, "useAspire": True}),
             [],
         )
-        # A declared dual hosting lane requires selector, topology, probe, and deploy evidence.
+        # A declared strict dual hosting lane requires the shared selector, topology, probe, and deploy evidence.
         errors = reference_validator.check_declared_evidence(
+            self.tmp, {"hostingLanes": ["NonAzure", "Azure"]}
+        )
+        self.assertTrue(any("src/Shared/TaskFlow.Hosting/HostingLane.cs" in error for error in errors))
+        self.assertTrue(any("AppHostLaneTopologyTests.cs" in error for error in errors))
+        # The one-release Portable alias retains the same proof obligation.
+        alias_errors = reference_validator.check_declared_evidence(
             self.tmp, {"hostingLanes": ["Portable", "Azure"]}
         )
-        self.assertTrue(any("HostingLaneSelector.cs" in error for error in errors))
-        self.assertTrue(any("AppHostLaneTopologyTests.cs" in error for error in errors))
+        self.assertTrue(any("src/Shared/TaskFlow.Hosting/HostingLane.cs" in error for error in alias_errors))
         # Declared-config self-consistency is retained.
         errors = reference_validator.check_declared_evidence(
             self.tmp, {"includeNotifications": False, "notifications": [{"name": "x"}]}
         )
         self.assertTrue(any("notification entries" in error for error in errors))
+
+    @unittest.skipUnless(importlib.util.find_spec("jsonschema"), "jsonschema not installed")
+    def test_read_model_schema_accepts_canonical_providers_and_deprecated_alias(self):
+        import jsonschema
+
+        schema = json.loads(
+            (REPO_ROOT / "schemas" / "resource-implementation.schema.json").read_text(encoding="utf-8")
+        )
+        provider_schema = schema["properties"]["readModelProviders"]["items"]
+        lane_default_schema = schema["$defs"]["hostingLaneDefault"]["properties"]["readModelProvider"]
+
+        for provider in ("Cosmos", "PostgreSqlJsonb", "MongoDb", "Relational"):
+            jsonschema.validate(provider, provider_schema)
+            jsonschema.validate(provider, lane_default_schema)
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate("UnknownDocumentStore", provider_schema)
 
     def test_markdown_links_detect_missing_tracked_target(self):
         docs = self.tmp / "docs"
