@@ -121,6 +121,10 @@ await client.PostAsJsonAsync("/api/task-items", new DefaultRequest<TaskItemDto> 
 
 Centralize on `JsonTestOptions.Default`; do **not** construct ad-hoc `JsonSerializerOptions` per test - drift between tests masks contract regressions.
 
+### ProblemDetails Correlation Contract
+
+Configure correlation once through `AddProblemDetails` so typed endpoint errors and the global exception handler expose the same fields. `requestId` is `HttpContext.TraceIdentifier`; `traceId` and `spanId` are the W3C identifiers from `Activity.Current`. Never label the request identifier as `traceId`, and remove the ambiguous `activityId` field. The exception handler must write through `IProblemDetailsService`, not serialize its own body and bypass the customizer. Pin both a typed 400/412 response and an unhandled-exception response, including concurrent requests with distinct IDs. Canonical registration: [exception-handler-template.md](../templates/exception-handler-template.md).
+
 ### Standalone CORS (Without Aspire)
 
 When the API runs without Aspire orchestration (e.g. `dotnet run --launch-profile https` directly), the browser WASM client cannot reach it without an explicit CORS policy. Add this before authentication middleware:
@@ -223,7 +227,7 @@ Required endpoint rules:
        value  => TypedResults.Ok(new DefaultResponse<T>(value)),
        errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
                      errors: errors, statusCodeOverride: StatusCodes.Status400BadRequest,
-                     traceId: httpContext.TraceIdentifier, includeStackTrace: _problemDetailsIncludeStackTrace)),
+                     includeStackTrace: _problemDetailsIncludeStackTrace)),
        ()     => TypedResults.NotFound());
 
    // Non-generic Result (2 branches - fire-and-forget commands)
@@ -231,9 +235,9 @@ Required endpoint rules:
        ()     => TypedResults.Ok(),
        errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
                      errors: errors, statusCodeOverride: StatusCodes.Status400BadRequest,
-                     traceId: httpContext.TraceIdentifier, includeStackTrace: _problemDetailsIncludeStackTrace)));
+                     includeStackTrace: _problemDetailsIncludeStackTrace)));
    ```
-4. **Handler signature:** `HttpContext httpContext` must be the first parameter on every handler (needed for `traceId` in `ProblemDetailsHelper`). `CancellationToken` is the last parameter. **Every service-typed parameter MUST carry an explicit `[FromServices]` attribute.** This is non-negotiable.
+4. **Handler signature:** `HttpContext httpContext`, when needed for request data such as the created-resource path, is the first parameter. Correlation fields come from the centralized ProblemDetails customizer, not each handler. `CancellationToken` is the last parameter. **Every service-typed parameter MUST carry an explicit `[FromServices]` attribute.** This is non-negotiable.
    ```csharp
    private static async Task<IResult> GetById(
        HttpContext httpContext,
@@ -421,11 +425,12 @@ group.MapGet("/{id:guid}", GetById)
 - [ ] `Program.cs` wires bootstrapper + API services before `Build()`
 - [ ] Endpoints are static classes under `Endpoints/` with `Map{Entity}Endpoints(...)`
 - [ ] Route groups apply `.RequireAuthorization(...)` at the correct scope
-- [ ] All handlers have `HttpContext httpContext` as first parameter and `CancellationToken` as last
+- [ ] Handlers that need `HttpContext` place it first; every handler places `CancellationToken` last
 - [ ] Every handler uses `Result.Match<IResult>()` - no `IsSuccess`/`else` guards anywhere
 - [ ] Typed `Result<T>` handlers have all three branches (success, errors, none); non-generic `Result` handlers have two (success, errors)
 - [ ] `global using EF.AspNetCore;` present in `GlobalUsings.cs`
 - [ ] Validation and business errors return `ProblemDetails`/`ValidationProblem`
+- [ ] Typed and exception errors expose separate `requestId`, W3C `traceId`, and `spanId` through one customizer
 - [ ] Swagger/Scalar is gated by `OpenApiSettings:Enable`
 - [ ] `/healthz/live` and optional `/alive` run only `live` checks; `/healthz/ready` and optional `/health` run only `ready` checks; `/healthz` is the operator aggregate
 - [ ] Entra auth uses `AddMicrosoftIdentityWebApi` (service-to-service)

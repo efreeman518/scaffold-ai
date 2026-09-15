@@ -38,6 +38,13 @@ SDK upgrade discipline:
 - Resolve the latest stable SDK during generation and consult the vendor's current official upgrade guide when its API or project shape changed.
 - Do not hold a prior major by policy. If the latest stable SDK is temporarily blocked, use the four-part exception record above and keep the validating test in CI until removal.
 
+Package adoption and replacement discipline:
+
+- Prove a published member from the package reference before deleting an app-local implementation. A shadow copy can make restore/build pass without proving the package supplies the contract.
+- When a package supersedes local code, remove the duplicate and update design decisions, resource manifests, terminology, tests, generated clients, and proof maps in the same change.
+- Treat an upgrade as a wire-contract change when it touches serialized members, cursors/tokens, persisted envelopes, generated clients, or provider-translated expressions. Keep literal previous-version payload/token tests where compatibility matters, regenerate affected clients, and exercise the real provider rather than only LINQ-to-Objects.
+- A shipped member may be rejected when it is not correct for the app. Record the concrete defect, retained implementation, package acceptance criteria, and removal condition instead of wrapping or silently forking both paths.
+
 ## Minimize Third-Party Dependencies (Mandatory)
 
 **Default: do not add a new third-party package.** Prefer the BCL, `Microsoft.Extensions.*`, ASP.NET Core built-ins, and the reference-app stack already wired in TaskFlow. If a recurring pattern is missing, write a small extension method in the appropriate layer instead of pulling in a library.

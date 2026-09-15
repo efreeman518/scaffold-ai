@@ -147,6 +147,7 @@ jobs:
   build-and-test:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       NUGET_AUTH_TOKEN: ${{ secrets.NUGET_PAT }}
     steps:
@@ -155,7 +156,7 @@ jobs:
         with:
           global-json-file: global.json
 
-      # Install extra workloads if solution includes WASM/Uno projects
+      # Ephemeral hosted runner only: install extra workloads if solution includes WASM/Uno projects
       # - run: dotnet workload install wasm-tools
 
       - run: dotnet restore {SolutionName}.slnx
@@ -173,7 +174,7 @@ jobs:
 
       # Fast tiers: always run, no Docker, no gate.
       # Target specific test projects to avoid "No test matches" noise from unrelated projects
-      - run: dotnet test tests/Test.Unit/Test.Unit.csproj --no-build --configuration Release
+      - run: dotnet test tests/Test.Unit/Test.Unit.csproj --no-build --configuration Release --blame-hang --blame-hang-timeout 5m
       - run: dotnet test tests/Test.Endpoints/Test.Endpoints.csproj --no-build --configuration Release
       - run: dotnet test tests/Test.Architecture/Test.Architecture.csproj --no-build --configuration Release
 
@@ -198,6 +199,13 @@ jobs:
       # Test.PlaywrightUI / Test.Mobile / Test.FoundryLocal each need runner setup the main
       # job should not carry - see the separate jobs below.
 ```
+
+Workflow evidence rules:
+
+- Run the complete `Test.Unit` project unfiltered under both a step/job timeout and `--blame-hang`; category filters are diagnostics, not acceptance.
+- A persistent self-hosted runner is shared infrastructure. Preflight required SDK workloads and fail with the exact install command; CI must not install/remove workloads, edit machine PATH, or mutate global tooling there. Installation steps are limited to disposable hosted runners.
+- External CLI lookup/deploy steps capture exit code and stderr, fail on nonzero, and only parse output after success. Never turn a failed image/resource lookup into an empty fallback value.
+- Cross-platform text-contract tests normalize CRLF before parsing or accept `\r?\n` explicitly while preserving the semantic assertion.
 
 The committed `nuget.config` uses an environment placeholder such as `<add key="ClearTextPassword" value="%NUGET_AUTH_TOKEN%" />`; the value remains a placeholder in source. Never run a command that writes the resolved secret back into the tracked file. Mask credentials, keep them out of command lines, and exclude `nuget.config`, environment dumps, and credential-provider caches from uploaded diagnostics.
 
@@ -545,7 +553,8 @@ Use manual dispatch per environment:
 
 1. OIDC login
 2. `az bicep build --file infra/main.bicep`
-3. deploy with `azure/arm-deploy@<latest-stable-sha>`
+3. Parse or query the compiled template and assert critical resource kind, identity/RBAC binding, configuration names, dependency ordering, and scaling shape. Source-text substring checks are supplemental only.
+4. deploy with `azure/arm-deploy@<latest-stable-sha>`
 
 Run infra separately from app rollout unless the team explicitly couples both.
 

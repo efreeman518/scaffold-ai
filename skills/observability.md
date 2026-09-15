@@ -93,6 +93,21 @@ YARP preserves correlation headers by default. Forward: `X-Correlation-Id`, `tra
 
 HTTP instrumentation does not propagate trace context through a broker automatically. Producers start a Producer activity and inject W3C `traceparent`/`tracestate` into transport headers. Consumers extract that context and start a Consumer activity with the extracted parent. Keep correlation/business identifiers in the versioned message envelope, but do not substitute them for trace parenting. Each transport adapter needs a parent-continuity test; see [messaging.md](messaging.md) section Broker Trace Context.
 
+### Signal and Deployment Sink Contract
+
+Telemetry signals are independently selectable. Metrics stay enabled unless cost, volume, or sink capability justifies disabling them. One configuration switch must gate every application meter and metrics exporter; disabling it must not remove log or trace providers, OTLP log/trace export, or a provider-specific log/trace exporter. Add a registration test that resolves no `MeterProvider` when disabled while tracer and logger exporters remain registered.
+
+The local Aspire Dashboard is local inspection, not evidence for a deployed telemetry sink. When a self-hosted or managed deployment sink is selected:
+
+- persist its data and configure a positive numeric retention period;
+- keep its UI private unless explicitly exposed through authenticated ingress;
+- give application containers ingestion-only credentials, and keep bootstrap/root credentials in the deployment boundary;
+- use a bounded external health check, then emit and query at least one uniquely identified log and trace through the exact configured OTLP protocol;
+- apply the same health, authenticated ingestion, query, retention, and numeric-minimum gates to deploy and rollback;
+- mask credentials and generated authorization headers in command output and diagnostic artifacts.
+
+Changing sink storage or removing a legacy volume is a data migration. Inspect and back it up first, then require an explicit operator action; deployment automation must not delete it implicitly. Vendor choice remains deployment-specific.
+
 ---
 
 ## Custom Metrics
@@ -151,3 +166,5 @@ Aspire wiring: ServiceDefaults calls `AddDefaultHealthChecks()` to register the 
 - [ ] Critical dependency failure makes `/healthz/ready` unhealthy while `/healthz/live` stays healthy
 - [ ] Broker transports preserve W3C trace parenting across publish and consume
 - [ ] ServiceDefaults OpenTelemetry wiring not duplicated
+- [ ] Disabling metrics leaves log and trace export intact and gates every application meter
+- [ ] Deployed telemetry has persistence, positive retention, least-privilege ingestion, and symmetric deploy/rollback smoke gates

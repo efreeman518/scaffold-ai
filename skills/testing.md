@@ -14,6 +14,14 @@ A test that did not actually exercise its target must **never report green.** `A
 
 MSTest serializes `Inconclusive` to TRX as `outcome="NotExecuted"`; every such result must name the unmet prerequisite and its unblocking step. A genuine startup, readiness, routing, or assertion failure stays red. Record standing opt-outs in `HANDOFF.md` (section Deferred External Dependencies) so not-executed counts never hide invisible debt.
 
+Evidence rules:
+
+- Run each fast test project unfiltered as an acceptance gate. Category-filtered runs diagnose a tier; they do not prove tests with missing or changed categories were executed. Bound the process and retain hang diagnostics.
+- Name topology/configuration tests as contract proof, not live provider or deployment proof. A live claim requires the selected service and protocol to run.
+- Normalize line endings before parsing generated text, or use line anchors that accept `\r?\n`; never weaken the semantic assertion to make a Windows checkout pass.
+- A test-only bypass such as disabled edge rate limiting is permitted only behind an explicit Testing guard, with a negative test proving Production retains the control.
+- A host startup failure must be logged and rethrown so the process exits nonzero; a caught exception followed by a normal exit is a false-green test.
+
 ## TDD Protocol
 
 Phases 5a and 5b use test-first TDD: red -> green -> refactor. See [../ai/tdd-protocol.md](../ai/tdd-protocol.md).

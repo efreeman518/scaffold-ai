@@ -51,6 +51,17 @@ databaseProviders: [SqlServer]              # every EF provider that owns migrat
 deployTarget: ContainerApps                 # default/legacy scalar
 deployTargets: [ContainerApps]              # every supported deployment topology
 hostingLanes: [Azure]                       # lane presets; keep one unless another lane is required
+hostingLaneDefaults:
+  Azure:
+    databaseProvider: SqlServer
+    messagingProvider: ServiceBus
+    storageProvider: AzureBlob
+    readModelProvider: Cosmos
+    auditProvider: AzureTable
+    searchProvider: Sql
+    aiProvider: None
+    dataProtectionPersistence: AzureBlob
+    deploymentTarget: ContainerApps
 healthProbes: { live: /healthz/live, ready: /healthz/ready, aggregate: /healthz }
 ```
 
@@ -305,7 +316,7 @@ Options: Azure Service Bus, RabbitMQ, Event Grid, Event Hubs. See [skills/messag
 | `deployTarget` | `ContainerApps` | `ContainerApps`, `AppService`, `AKS` |
 | `deployTargets` | `[ContainerApps]` | `ContainerApps`, `AppService`, `AKS`, `DockerCompose`, `Kubernetes` |
 | `hostingLanes` | `[Azure]` | Named presets such as proven strict `Azure` and `NonAzure` lanes, or a project-defined lane; `Portable` is a deprecated input alias for `NonAzure` |
-| `hostingLaneDefaults` | omitted for one lane | Per-lane defaults for independent provider switches |
+| `hostingLaneDefaults` | one entry per lane | Per-lane compatible provider defaults and owned `deploymentTarget` |
 | `useAspire` | `true` | local orchestration |
 | `includeApi` | `true` | |
 | `includeGateway` | `false` | |
@@ -320,7 +331,7 @@ Options: Azure Service Bus, RabbitMQ, Event Grid, Event Hubs. See [skills/messag
 | `includeFlowEngine` | `false` | Enables `EF.FlowEngine` (durable JSON workflow orchestration). Generates a dedicated FE DbContext + registration partial + workflow seeding + admin endpoints + test project. See [../skills/flowengine.md](../skills/flowengine.md). |
 | `flowEngineDbStrategy` | `same-db-separate-schema` | `same-db-separate-schema` (Variant A - preserves atomic outbox; default), `separate-db` (Variant B/C - outbox best-effort). See [../support/ef-packages-reference.md](../support/ef-packages-reference.md) section FlowEngine Data-Layout Variants. |
 
-For more than one lane, declare the supported provider arrays and a `hostingLaneDefaults` entry for each lane. A lane seeds defaults only. Each provider resolver follows `environment > config > lane default > hard default`; explicit unknown values fail startup instead of silently selecting another provider. Keep provider selection out of Domain and Application code, and keep each provider family independently overridable.
+Declare a `hostingLaneDefaults` entry for each lane. Each provider resolver follows `environment > config > lane default > hard default`, then validates the selected value against that lane's allowed set. Explicit unknown and cross-lane values fail startup instead of silently selecting another provider. Keep provider selection out of Domain and Application code, and keep each provider family independently overridable within its lane.
 
 ```yaml
 hostingLanes: [Azure, NonAzure]
@@ -331,9 +342,10 @@ hostingLaneDefaults:
     storageProvider: AzureBlob
     readModelProvider: Cosmos
     auditProvider: AzureTable
-    searchProvider: AzureAiSearch
-    aiProvider: AzureInference
+    searchProvider: Sql
+    aiProvider: None
     dataProtectionPersistence: AzureBlob
+    deploymentTarget: ContainerApps
   NonAzure:
     databaseProvider: PostgreSql
     messagingProvider: RabbitMq
@@ -341,8 +353,9 @@ hostingLaneDefaults:
     readModelProvider: PostgreSqlJsonb
     auditProvider: Relational
     searchProvider: Sql
-    aiProvider: OpenAICompatible
+    aiProvider: None
     dataProtectionPersistence: Redis
+    deploymentTarget: DockerCompose
 
 storageProviders: [AzureBlob, S3]
 readModelProviders: [Cosmos, PostgreSqlJsonb, MongoDb]
@@ -353,7 +366,7 @@ dataProtectionPersistence: [AzureBlob, Redis, None]
 deployTargets: [ContainerApps, DockerCompose]
 ```
 
-`Portable` remains a one-release input alias for `NonAzure`; do not emit it as a canonical lane. `Relational` remains a one-release input alias for `PostgreSqlJsonb`. `MongoDb` is an explicit NonAzure read-model alternative, not the default.
+`Azure` and `NonAzure` use the strict compatibility matrix in [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md). Environment/configuration overrides may select only an allowed arm in the active lane. Keep `Sql` search and `None` AI as the default until their optional provider is provisioned. `NonAzure` rejects Azure services and provider arms from both configuration and environment sources. Use a separately named lane for an intentional mixed-provider profile. `Portable` remains a one-release input alias for `NonAzure`; do not emit it as a canonical lane. `Relational` remains a one-release input alias for `PostgreSqlJsonb`. `MongoDb` is an explicit NonAzure read-model alternative, not the default.
 
 Record per-host runtime choices only when measured or required, and keep the common probe contract explicit:
 
@@ -578,12 +591,20 @@ Valid modes:
 ```yaml
 externalDependencyModes:
   sql: emulator                   # emulator | deployment-only
+  postgres: emulator
   redis: emulator                 # emulator | lazy-optional | deployment-only
   serviceBus: no-op stub          # emulator | no-op stub | deployment-only
+  rabbitMq: emulator
   eventGrid: no-op stub
   keyVault: lazy-optional
   blobStorage: emulator
   cosmosDb: emulator
+  seaweedfs: emulator
+  mongoDb: lazy-optional
+  pgBouncer: lazy-optional
+  appConfiguration: lazy-optional
+  aspireDashboard: emulator
+  openObserve: deployment-only
   aiServices: lazy-optional       # Foundry Local in run mode, or Azure when configured/published; no-op IChatClient when neither is wired. AI Search stays deployment-only.
   externalApis:
     - name: PaymentGateway
@@ -592,7 +613,9 @@ externalDependencyModes:
       mode: deployment-only
 ```
 
-> **Rule:** Every `deployment-only` entry requires a `no-op stub` generated in Phase 5 and a blocker recorded in `HANDOFF.md`. The scaffold is not complete until the solution compiles and boots without any manual cloud setup.
+Dependency names are extensible, but every scalar dependency uses one typed mode from the table. Do not leave project-specific dependencies as arbitrary unvalidated strings. `aspireDashboard: emulator` describes local developer telemetry. A deployed sink such as `openObserve: deployment-only` is separate and requires persistent storage, least-privilege ingestion credentials, explicit positive retention, and bounded authenticated log/trace smoke in both deploy and rollback paths. A deployment-only declaration is configuration and workflow proof until that smoke runs against a live deployment.
+
+> **Rule:** Every application-consumed `deployment-only` entry requires a no-op or disabled adapter in Phase 5 and a blocker recorded in `HANDOFF.md`. A deployment-owned sink may instead be absent from the local graph, but local hosts must boot with its exporter unset. The scaffold is not complete until the solution compiles and boots without manual cloud setup.
 
 ---
 
@@ -635,6 +658,8 @@ Before moving to Phase 3 (Implementation Plan), verify all of the following:
 - [ ] If `packageStrategy: local` - `customNugetFeeds` is `[]`; `localPackageLayers` covers every layer in [`../support/ef-packages-reference.md`](../support/ef-packages-reference.md)
 - [ ] If `packageStrategy: hybrid` - `customNugetFeeds` has at least one entry **and** `localPackageLayers` lists only the layers the feed does not provide
 - [ ] `externalDependencyModes` declared for every external dependency
+- [ ] Every declared lane has one complete `hostingLaneDefaults` entry with an owned `deploymentTarget`; strict Azure/NonAzure defaults match their compatibility matrix and each target appears in `deployTargets`
+- [ ] A declared deployed telemetry sink has persistent storage, consumer-scoped ingestion credentials, explicit positive retention, and symmetric deploy/rollback health plus authenticated ingestion proof
 - [ ] If `useAspire: true`, Aspire-hosted dependencies are checked against [skills/aspire.md](../skills/aspire.md) and any non-baseline service has package/API/local-mode notes recorded
 - [ ] If `includeAiServices: true`: at least one model defined, each agent references a defined model, search indexes reference defined entities; `lifecycle: existing` sets `resourceName`/`resourceGroup`; `agentHosting: prompt-agent`/`pre-existing` sets `projectName`/`projectEndpoint`
 

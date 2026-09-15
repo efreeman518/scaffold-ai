@@ -65,6 +65,16 @@ builder.ConfigureFunctionsWebApplication();
 
 builder.AddServiceDefaults(); // shared telemetry/health/resilience seam - see Telemetry below
 
+// Keep HTTP-trigger JSON aligned with the API and clients. Put the generated
+// context first; retain reflection only for unavoidable dynamic framework shapes.
+builder.Services.Configure<WorkerOptions>(options =>
+{
+    var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+    json.TypeInfoResolverChain.Insert(0, {App}JsonContext.Default);
+    json.TypeInfoResolverChain.Add(new DefaultJsonTypeInfoResolver());
+    options.Serializer = new JsonObjectSerializer(json);
+});
+
 builder.Services
     .RegisterDomainServices(config)
     .RegisterInfrastructureServices(config)
@@ -83,6 +93,7 @@ Key constraints:
 
 - `appsettings.json` is loaded explicitly for app options.
 - runtime binding values come from `local.settings.json`/environment.
+- HTTP-capable Functions use `JsonSerializerDefaults.Web` plus the same converters and source-generated DTO metadata as the API. Tests serialize and parse with `JsonTestOptions.Default`; do not construct host-specific test options.
 - If the host uses `AuditInterceptor` or in-process message handlers, Functions still needs the shared background queue + internal bus wiring from the Bootstrapper.
 - startup should surface failures through structured logging.
 

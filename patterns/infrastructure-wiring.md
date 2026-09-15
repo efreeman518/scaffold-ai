@@ -75,6 +75,8 @@ public static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicati
 
 **Discipline gate (docs must match wiring).** "Azure Monitor in cloud" is a wiring claim, not a doc sentence. Every exporter or resource named in an Observability section (tech-design `§Observability`, `infra/README`, the implementation plan) MUST have a matching call-site here, or be explicitly tagged `not wired`. Do not assert a telemetry capability the code does not deliver. The same rule covers instrumentation meters: if a doc lists FusionCache/EF/etc. as instrumented, `ConfigureOpenTelemetry` must register that meter, or the doc drops the claim. Adding `UseAzureMonitor()` requires the `Azure.Monitor.OpenTelemetry.AspNetCore` package.
 
+Exporter gates are signal-specific. If configuration disables metrics, omit the metrics provider/exporter and application meters without gating away logs or traces. Where an all-signals convenience call cannot express that contract, register log, trace, and metric exporters separately and pin the disabled-metrics registration shape in a service-provider test. Deployment-sink requirements live in [../skills/observability.md](../skills/observability.md) section Signal and Deployment Sink Contract.
+
 **One shared telemetry resource.** In cloud there is exactly **one** shared, workspace-based Application Insights resource fanned to every host via `APPLICATIONINSIGHTS_CONNECTION_STRING` - never a per-host ad-hoc component. The resource lives in IaC ([../skills/iac.md](../skills/iac.md) section App Insights); this seam only consumes the injected connection string. App-level logging/metrics/tracing conventions are owned by [../skills/observability.md](../skills/observability.md); the Functions worker's instrumentation caveat by [../skills/function-app.md](../skills/function-app.md) section Telemetry.
 
 `MapDefaultEndpoints` maps three probes with distinct semantics - keep all three:
@@ -124,14 +126,14 @@ var migrator = builder.AddProject<Projects.{Host}_DatabaseMigrator>("{host}migra
     .WithReference(db, connectionName: "{Project}DbContextTrxn")
     .WithReference(db, connectionName: "{Project}FlowEngineDbContext")
     .WithReference(db, connectionName: "TickerQDbContext")
-    .WaitFor(sql);
+    .WaitFor(db);
 
 // -- API: one WithReference per pooled DbContext connection name, plus Redis
 var api = builder.AddProject<Projects.{Host}_Api>("{host}api")
     .WithReference(db, connectionName: "{Project}DbContextTrxn")
     .WithReference(db, connectionName: "{Project}DbContextQuery")
     .WithReference(redis, connectionName: "Redis1")
-    .WaitFor(sql)
+    .WaitFor(db)
     .WaitFor(redis)
     .WaitForCompletion(migrator)
     .WithExternalHttpEndpoints();
@@ -141,7 +143,7 @@ var scheduler = builder.AddProject<Projects.{Host}_Scheduler>("{host}scheduler")
     .WithReference(db, connectionName: "{Project}DbContextTrxn")
     .WithReference(db, connectionName: "{Project}DbContextQuery")
     .WithReplicas(1)
-    .WaitFor(sql)
+    .WaitFor(db)
     .WaitForCompletion(migrator);
 
 // -- Gateway (YARP): references API only. Destinations are injected here from resolved
@@ -161,9 +163,11 @@ await builder.Build().RunAsync();
 ```
 
 **Rules:**
+- Wait for the logical resource each consumer binds, such as `db`, not only its parent server/container. Declare the intended database explicitly (for PostgreSQL, set `POSTGRES_DB` when the image would otherwise create a different default), and leave a topology test that asserts every consumer's exact reference name and readiness edge.
 - **Every runtime host that touches the database declares `.WaitForCompletion(migrator)`** (API, Scheduler, Functions, workers). Runtime hosts never migrate - the migrator host owns schema (canonical rules: [../support/data-persistence-advanced.md](../support/data-persistence-advanced.md) section Migration Ownership: Dedicated Migrator Host).
 - **`.WithExternalHttpEndpoints()` on every host a developer must reach in a browser** (`api`, `gateway`, and UI hosts registered via `AddProject`). Without it the Aspire dashboard shows no URL and does not proxy browser traffic. `AddViteApp` applies it automatically; `AddProject` hosts do not.
 - Only include `AddViteApp(...)` when `includeReactUI: true`; if Gateway is disabled, reference the API project and pass its endpoint to `VITE_API_BASE_URL`.
+- A static UI reused across environments may read a same-origin `/app-config.json` generated at container startup. Serve it with `Cache-Control: no-store`, exclude it from immutable asset caching and SPA fallback, and fail deployment startup when required public values are absent. Keep local development on relative `/api` plus the Vite/Aspire proxy; a missing deployment config must not invent or require a workstation URL.
 - Gateway (YARP) destinations must be injected from the AppHost as resolved `api.GetEndpoint("http")` values - never read from the Gateway's own `appsettings.json` (DCP starts children with `--no-launch-profile` on dynamic ports). Depth: [../skills/aspire.md](../skills/aspire.md) -> *Gateway Reverse-Proxy Destinations Under Aspire (DCP)*.
 - This graph wires only local emulators/containers - **no** deployable Azure resources. When `deployTarget: ContainerApps` you MUST add the publish-mode branch: [../skills/aspire.md](../skills/aspire.md) -> *Publish-Mode Branch (deployTarget: ContainerApps)*.
 

@@ -459,6 +459,25 @@ class ReferenceValidatorTests(unittest.TestCase):
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text("x", encoding="utf-8")
 
+    def _make_conditional_evidence(self, condition_key: str) -> None:
+        entry = next(
+            item for item in reference_validator.CONDITIONAL_EVIDENCE
+            if any(condition_key in condition for condition in item[0])
+        )
+        _, sentinels, paths = entry
+        contents: dict[str, list[str]] = {}
+        for rel, expected in sentinels:
+            contents.setdefault(rel, []).append(expected)
+        for rel, expected in contents.items():
+            path = self.tmp / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("\n".join(expected), encoding="utf-8")
+        for rel in paths:
+            path = self.tmp / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.exists():
+                path.write_text("proof", encoding="utf-8")
+
     def test_declared_evidence_is_flag_conditional(self):
         self._make_always_evidence()
         # Undeclared capabilities require nothing beyond the always set.
@@ -500,6 +519,74 @@ class ReferenceValidatorTests(unittest.TestCase):
         )
         self.assertTrue(any("notification entries" in error for error in errors))
 
+    def test_strict_lane_contract_validates_defaults_targets_and_tamper_sentinels(self):
+        self._make_always_evidence()
+        self._make_conditional_evidence("hostingLanes")
+        resource = {
+            "hostingLanes": ["NonAzure", "Azure"],
+            "deployTargets": ["DockerCompose", "ContainerApps"],
+            "hostingLaneDefaults": reference_validator.STRICT_LANE_DEFAULTS,
+        }
+        self.assertEqual(reference_validator.check_declared_evidence(self.tmp, resource), [])
+
+        invalid = {
+            **resource,
+            "hostingLaneDefaults": {
+                **reference_validator.STRICT_LANE_DEFAULTS,
+                "NonAzure": {
+                    **reference_validator.STRICT_LANE_DEFAULTS["NonAzure"],
+                    "storageProvider": "AzureBlob",
+                    "deploymentTarget": "ContainerApps",
+                },
+            },
+        }
+        errors = reference_validator.check_declared_evidence(self.tmp, invalid)
+        self.assertTrue(any("NonAzure.storageProvider must be 'S3'" in error for error in errors))
+        self.assertTrue(any("NonAzure.deploymentTarget must be 'DockerCompose'" in error for error in errors))
+
+        portable = {
+            "hostingLanes": ["Portable"],
+            "deployTargets": ["DockerCompose"],
+            "hostingLaneDefaults": {
+                "Portable": reference_validator.STRICT_LANE_DEFAULTS["NonAzure"],
+            },
+        }
+        self.assertEqual(reference_validator.check_declared_evidence(self.tmp, portable), [])
+
+        custom_missing_defaults = {
+            "hostingLanes": ["PrivateCloud"],
+            "deployTargets": ["Kubernetes"],
+            "hostingLaneDefaults": {},
+        }
+        errors = reference_validator.check_declared_evidence(self.tmp, custom_missing_defaults)
+        self.assertTrue(any("hostingLaneDefaults.PrivateCloud is required" in error for error in errors))
+
+        lane_tests = self.tmp / "tests" / "Test.Unit" / "Hosting" / "HostingLaneContractTests.cs"
+        lane_tests.write_text(
+            lane_tests.read_text(encoding="utf-8").replace(
+                "Resolve_CrossLaneValue_ThrowsDiagnostic", "removed cross-lane test"
+            ),
+            encoding="utf-8",
+        )
+        errors = reference_validator.check_declared_evidence(self.tmp, resource)
+        self.assertTrue(any("Resolve_CrossLaneValue_ThrowsDiagnostic" in error for error in errors))
+
+    def test_deployment_only_openobserve_requires_semantic_proof_and_detects_tamper(self):
+        self._make_always_evidence()
+        self._make_conditional_evidence("externalDependencyModes")
+        resource = {"externalDependencyModes": {"openObserve": "deployment-only", "redis": "emulator"}}
+        self.assertEqual(reference_validator.check_declared_evidence(self.tmp, resource), [])
+
+        workflow = self.tmp / ".github" / "workflows" / "deploy-vps.yml"
+        workflow.write_text(
+            workflow.read_text(encoding="utf-8").replace("telemetrygen@sha256:", "removed-smoke:"),
+            encoding="utf-8",
+        )
+        errors = reference_validator.check_declared_evidence(self.tmp, resource)
+        self.assertTrue(any("telemetrygen@sha256:" in error for error in errors))
+
+        self.assertEqual(reference_validator.check_declared_evidence(self.tmp, {}), [])
+
     @unittest.skipUnless(importlib.util.find_spec("jsonschema"), "jsonschema not installed")
     def test_read_model_schema_accepts_canonical_providers_and_deprecated_alias(self):
         import jsonschema
@@ -515,6 +602,36 @@ class ReferenceValidatorTests(unittest.TestCase):
             jsonschema.validate(provider, lane_default_schema)
         with self.assertRaises(jsonschema.ValidationError):
             jsonschema.validate("UnknownDocumentStore", provider_schema)
+
+    @unittest.skipUnless(importlib.util.find_spec("jsonschema"), "jsonschema not installed")
+    def test_resource_schema_types_extensible_dependency_modes_and_strict_lanes(self):
+        import jsonschema
+
+        schema = json.loads(
+            (REPO_ROOT / "schemas" / "resource-implementation.schema.json").read_text(encoding="utf-8")
+        )
+        dependency_schema = {
+            "$schema": schema["$schema"],
+            "$defs": schema["$defs"],
+            "$ref": "#/$defs/externalDependencyModes",
+        }
+        jsonschema.validate(
+            {"openObserve": "deployment-only", "rabbitMq": "emulator", "projectSink": "lazy-optional"},
+            dependency_schema,
+        )
+        for invalid in ({"openObserve": "sometimes"}, {"projectSink": {"mode": "emulator"}}):
+            with self.assertRaises(jsonschema.ValidationError):
+                jsonschema.validate(invalid, dependency_schema)
+
+        azure_schema = schema["$defs"]["azureHostingLaneDefault"]
+        nonazure_schema = schema["$defs"]["nonAzureHostingLaneDefault"]
+        jsonschema.validate(reference_validator.STRICT_LANE_DEFAULTS["Azure"], azure_schema)
+        jsonschema.validate(reference_validator.STRICT_LANE_DEFAULTS["NonAzure"], nonazure_schema)
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(
+                {**reference_validator.STRICT_LANE_DEFAULTS["NonAzure"], "readModelProvider": "Cosmos"},
+                nonazure_schema,
+            )
 
     def test_markdown_links_detect_missing_tracked_target(self):
         docs = self.tmp / "docs"
