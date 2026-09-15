@@ -176,9 +176,24 @@ When `Test.PlaywrightUI` is a C# MSTest project that drives an existing TypeScri
 - Do not click after only `DOMContentLoaded`, a splash disappearance, or a guessed delay. Wait for an explicit app-interactive marker owned by the UI, then begin actions.
 - Detect the renderer before choosing selectors. Prefer roles, labels, test IDs, and other semantic DOM locators whenever real elements exist.
 - Scope popover/menu locators to the currently visible/open container. Global selectors can hit stale, hidden overlays retained by the component framework.
-- After a mutation, wait for a visible server-acknowledged state such as the returned ID, exact normalized row cell, success state, or refreshed detail. Do not start the next action on click completion alone.
+- Register `page.waitForResponse(...)` before the click, Enter, or submit that initiates a mutation; match route and method, then assert the exact expected status, including `412` for a stale concurrency write.
+- After a mutation, assert a visible server-acknowledged state that is durable, such as the returned ID, exact normalized row cell, persisted field value, or refreshed detail. A transient toast alone is not proof, and click completion is not synchronization.
+- Persist and reload a parent before calling child endpoints that require its ID or concurrency version. UI state that has not been created server-side is not a valid child fixture.
+- Treat disclosure controls idempotently: inspect `aria-expanded` and click only when the requested state differs. Blind toggle helpers make retries and shared setup invert the intended state.
 - Locate created rows by returned ID or exact normalized cell text, never substring containment. Shared data can make a substring select the wrong row.
 - Browser policy behavior that headless automation does not reproduce, including popup blocking and user-gesture rules, retains an explicit real-browser/manual acceptance check.
+
+```typescript
+const saved = page.waitForResponse(response =>
+  response.url().endsWith(`/api/v1/tasks/${taskId}`) &&
+  response.request().method() === "PUT");
+await page.getByRole("button", { name: "Save" }).click();
+expect((await saved).status()).toBe(200);
+await expect(page.getByLabel("Title")).toHaveValue(expectedTitle);
+
+const section = page.getByRole("button", { name: "Checklist" });
+if (await section.getAttribute("aria-expanded") !== "true") await section.click();
+```
 
 ### Uno WASM: DOM/Click Strategy (managed-DOM renderer)
 

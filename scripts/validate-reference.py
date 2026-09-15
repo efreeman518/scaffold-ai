@@ -109,9 +109,19 @@ CONDITIONAL_EVIDENCE: tuple[
             ("src/Shared/TaskFlow.Hosting/HostingLane.cs", 'normalized.Equals("Portable"'),
             ("src/Shared/TaskFlow.Hosting/HostingLane.cs", '"PostgreSqlJsonb", "MongoDb"'),
             ("src/Shared/TaskFlow.Hosting/HostingLane.cs", 'value.Equals("Relational"'),
+            ("src/Shared/TaskFlow.Hosting/HostingLane.cs", 'azure ? ["SqlServer"] : ["PostgreSql"]'),
+            ("src/Shared/TaskFlow.Hosting/HostingLane.cs", 'azure ? ["Sql", "AzureAiSearch"] : ["Sql", "PgVector"]'),
+            ("tests/Test.Unit/Hosting/HostingLaneContractTests.cs", "Resolve_Unset_ReturnsExactAzureProfile"),
+            ("tests/Test.Unit/Hosting/HostingLaneContractTests.cs", "Resolve_NonAzure_ReturnsExactProfile"),
+            ("tests/Test.Unit/Hosting/HostingLaneContractTests.cs", "Resolve_SameLaneOptIns_AreAccepted"),
+            ("tests/Test.Unit/Hosting/HostingLaneContractTests.cs", "Resolve_CrossLaneValue_ThrowsDiagnostic"),
+            ("tests/Test.Unit/Hosting/HostingLaneContractTests.cs", "Resolve_NonAzureAzureServiceSetting_Throws"),
+            ("tests/Test.Unit/Hosting/HostingLaneContractTests.cs", "ResolveFromEnvironment_NonAzureAzureServiceSetting_Throws"),
             ("src/Host/TaskFlow.Bootstrapper/Registration/ProviderSwitchAttribute.cs", "ProviderSwitchAttribute"),
             ("src/Host/Aspire/ServiceDefaults/Extensions.cs", 'MapHealthChecks("/healthz/live"'),
             ("src/Host/Aspire/ServiceDefaults/Extensions.cs", 'MapHealthChecks("/healthz/ready"'),
+            ("deploy/compose/docker-compose.yml", "Hosting__Lane: NonAzure"),
+            ("infra/main.bicep", "{ name: 'Hosting__Lane', value: 'Azure' }"),
         ),
         (
             "tests/Test.Architecture/ProviderSwitchArchitectureTests.cs",
@@ -121,7 +131,52 @@ CONDITIONAL_EVIDENCE: tuple[
             ".github/workflows/deploy-vps.yml",
         ),
     ),
+    (
+        ({"externalDependencyModes": {"openObserve": "deployment-only"}},),
+        (
+            ("src/Host/Aspire/ServiceDefaults/Extensions.cs", 'GetValue("OpenTelemetry:MetricsEnabled", true)'),
+            ("src/Host/Aspire/ServiceDefaults/Extensions.cs", "logging.AddOtlpExporter();"),
+            ("src/Host/Aspire/ServiceDefaults/Extensions.cs", "tracing.AddOtlpExporter();"),
+            ("src/Host/TaskFlow.Api/Middleware/ProblemDetailsCorrelation.cs", 'Extensions["requestId"]'),
+            ("src/Host/TaskFlow.Api/Middleware/ProblemDetailsCorrelation.cs", "activity.TraceId.ToHexString()"),
+            ("src/Host/TaskFlow.Api/Middleware/ProblemDetailsCorrelation.cs", "activity.SpanId.ToHexString()"),
+            ("deploy/compose/docker-compose.yml", "openobserve-data:"),
+            (".github/workflows/deploy-vps.yml", "OPENOBSERVE_RETENTION_DAYS"),
+            (".github/workflows/deploy-vps.yml", "telemetrygen@sha256:"),
+            ("tests/Test.Unit/Infrastructure/DeploymentWorkflowContractTests.cs", "DeployVpsWorkflow_IsManualSerializedAndReversible"),
+            ("tests/Test.Unit/Infrastructure/DeploymentWorkflowContractTests.cs", "ComposeLane_ExposesOnlyTheEdgeAndWaitsOnTheMigrator"),
+        ),
+        (
+            "tests/Test.Unit/Hosting/OpenTelemetryMetricsRegistrationTests.cs",
+            "tests/Test.Endpoints/GlobalExceptionHandlerTests.cs",
+        ),
+    ),
 )
+
+STRICT_LANE_DEFAULTS: dict[str, dict[str, str]] = {
+    "Azure": {
+        "databaseProvider": "SqlServer",
+        "messagingProvider": "ServiceBus",
+        "storageProvider": "AzureBlob",
+        "readModelProvider": "Cosmos",
+        "auditProvider": "AzureTable",
+        "searchProvider": "Sql",
+        "aiProvider": "None",
+        "dataProtectionPersistence": "AzureBlob",
+        "deploymentTarget": "ContainerApps",
+    },
+    "NonAzure": {
+        "databaseProvider": "PostgreSql",
+        "messagingProvider": "RabbitMq",
+        "storageProvider": "S3",
+        "readModelProvider": "PostgreSqlJsonb",
+        "auditProvider": "Relational",
+        "searchProvider": "Sql",
+        "aiProvider": "None",
+        "dataProtectionPersistence": "Redis",
+        "deploymentTarget": "DockerCompose",
+    },
+}
 
 # Required regardless of declared capabilities: the terminal handoff contract,
 # the capability-status legend, and the base test suites every scaffold carries.
@@ -221,11 +276,63 @@ def _sentinel_errors(reference_root: Path, sentinels: tuple[tuple[str, str], ...
     return errors
 
 
+def _condition_matches(actual: object, expected: object) -> bool:
+    if isinstance(expected, dict):
+        return isinstance(actual, dict) and all(
+            key in actual and _condition_matches(actual[key], value)
+            for key, value in expected.items()
+        )
+    if isinstance(expected, list):
+        return isinstance(actual, list) and set(actual) == set(expected)
+    return actual == expected
+
+
+def _strict_lane_errors(resource: dict) -> list[str]:
+    lanes = resource.get("hostingLanes")
+    if not isinstance(lanes, list):
+        return []
+
+    defaults = resource.get("hostingLaneDefaults")
+    deploy_targets = resource.get("deployTargets")
+    errors: list[str] = []
+    for declared_lane in lanes:
+        lane = "NonAzure" if declared_lane == "Portable" else declared_lane
+        default_key = (
+            lane
+            if isinstance(defaults, dict) and lane in defaults
+            else declared_lane
+        )
+        if not isinstance(defaults, dict) or not isinstance(defaults.get(default_key), dict):
+            errors.append(f"lane {declared_lane}: hostingLaneDefaults.{default_key} is required")
+            continue
+        actual = defaults[default_key]
+        expected = STRICT_LANE_DEFAULTS.get(lane)
+        if expected is None:
+            deployment_target = actual.get("deploymentTarget")
+            if isinstance(deploy_targets, list) and deployment_target not in deploy_targets:
+                errors.append(
+                    f"lane {declared_lane}: deploymentTarget {deployment_target!r} must appear in deployTargets"
+                )
+            continue
+        for key, expected_value in expected.items():
+            if actual.get(key) != expected_value:
+                errors.append(
+                    f"strict lane {lane}: hostingLaneDefaults.{default_key}.{key} must be {expected_value!r}"
+                )
+        deployment_target = actual.get("deploymentTarget")
+        if isinstance(deploy_targets, list) and deployment_target not in deploy_targets:
+            errors.append(
+                f"strict lane {lane}: deploymentTarget {deployment_target!r} must appear in deployTargets"
+            )
+    return errors
+
+
 def check_declared_evidence(reference_root: Path, resource: dict) -> list[str]:
     """Declared-vs-wired agreement: every capability the reference declares must show its evidence."""
     errors: list[str] = []
     if resource.get("includeNotifications") is False and resource.get("notifications"):
         errors.append(".scaffold/resource-implementation.yaml: disabled notifications must not define notification entries")
+    errors.extend(_strict_lane_errors(resource))
 
     errors.extend(_sentinel_errors(reference_root, ALWAYS_SENTINELS, "always"))
     for rel in ALWAYS_PATHS:
@@ -237,12 +344,7 @@ def check_declared_evidence(reference_root: Path, resource: dict) -> list[str]:
             (
                 cond for cond in conditions
                 if all(
-                    resource.get(key) == expected
-                    or (
-                        isinstance(resource.get(key), list)
-                        and isinstance(expected, list)
-                        and set(resource[key]) == set(expected)
-                    )
+                    _condition_matches(resource.get(key), expected)
                     for key, expected in cond.items()
                 )
             ),

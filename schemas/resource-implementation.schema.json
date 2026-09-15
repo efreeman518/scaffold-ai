@@ -128,8 +128,13 @@
     "hostingLaneDefaults": {
       "type": "object",
       "minProperties": 1,
+      "properties": {
+        "Azure": { "$ref": "#/$defs/azureHostingLaneDefault" },
+        "NonAzure": { "$ref": "#/$defs/nonAzureHostingLaneDefault" },
+        "Portable": { "$ref": "#/$defs/nonAzureHostingLaneDefault", "deprecated": true }
+      },
       "additionalProperties": { "$ref": "#/$defs/hostingLaneDefault" },
-      "description": "Per-lane defaults. Explicit provider environment/config values override these defaults; unknown lane or provider values fail startup."
+      "description": "Per-lane compatible defaults and owned deployment target. Environment/configuration values may select only an allowed arm in the active lane; unknown or cross-lane values fail startup."
     },
     "storageProviders": {
       "type": "array",
@@ -365,6 +370,26 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": { "hostingLanes": { "contains": { "const": "Azure" } } },
+        "required": ["hostingLanes"]
+      },
+      "then": {
+        "required": ["hostingLaneDefaults"],
+        "properties": { "hostingLaneDefaults": { "required": ["Azure"] } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "hostingLanes": { "contains": { "const": "NonAzure" } } },
+        "required": ["hostingLanes"]
+      },
+      "then": {
+        "required": ["hostingLaneDefaults"],
+        "properties": { "hostingLaneDefaults": { "required": ["NonAzure"] } }
+      }
     }
   ],
   "$defs": {
@@ -384,7 +409,40 @@
         "auditProvider": { "type": "string", "enum": ["AzureTable", "Relational"] },
         "searchProvider": { "type": "string", "enum": ["AzureAiSearch", "PgVector", "Sql", "None"] },
         "aiProvider": { "type": "string", "enum": ["AzureInference", "OpenAICompatible", "FoundryLocal", "None"] },
-        "dataProtectionPersistence": { "type": "string", "enum": ["AzureBlob", "Redis", "None"] }
+        "dataProtectionPersistence": { "type": "string", "enum": ["AzureBlob", "Redis", "None"] },
+        "deploymentTarget": { "type": "string", "enum": ["ContainerApps", "AppService", "AKS", "DockerCompose", "Kubernetes"] }
+      }
+    },
+    "azureHostingLaneDefault": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["databaseProvider", "messagingProvider", "storageProvider", "readModelProvider", "auditProvider", "searchProvider", "aiProvider", "dataProtectionPersistence", "deploymentTarget"],
+      "properties": {
+        "databaseProvider": { "const": "SqlServer" },
+        "messagingProvider": { "const": "ServiceBus" },
+        "storageProvider": { "const": "AzureBlob" },
+        "readModelProvider": { "const": "Cosmos" },
+        "auditProvider": { "const": "AzureTable" },
+        "searchProvider": { "const": "Sql" },
+        "aiProvider": { "const": "None" },
+        "dataProtectionPersistence": { "const": "AzureBlob" },
+        "deploymentTarget": { "type": "string", "enum": ["ContainerApps", "AppService", "AKS"] }
+      }
+    },
+    "nonAzureHostingLaneDefault": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["databaseProvider", "messagingProvider", "storageProvider", "readModelProvider", "auditProvider", "searchProvider", "aiProvider", "dataProtectionPersistence", "deploymentTarget"],
+      "properties": {
+        "databaseProvider": { "const": "PostgreSql" },
+        "messagingProvider": { "const": "RabbitMq" },
+        "storageProvider": { "const": "S3" },
+        "readModelProvider": { "const": "PostgreSqlJsonb" },
+        "auditProvider": { "const": "Relational" },
+        "searchProvider": { "const": "Sql" },
+        "aiProvider": { "const": "None" },
+        "dataProtectionPersistence": { "const": "Redis" },
+        "deploymentTarget": { "type": "string", "enum": ["DockerCompose", "Kubernetes"] }
       }
     },
     "runtimeHostProfile": {
@@ -556,13 +614,21 @@
       "type": "object",
       "properties": {
         "sql": { "$ref": "#/$defs/dependencyMode" },
+        "postgres": { "$ref": "#/$defs/dependencyMode" },
         "redis": { "$ref": "#/$defs/dependencyMode" },
         "serviceBus": { "$ref": "#/$defs/dependencyMode" },
+        "rabbitMq": { "$ref": "#/$defs/dependencyMode" },
         "eventGrid": { "$ref": "#/$defs/dependencyMode" },
         "keyVault": { "$ref": "#/$defs/dependencyMode" },
         "blobStorage": { "$ref": "#/$defs/dependencyMode" },
         "cosmosDb": { "$ref": "#/$defs/dependencyMode" },
         "aiServices": { "$ref": "#/$defs/dependencyMode" },
+        "seaweedfs": { "$ref": "#/$defs/dependencyMode" },
+        "mongoDb": { "$ref": "#/$defs/dependencyMode" },
+        "pgBouncer": { "$ref": "#/$defs/dependencyMode" },
+        "appConfiguration": { "$ref": "#/$defs/dependencyMode" },
+        "aspireDashboard": { "$ref": "#/$defs/dependencyMode" },
+        "openObserve": { "$ref": "#/$defs/dependencyMode" },
         "externalApis": {
           "type": "array",
           "items": {
@@ -574,7 +640,9 @@
             }
           }
         }
-      }
+      },
+      "additionalProperties": { "$ref": "#/$defs/dependencyMode" },
+      "description": "Dependency names are extensible, but every scalar entry must use dependencyMode. externalApis retains its named array shape."
     },
     "dependencyMode": {
       "type": "string",

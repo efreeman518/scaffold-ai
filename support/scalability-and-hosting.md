@@ -36,15 +36,15 @@ Each switch owns five things in one module:
 
 1. A closed enum of supported providers.
 2. A configuration key and optional environment-variable override.
-3. One resolver with precedence `environment > config > lane default > hard default`.
+3. One resolver with precedence `environment > config > lane default > hard default`, followed by lane-compatibility validation.
 4. One registration or provider-options branch.
 5. Selector and default-arm tests.
 
-Unknown configured values fail startup and name allowed values. Never silently fall back after an explicit but invalid value. Domain and application code depend on provider-neutral ports; provider namespaces stay in their infrastructure adapter. Database provider branching belongs in one options extension plus provider-specific migration assemblies, not throughout mappings and repositories.
+Unknown configured values fail startup and name allowed values. Cross-lane configured values also fail startup and name the lane, configuration key, rejected value, and values allowed in that lane. An environment or configuration value can select a same-lane opt-in; it cannot weaken a strict lane boundary. Never silently fall back after an explicit but invalid value. Domain and application code depend on provider-neutral ports; provider namespaces stay in their infrastructure adapter. Database provider branching belongs in one options extension plus provider-specific migration assemblies, not throughout mappings and repositories.
 
 ## Lane Presets
 
-A lane is a preset of defaults for independent switches. It is not a second branch point and it never overrides an explicit provider selection. Outside the lane resolver and AppHost topology map, code reads only its own provider switch.
+A lane owns a compatible provider profile and deployment topology. It is not a second branch point: the shared resolver selects provider values, validates them against the lane, and returns canonical settings. Outside that resolver and the AppHost topology map, code reads only its own provider switch.
 
 Single-lane projects keep the default compact:
 
@@ -64,9 +64,10 @@ hostingLaneDefaults:
     storageProvider: AzureBlob
     readModelProvider: Cosmos
     auditProvider: AzureTable
-    searchProvider: AzureAiSearch
-    aiProvider: AzureInference
+    searchProvider: Sql
+    aiProvider: None
     dataProtectionPersistence: AzureBlob
+    deploymentTarget: ContainerApps
   NonAzure:
     databaseProvider: PostgreSql
     messagingProvider: RabbitMq
@@ -74,8 +75,9 @@ hostingLaneDefaults:
     readModelProvider: PostgreSqlJsonb
     auditProvider: Relational
     searchProvider: Sql
-    aiProvider: OpenAICompatible
+    aiProvider: None
     dataProtectionPersistence: Redis
+    deploymentTarget: DockerCompose
 
 storageProviders: [AzureBlob, S3]
 readModelProviders: [Cosmos, PostgreSqlJsonb, MongoDb]
@@ -86,7 +88,21 @@ dataProtectionPersistence: [AzureBlob, Redis, None]
 deployTargets: [ContainerApps, DockerCompose]
 ```
 
-`NonAzure` means selected application dependencies have non-Azure implementations. It does not promise cloud independence when identity, configuration, secrets, DNS, telemetry, or deployment still consumes an Azure service. List retained cloud dependencies explicitly. `Portable` remains a one-release input alias for `NonAzure`; do not emit it as a canonical lane. `Relational` remains a one-release input alias for the default NonAzure `PostgreSqlJsonb` read model. `MongoDb` is the explicit document-database alternative.
+`Azure` and `NonAzure` are strict profiles. Their default and permitted opt-in arms are:
+
+| Switch | Azure | NonAzure |
+|---|---|---|
+| Database | `SqlServer` | `PostgreSql` |
+| Messaging | `ServiceBus` | `RabbitMq` |
+| Storage | `AzureBlob` | `S3` |
+| Read model | `Cosmos` | `PostgreSqlJsonb`, optional `MongoDb` |
+| Audit | `AzureTable` | `Relational` |
+| Search | `Sql`, optional `AzureAiSearch` | `Sql`, optional `PgVector` |
+| AI | `None`, optional `AzureInference` | `None`, optional `OpenAICompatible` or `FoundryLocal` |
+| Data Protection | `AzureBlob` | `Redis` |
+| Deployment | `ContainerApps` | `DockerCompose` |
+
+Keep `Sql` search and `None` AI as defaults unless that lane provisions and validates the optional provider. `NonAzure` means zero Azure runtime dependencies: reject Azure App Configuration, Key Vault, Azure Data Protection key encryption, and every Azure-owned provider even when supplied through environment variables. A project that intentionally mixes provider families must declare a separately named lane and its compatibility matrix instead of weakening `NonAzure`. `Portable` remains a one-release input alias for `NonAzure`; do not emit it as a canonical lane. `Relational` remains a one-release input alias for the default NonAzure `PostgreSqlJsonb` read model. `MongoDb` is the explicit document-database alternative.
 
 ## Statelessness and Stateful Exceptions
 
@@ -159,6 +175,8 @@ Every declared lane leaves executable proof at the cheapest useful level:
 | Resolver precedence | Pure unit tests for hard default, lane default, config, env override, and unknown-value failure. |
 | DI default arm | Resolve each provider-neutral contract from an empty/default configuration. |
 | Topology | Source/model test for included resources and per-host environment keys. |
+| Strict lane | Exact default-profile test, same-lane opt-in test, cross-lane rejection matrix, zero-Azure NonAzure test across configuration and environment sources, and unknown-lane/provider diagnostics. |
+| Deployment ownership | Each lane maps to one declared target; Compose rejects non-`NonAzure` input and Azure IaC rejects non-`Azure` input. |
 | Database/provider behavior | Same integration and E2E suite against every `databaseProviders` arm, including migration drift. |
 | Broker semantics | Publish/consume, retry, dead-letter, inbox replay, and trace-parent tests per transport. |
 | Compose or equivalent | Configuration parse on ordinary CI; full image and CRUD smoke in an explicit expensive lane. |

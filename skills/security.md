@@ -186,6 +186,7 @@ ConfigureDataProtection(builder.Services, builder.Configuration, builder.Environ
 - Omit both config keys in development and isolated test hosts - Data Protection uses its local default key storage while retaining the application discriminator.
 - Use managed identity (`DefaultAzureCredential`) for both Blob and Key Vault access.
 - Use the same `SetApplicationName` value for every replica of one app; use a different value for unrelated apps sharing the key store.
+- Treat `SetApplicationName`, key-store location, encryption key, and purpose strings as persisted wire-contract inputs. Before changing any of them in an existing deployment, protect a payload with the previous release and prove the candidate release can unprotect it; otherwise plan and communicate session/token invalidation explicitly.
 - The Blob container and Key Vault key must exist before first deployment.
 - Key Vault key should have a rotation policy configured.
 

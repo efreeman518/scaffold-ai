@@ -78,6 +78,10 @@ When more than one broker is declared, keep the outbox, envelope, consumer, and 
 
 RabbitMQ consumers normally run in a worker/scheduler host; Service Bus may use a worker or Functions trigger. Selecting one transport disables the competing consumer host so one event is not processed by both.
 
+At the transport boundary, parse and validate envelope type, version, message identity, and required routing metadata before resolving a handler. Unknown or malformed envelopes follow the explicit retry/dead-letter policy with a diagnostic reason; they are never acknowledged as successful dispatch.
+
+Broker confirmation is bounded. For RabbitMQ, enable publisher confirms, publish with mandatory routing when unroutable messages are failures, and wait under a configured timeout linked to caller cancellation. Distinguish caller cancellation, confirm timeout, broker nack/channel failure, and unroutable delivery in logs and retry state. Mark an outbox row complete only after a positive confirmation.
+
 ### Broker Trace Context
 
 The envelope carries correlation identifiers, while W3C trace context travels in transport headers. On publish, start a Producer activity and inject `traceparent`/`tracestate`. On consume, extract them and start a Consumer activity with the extracted parent. Missing or malformed trace context starts a new trace without failing message processing. Prove parent continuity for each transport adapter.
@@ -221,5 +225,6 @@ See [aspire.md](aspire.md) -> *Local Explorer Tooling* for the canonical port ma
 - [ ] `outboxEnabled: true` has a same-transaction outbox row, bounded lease dispatcher, retained failure state, and replay proof
 - [ ] Side-effecting consumers have an inbox or equivalent atomic idempotency claim and duplicate-delivery test
 - [ ] Every transport proves confirm/ack, retry, malformed-message dead-letter, and trace-parent propagation
+- [ ] RabbitMQ proves bounded positive confirm, nack/unroutable failure, confirm timeout, and caller cancellation independently
 - [ ] Mixed-store slices include a reconciliation path (drift detection + replay-safe correction)
 - [ ] Timeline projection exists for workflows requiring support/dispute traceability

@@ -21,7 +21,8 @@ namespace {Host}.Api.Middleware;
 
 internal sealed class DefaultExceptionHandler(
     ILogger<DefaultExceptionHandler> logger,
-    IHostEnvironment environment) : IExceptionHandler
+    IHostEnvironment environment,
+    IProblemDetailsService problemDetailsService) : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(
         HttpContext httpContext,
@@ -60,9 +61,11 @@ internal sealed class DefaultExceptionHandler(
         };
 
         httpContext.Response.StatusCode = statusCode;
-        await httpContext.Response.WriteAsJsonAsync(problemDetails, cancellationToken);
-
-        return true;  // Exception handled - stop pipeline propagation
+        return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
+        {
+            HttpContext = httpContext,
+            ProblemDetails = problemDetails
+        });
     }
 }
 ```
@@ -73,7 +76,24 @@ Register in `RegisterApiServices.cs`:
 
 ```csharp
 services.AddExceptionHandler<DefaultExceptionHandler>();
-services.AddProblemDetails();
+services.AddProblemDetails(options =>
+{
+    options.CustomizeProblemDetails = context =>
+    {
+        var activity = System.Diagnostics.Activity.Current;
+        context.ProblemDetails.Extensions.Remove("activityId");
+        context.ProblemDetails.Extensions["requestId"] = context.HttpContext.TraceIdentifier;
+        if (activity is null)
+        {
+            context.ProblemDetails.Extensions.Remove("traceId");
+            context.ProblemDetails.Extensions.Remove("spanId");
+            return;
+        }
+
+        context.ProblemDetails.Extensions["traceId"] = activity.TraceId.ToString();
+        context.ProblemDetails.Extensions["spanId"] = activity.SpanId.ToString();
+    };
+});
 ```
 
 Add to pipeline in `WebApplicationBuilderExtensions.cs` (before routing):
@@ -98,6 +118,7 @@ app.UseExceptionHandler();
 - Stack traces: include full `exception.ToString()` in Development/Staging; show only `exception.Message` in Production.
 - Always log at `Error` level with structured placeholders.
 - Return `true` to indicate the exception is handled and prevent further pipeline propagation.
+- Write through `IProblemDetailsService` so the same correlation customizer applies to exception and typed endpoint errors.
 - Add new exception mappings as needed (e.g., `HttpRequestException` -> 502 for downstream failures).
 - **Always check `httpContext.Response.HasStarted` before writing the response body.** Writing to an already-started response throws a second exception and masks the original.
 - **`OperationCanceledException` from EF Core is best caught in the service method**, not here. The VS debugger breaks at the throw site before this handler runs, so the handler alone cannot suppress break-on-exception dialogs. Catch it in the service and return an empty/default result; let this handler remain a true last-resort fallback.
@@ -106,9 +127,9 @@ app.UseExceptionHandler();
 
 - [ ] Registered via `AddExceptionHandler<DefaultExceptionHandler>()` in `RegisterApiServices.cs`
 - [ ] `UseExceptionHandler()` called in pipeline before routing
-- [ ] `AddProblemDetails()` registered in services
+- [ ] `AddProblemDetails(...)` registered with separate `requestId`, W3C `traceId`, and `spanId`
+- [ ] Typed errors and exception errors both exercise the correlation contract
 - [ ] Stack traces gated by environment (not exposed in Production)
 - [ ] All mapped exceptions return correct HTTP status codes
 - [ ] Logging uses structured placeholders, not string interpolation
 - [ ] No business logic errors handled here - those use `Result<T>` pattern
-

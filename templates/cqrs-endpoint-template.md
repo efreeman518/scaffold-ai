@@ -19,10 +19,11 @@ group.MapPost("/", async (
     return result.Match<IResult>(
         response => TypedResults.Created(httpContext.Request.Path, response),
         errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
-            errors: errors,
-            traceId: httpContext.TraceIdentifier)));
+            errors: errors)));
 });
 ```
+
+Correlation is added centrally through `AddProblemDetails`; see [exception-handler-template.md](exception-handler-template.md). Do not pass `HttpContext.TraceIdentifier` as `traceId`.
 
 For `applicationStyle: switch`, register only one endpoint set at runtime:
 

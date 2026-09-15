@@ -10,7 +10,7 @@ For base types used here (`DbContextBase`, `DbContextScopedFactory`, `AuditInter
 
 **Source:** `{App}.Bootstrapper/Registration/RegisterServices.Database.cs`
 
-Dual-context registration: pooled factories for Trxn and Query contexts, `DbContextScopedFactory` wrappers for scoped resolution, audit interceptor on Trxn only, `ConnectionNoLockInterceptor` on both, Azure vs local SQL detection, `ReadOnly` intent injection for Query.
+Dual-context registration: pooled factories only after their option delegates and interceptors pass lifetime validation, `DbContextScopedFactory` wrappers for scoped resolution, audit interceptor on Trxn only, `ConnectionNoLockInterceptor` on both, Azure vs local SQL detection, `ReadOnly` intent injection for Query.
 
 Set all SQL Server and Azure SQL EF registrations to compatibility level 170. This is SQL Server 2025 compatibility and enables native JSON type support, vector data types, and related indexing features.
 
@@ -52,7 +52,7 @@ private static void AddDatabaseServices(IServiceCollection services, IConfigurat
 }
 ```
 
-**Dual pooled context wiring:**
+**Dual context wiring with pooling compatibility proof:**
 
 ```csharp
 private static void ConfigureSqlDatabase(IServiceCollection services,
@@ -120,6 +120,10 @@ private static void ConfigureQueryDbContext(DbContextOptionsBuilder options, str
     ConfigureSqlOptions(options, readOnlyConnectionString);
 }
 ```
+
+Pooling is an optimization, not a blanket context rule. Every service resolved by a pooled factory's options delegate is retained with the pool and must be safe for that lifetime; it must not capture request/tenant state or resolve a dependency that needs the same context. Register a context with scoped `AddDbContextFactory(..., ServiceLifetime.Scoped)` when a required interceptor or option dependency is genuinely scoped. Keep another context pooled when its dependency graph is safe.
+
+Leave one DI composition test that builds with `new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true }`, creates a scope, resolves each `IDbContextFactory<T>`, and creates a context. This catches scoped-from-root capture and recursive factory construction before host startup. Test both selected database providers when their registrations differ.
 
 Keep schema and history-table configuration inside this central provider-options helper so runtime, migrator, tests, and design-time factories cannot drift. Non-default providers use the same rule; Npgsql must call `MigrationsHistoryTable(HistoryTableName, SchemaName)` explicitly rather than relying on PostgreSQL `search_path`.
 
