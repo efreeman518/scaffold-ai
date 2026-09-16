@@ -175,31 +175,31 @@ await builder.Build().RunAsync();
 
 Wire the model with `Aspire.Hosting.Foundry` so it provisions Azure on publish. The deployment resource name is the connection name consumers bind to. This snippet covers the default **inference** surface; for the **existing-account** and **project + server-hosted agent** surfaces see [../skills/ai-integration.md](../skills/ai-integration.md) -> *Foundry Projects and Server-Hosted Agents*.
 
-> **Local path note (canonical owner: [../skills/ai-integration.md](../skills/ai-integration.md), "SDK-direct API-host bootstrap").** `RunAsFoundryLocal()` is broken against GA Foundry Local (dotnet/aspire#12750), so the snippet below omits it: the local path wires **no** `chat` resource (no `ConnectionStrings:chat`) and forwards **no** opt-in var - the API host attempts `Microsoft.AI.Foundry.Local` by default when Azure is absent, falling back to no-op. The full diagnosis, availability-driven bootstrap, `AiServices:DisableFoundryLocal` opt-out, future-restored `RunAsFoundryLocal()` branch, and migration checklist live there - do not restate them here. The Azure provision/existing path is unaffected.
+> **Local path note (canonical owner: [../skills/ai-integration.md](../skills/ai-integration.md), "SDK-direct API-host bootstrap").** `RunAsFoundryLocal()` is broken against GA Foundry Local (dotnet/aspire#12750), so the snippet below omits it. `AiServices:Provider` is the sole activation source. The conditional `FoundryLocal` arm wires **no** `chat` resource (no `ConnectionStrings:chat`) and the API host drives `Microsoft.AI.Foundry.Local`; `None` never attempts it. The full diagnosis, defense-in-depth `AiServices:DisableFoundryLocal` guard, future-restored `RunAsFoundryLocal()` branch, and migration checklist live there. The Azure provision/existing path is unaffected.
 
 ```csharp
 IResourceBuilder<FoundryDeploymentResource>? chat = null;
-var azureConfigured = builder.ExecutionContext.IsPublishMode
-    || !string.IsNullOrWhiteSpace(builder.Configuration["AiServices:FoundryEndpoint"])
-    || Environment.GetEnvironmentVariable("MYAPP_USE_AZURE_FOUNDRY") == "true";
+var provider = builder.Configuration["AiServices:Provider"] ?? "None";
 
-if (azureConfigured)
+if (string.Equals(provider, "AzureInference", StringComparison.OrdinalIgnoreCase))
 {
+    // Validate required Azure endpoint/deployment settings before adding resources.
     // Azure path stays on Aspire: provisions (or connects to) a Foundry account + "chat" deployment.
     chat = builder.AddFoundry("foundry").AddDeployment("chat", FoundryModel.OpenAI.Gpt4oMini);
 }
 
 // Azure: wire the deployment (injects ConnectionStrings:chat + CHAT_* env).
-// Local: nothing to wire and no opt-in var - the API host attempts Microsoft.AI.Foundry.Local
-// on its own when Azure is absent (that bootstrap + the AiServices:DisableFoundryLocal opt-out +
-// future RunAsFoundryLocal() branch + migration are owned by ../skills/ai-integration.md).
-// A TESTING AppHost forces no-op so the RID-free mesh never starts a model:
+// FoundryLocal: no chat resource; the API host enters the conditional SDK-direct bootstrap.
+// None: no provider resources and no native bootstrap. The bootstrap, local guard, future
+// RunAsFoundryLocal() branch, and migration are owned by ../skills/ai-integration.md.
+// A RID-free TESTING AppHost selects None and keeps the local guard enabled:
+//   api = api.WithEnvironment("AiServices__Provider", "None");
 //   api = api.WithEnvironment("AiServices__DisableFoundryLocal", "true");
 if (chat is not null)
     api = api.WithReference(chat);
 ```
 
-To consume an **existing** Foundry account instead of provisioning a new one (the `chat` deployment must already exist), replace the `azureConfigured` branch with `RunAsExisting`:
+To consume an **existing** Foundry account instead of provisioning a new one (the `chat` deployment must already exist), replace the `AzureInference` provision branch with `RunAsExisting`:
 
 ```csharp
 var name = builder.AddParameter("foundry-name");

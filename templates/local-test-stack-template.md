@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Generates** | `eng/test/start-local-test-stack.ps1`, `tests/Test.Mobile/run-mobile-tests.ps1` when mobile exists, `.vscode/tasks.json` entries (optional) |
+| **Generates** | `eng/test/start-local-test-stack.ps1`, `tests/Test.Mobile/run-mobile-tests.ps1` and optional `tests/{App}.runsettings` when mobile exists, `.vscode/tasks.json` entries (optional) |
 | **Requires** | Aspire AppHost; Uno WASM and/or Android targets when those test tiers are generated |
 | **Phase** | 5c/5d - generate once the host(s) and the `WasmUI` / `Test.Mobile` / `Test.Aspire` tiers exist |
 | **Protocol** | Operator tooling. The script mutates **process** environment only - it never edits machine/user PATH. |
@@ -198,7 +198,7 @@ Generate into `.vscode/tasks.json` so Test Explorer users have one-click stack c
 
 ## Mobile runner (`run-mobile-tests.ps1`)
 
-This runner owns the whole Android lane end-to-end. Test methods only connect; the runner does everything else. Responsibilities:
+This runner owns the full explicit Android lane end-to-end. Test methods only connect; the runner does everything else. Responsibilities:
 
 - **Pre-flight probe before starting Appium**, printing the exact resolved path or state for each: Docker, Android SDK path, `adb`, `emulator`, the AVD list, Appium CLI, installed Appium drivers, device boot state, resolved package name, resolved launch activity. Fail fast (red) on any missing prerequisite - do not degrade to inconclusive once the runner is invoked.
 - **SDK discovery.** Do not assume the default SDK path. Accept `-AndroidSdk`, else discover common Windows locations (for example `%LOCALAPPDATA%\Android\Sdk`, `C:\Program Files (x86)\Android\android-sdk`), then export both `ANDROID_HOME` and `ANDROID_SDK_ROOT` (process env only, per the hard rule above) before starting Appium.
@@ -207,11 +207,26 @@ This runner owns the whole Android lane end-to-end. Test methods only connect; t
 - **One scoped launch retry.** For the known transient Android launch failure only (exact `Cannot start` plus `never started`): force-stop the app, recreate the session, retry once. No broad retries. (Doctrine: `../skills/testing-quality.md` section Uno Mobile: Test Split.)
 - Set `{APP}_MOBILE_TESTS_ENABLED=true`, run `dotnet test`, write TRX.
 
+## Optional Visual Studio/Test Explorer profile
+
+When the developer wants the selected mobile/browser suites runnable directly from Test Explorer, generate `tests/{App}.runsettings` as an explicit IDE profile:
+
+- set `<MaxCpuCount>1</MaxCpuCount>` so browser and mobile hosts do not compete for shared emulator, Appium, ports, or build outputs;
+- set `{APP}_MOBILE_TESTS_ENABLED=true` and the loopback Appium URL as test-run parameters;
+- add mobile `[AssemblyInitialize]`/`[AssemblyCleanup]` lifecycle that builds the default Android package only when no explicit app path was supplied, starts Appium only for an unavailable loopback endpoint, and stops only the process it started;
+- resolve relative artifact and screenshot paths against the repository root so CLI and Test Explorer agree;
+- fail on an explicitly configured missing artifact or unavailable non-loopback Appium server;
+- keep emulator/device discovery and startup in the explicit runner. The assembly host may build the APK and own loopback Appium, but it must not silently choose or boot a device.
+- set method, assembly, and lane deadlines above the maximum Appium startup allowance plus assertion and cleanup time. Never configure an inner startup wait longer than its enclosing test timeout.
+
+Do not auto-select this profile for ordinary CLI acceptance. Passing `--settings tests/{App}.runsettings` or selecting it in Visual Studio is the explicit opt-in that accepts the heavy prerequisites.
+
 ## Verification
 
 - [ ] `eng/test/start-local-test-stack.ps1` exists and runs end-to-end on a clean session.
 - [ ] script mutates **process** env only (no `setx`, no machine/user PATH edits).
 - [ ] `tests/Test.Mobile/run-mobile-tests.ps1` exists when mobile tier exists.
 - [ ] Mobile runner meets the responsibilities in section Mobile runner (`run-mobile-tests.ps1`): resource probe with exact paths, SDK discovery + `ANDROID_HOME`/`ANDROID_SDK_ROOT` export, Android build, visible cold-boot handling, one scoped launch retry, `{APP}_MOBILE_TESTS_ENABLED=true`, `dotnet test`, TRX.
+- [ ] When the IDE profile is requested, `tests/{App}.runsettings` serializes hosts, explicitly enables mobile, and its assembly lifecycle owns only default-package build plus loopback Appium startup/cleanup.
 - [ ] script prints exact endpoints per-tier rerun commands, including mobile runner command.
 - [ ] `.vscode/tasks.json` entries exist for: start stack, build WASM, install Playwright, run full serial acceptance, run Aspire/WASM, run Mobile via `run-mobile-tests.ps1`.

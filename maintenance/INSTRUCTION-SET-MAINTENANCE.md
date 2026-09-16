@@ -45,7 +45,7 @@ CANARIES = {
     "StartWebServiceAsync": "skills/ai-integration.md",
     "Microsoft.Extensions.AI.OpenAI": "skills/ai-integration.md",
     "Microsoft.AI.Foundry.Local.Core": "skills/ai-integration.md",  # native transitive payload; RID-bound test lane needs its own direct ref
-    'AiProviderInfo("local")': "skills/ai-integration.md",  # availability-driven provider signal; pointers say "AiProviderInfo" only
+    'AiProviderInfo("local")': "skills/ai-integration.md",  # explicitly selected local-provider signal; pointers say "AiProviderInfo" only
     'AiProviderInfo("stub")': "skills/ai-integration.md",  # opt-in dev-stub content tier; pointers say "AiProviderInfo" / provider "stub" only
     "machine capacity, not a contract failure": "skills/ai-integration.md",  # capacity-timeout is Inconclusive, not Fail; keeps the old "timeout -> Fail" wording from drifting back
     "before Aspire graph creation": "skills/ai-integration.md",  # Azure optional-provider eligibility is checked before boot; missing config is Inconclusive

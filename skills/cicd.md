@@ -31,7 +31,7 @@ Use GitHub Actions for:
 11. Tracked files contain no package credentials. Repository `nuget.config` may contain `%NUGET_AUTH_TOKEN%` only; secrets must not be echoed or included in diagnostic artifacts.
 12. **CI green must imply the deploy will compile.** Every compile surface the deploy pipeline builds - platform heads excluded from the fast lane for workload cost, container-only hosts, the migrator image - either gets a pre-merge compile gate (`dotnet build`, no tests, workloads installed) or the workflow states the required manual build explicitly. A fast lane that tests less than deploy compiles converts merge-time errors into deploy-time outages.
 13. Do not add `push: main` CI when protected PR CI already tested the exact merge candidate and post-merge work does not differ. Keep deploy/release triggers separate. Retesting an identical tree spends minutes without adding evidence.
-14. Pin dependency and emulator images to concrete reviewed tags in local/CI topology and deploy immutable digests. Never consume a floating `latest` tag.
+14. Pin shared CI and deployed dependency/emulator images with a reviewed tag plus immutable digest. Concrete reviewed tags alone are limited to explicitly local-only or unresolved cross-architecture topology, with the boundary recorded. Record whether a digest covers one architecture or a manifest list. Never consume a floating `latest` tag.
 
 ### Registry choice is a scaffold input
 
@@ -371,7 +371,7 @@ The entry job rejects `operation=deploy` without a full commit SHA. Resolve that
 3. Provision infrastructure without activating new runtime revisions.
 4. Back up data before any destructive reset/migration allowed by the recorded lifecycle, then run the migrator job below before the image swap.
 5. Deploy only artifacts from the release manifest.
-6. Verify internal database-aware readiness (`/health/db` or app equivalent), then public full health (`/health/full` or app equivalent), then an explicit functional CRUD smoke.
+6. Verify internal database-aware readiness (`/health/db` or app equivalent), then public full health (`/health/full` or app equivalent), then an explicit functional CRUD smoke. When cleanup updates or deletes a concurrency-protected resource, read its strong ETag and send it in `If-Match`; deployment proof must exercise the public concurrency contract.
 7. Atomically record the previous/current successful release manifests for later rollback.
 
 Keep scheduler replicas pinned when no coordination layer exists.
@@ -648,7 +648,7 @@ For `scaffoldMode: lite`:
 - [ ] Migrator Container Apps Job runs BEFORE image swap; pipeline polls the execution to terminal status; runtime deploys gate on it
 - [ ] deployment step updates correct environment resources by SHA tag
 - [ ] requested SHA is green; one release manifest records image digests and immutable bundle IDs; expected files fail fast when absent
-- [ ] local/CI dependency images use concrete reviewed tags and deployment references immutable digests; no consumed image uses `latest`
+- [ ] shared CI and deployed dependency/emulator images use reviewed tags plus immutable digests; local-only tag exceptions and single-architecture digest limits are recorded; no consumed image uses `latest`
 - [ ] internal DB-aware readiness, public full health, and functional smoke pass in order
 - [ ] previous/current successful manifests are authoritative and rollback reuses the previous manifest without rebuilding
 - [ ] scheduler deployment order includes prerequisite schema step

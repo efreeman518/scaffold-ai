@@ -104,6 +104,8 @@ deployTargets: [ContainerApps, DockerCompose]
 
 Keep `Sql` search and `None` AI as defaults unless that lane provisions and validates the optional provider. `NonAzure` means zero Azure runtime dependencies: reject Azure App Configuration, Key Vault, Azure Data Protection key encryption, and every Azure-owned provider even when supplied through environment variables. A project that intentionally mixes provider families must declare a separately named lane and its compatibility matrix instead of weakening `NonAzure`. `Portable` remains a one-release input alias for `NonAzure`; do not emit it as a canonical lane. `Relational` remains a one-release input alias for the default NonAzure `PostgreSqlJsonb` read model. `MongoDb` is the explicit document-database alternative.
 
+`FoundryLocal` remains conditional for an app that explicitly requires and proves the native runtime. It is never selected because a package, endpoint, or runtime happens to be present, and TaskFlow no longer supplies runnable proof for that arm.
+
 ## Statelessness and Stateful Exceptions
 
 - Persist Data Protection keys anywhere more than one replica, restart, or rolling deploy must accept the same cookies or protected cursors.
@@ -111,6 +113,7 @@ Keep `Sql` search and `None` AI as defaults unless that lane provisions and vali
 - Blazor Server circuits are stateful. Either use affinity and record its failover ceiling, or choose a stateless UI architecture when transparent replica failover is required.
 - In-memory background queues are for disposable work only. Durable work uses a persisted scheduler, outbox, or broker.
 - A distributed lock is coordination, not exactly-once proof. Make the protected operation idempotent and use token-checked release. Work-table consumers use leases or atomic claims instead of a global lock.
+- Treat a persistent container volume target as stored-data metadata. Before changing an existing PostgreSQL named volume from one image-major mount root to another, require a verified backup plus migration/restore proof or an explicit disposable-volume declaration. Container health against a newly initialized empty cluster does not prove preserved data.
 
 ## Data-Path Rules
 
@@ -179,11 +182,11 @@ Every declared lane leaves executable proof at the cheapest useful level:
 | Deployment ownership | Each lane maps to one declared target; Compose rejects non-`NonAzure` input and Azure IaC rejects non-`Azure` input. |
 | Database/provider behavior | Same integration and E2E suite against every `databaseProviders` arm, including migration drift. |
 | Broker semantics | Publish/consume, retry, dead-letter, inbox replay, and trace-parent tests per transport. |
-| Compose or equivalent | Configuration parse on ordinary CI; full image and CRUD smoke in an explicit expensive lane. |
+| Compose or equivalent | Configuration parse on ordinary CI; full image and CRUD smoke in an explicit expensive lane. Concurrency-protected cleanup reads a strong ETag and sends `If-Match`. |
 | Runtime image | Live connection and port-bind smoke using final host properties and base image. |
 | Deployment | Digest-pinned release manifest, database-first rollout, readiness plus CRUD smoke, and rollback without rebuild. |
 
-Use immutable image digests for releases and concrete, reviewed image tags for local/CI topology. Never consume a floating `latest` tag. Capture container state and logs while the failed graph is still alive, gate diagnostics on the failing step's conclusion, and redact environment values.
+Pin shared CI and deployed images with both a reviewed tag and immutable digest. A concrete reviewed tag alone is acceptable only for explicitly local-only or unresolved cross-architecture topology. Record when a digest covers one architecture rather than a manifest list. Never consume a floating `latest` tag. Capture container state and logs while the failed graph is still alive, gate diagnostics on the failing step's conclusion, and redact environment values.
 
 ## Proof
 

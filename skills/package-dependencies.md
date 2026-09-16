@@ -37,6 +37,9 @@ SDK upgrade discipline:
 
 - Resolve the latest stable SDK during generation and consult the vendor's current official upgrade guide when its API or project shape changed.
 - Do not hold a prior major by policy. If the latest stable SDK is temporarily blocked, use the four-part exception record above and keep the validating test in CI until removal.
+- Treat tightly coupled runtime/tooling families as one refresh unit. For EF Core, keep the runtime/provider packages, `Microsoft.EntityFrameworkCore.Design`, `Microsoft.EntityFrameworkCore.Tools` when referenced, and repo-local `dotnet-ef` on one compatible patch. A green application build does not prove the design-time tool graph.
+- Refresh every referenced `Testcontainers.*` package together and compile each consuming test project. Do not infer that unrelated package families share a version: package names under one feature, such as FusionCache core and provider integrations, may legitimately resolve at different versions. Update nearby rationale when the supported package combination changes.
+- After a toolchain refresh, run `dotnet tool restore`, compile the affected solution and workload-specific projects, and run the transitive vulnerability audit. Search adjacent comments, generated-client plans, examples, and version rationale for stale copied values before declaring the refresh complete.
 
 Package adoption and replacement discipline:
 
@@ -392,6 +395,8 @@ Pattern reference: [external-api.md](external-api.md)
 - [ ] `dotnet restore` exits 0 before Phase 4 (with `NUGET_AUTH_TOKEN` set when `feed`/`hybrid`)
 - [ ] `Directory.Packages.props` owns versions
 - [ ] `global.json` pins SDK with roll-forward policy
+- [ ] EF Core runtime/provider, Design, Tools when referenced, and repo-local `dotnet-ef` are patch-aligned; `dotnet tool restore` succeeds
+- [ ] Referenced `Testcontainers.*` packages were refreshed together and each consuming test project compiled; unrelated package families were not forced to share a version
 - [ ] Correct package placement across Domain/Data/Application/Infrastructure hosts
 - [ ] Latest stable versions resolved successfully
 - [ ] `dotnet restore` re-runs cleanly after projects are generated

@@ -128,10 +128,11 @@ This is a complete reference of all configuration sections used across the solut
 },
 
 "AiServices": {
+"Provider": "None",
 "UseSearch": false,
 "UseAgents": false,
 "UseVectorSearch": false,
-"DisableFoundryLocal": false,
+"DisableFoundryLocal": true,
 "RequireFoundryLocal": false,
 "LocalModel": "qwen2.5-0.5b",
 "LocalWebUrl": "http://127.0.0.1:52415",
@@ -185,8 +186,8 @@ This is a complete reference of all configuration sections used across the solut
 - `CacheSettings` is an array - each entry creates a named FusionCache instance
 - `FailSafeThrottleDurationSeconds` - note the unit is **seconds** (passed to `TimeSpan.FromSeconds()`)
 - `ForwardedClaims:TrustedGatewayClientIds` is the API allowlist for gateway service-token `azp`/`appid` values; omit the section when claim relay is unused, and fail startup if claim relay is registered with an empty list
-- Leave both Data Protection URLs empty in development and isolated test hosts. Deployed configuration must supply both together; see [security.md](../skills/security.md#data-protection). Supply credentials through managed identity, never URL query strings.
+- Data Protection persistence is provider-aware. `AzureBlob` requires either `DataProtectionKeysFileUrl` or the `BlobStorage1` endpoint/connection used to derive it; `Redis` requires `Redis1`; `None` is limited to isolated development/test hosts. Key Vault encryption is independent and optional. Tests that select a persistence arm must inject that arm's required input. See [security.md](../skills/security.md#data-protection). Supply credentials through managed identity, never URL query strings.
 - `ServiceAuth` section in Gateway maps cluster IDs to OAuth2 client credential configs
 - `AuthMode` belongs on each auth-owning host and must be one validated value (`Scaffold`, `Local`, or `Entra`); production hosts use the same intended mode across the chain
-- `AiServices:RequireFoundryLocal` stays false in normal appsettings; set true only in `Test.FoundryLocal`
+- `AiServices:Provider` is the sole activation source. Endpoint, deployment, and connection values validate the selected provider but never activate it. Default to `None`; select `FoundryLocal` only when the optional native runtime was explicitly requested. `AiServices:RequireFoundryLocal` stays false in normal appsettings and is true only in `Test.FoundryLocal`.
 - For production/Azure: use Key Vault references or App Configuration for secrets

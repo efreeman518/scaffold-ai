@@ -283,6 +283,7 @@ Selection rules:
 - Local-only dependency: use the service-specific non-Azure `Add*` integration.
 - Cloud-only dependency: declare `deployment-only` or `lazy-optional` plus no-op stubs so the scaffold still boots locally.
 - AI Search, Foundry Agent Service, Key Vault, platform resources, and observability sinks must not block local scaffold completion unless Phase 2 explicitly requires a live endpoint.
+- AI provider activation comes only from the explicit `aiProvider`/`AiServices:Provider` selection. Endpoint, deployment, connection-string, and runtime-availability values validate that arm but never activate one. AppHost resources, runtime DI, status, live-test eligibility, and remediation docs must share the resolver.
 
 ### Database & Storage
 
@@ -605,7 +606,7 @@ externalDependencyModes:
   appConfiguration: lazy-optional
   aspireDashboard: emulator
   openObserve: deployment-only
-  aiServices: lazy-optional       # Foundry Local in run mode, or Azure when configured/published; no-op IChatClient when neither is wired. AI Search stays deployment-only.
+  aiServices: lazy-optional       # Explicit aiProvider selects Foundry Local or Azure; None registers no-op. Raw provider config never activates an arm. AI Search stays deployment-only.
   externalApis:
     - name: PaymentGateway
       mode: no-op stub

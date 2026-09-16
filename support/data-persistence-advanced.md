@@ -90,15 +90,16 @@ If you use this fallback, record it in `HANDOFF.md` and repo docs. Do not hand-e
 
 ### EF CLI Prerequisites
 
-Before running any migration command, ensure `dotnet ef` is available. Prefer repo-local tooling for reproducibility; an existing user-global install is acceptable.
+Before running any migration command, ensure `dotnet ef` is available. Prefer a repo-local tool manifest for reproducibility; an existing user-global install is acceptable only when its version is compatible with the repository.
 
 ```powershell
 dotnet ef --version
 dotnet new tool-manifest
-dotnet tool install dotnet-ef
+dotnet tool install dotnet-ef --version <same-patch-as-ef-runtime>
+dotnet tool restore
 ```
 
-The startup project must reference `Microsoft.EntityFrameworkCore.Design`.
+Keep the EF runtime/provider packages, `Microsoft.EntityFrameworkCore.Design`, `Microsoft.EntityFrameworkCore.Tools` when referenced, and repo-local `dotnet-ef` on one compatible patch. The startup project must reference `Microsoft.EntityFrameworkCore.Design`. Re-run `dotnet tool restore`, a compiled migration command, and the solution build after a refresh; a green runtime-only build can miss design-time drift.
 
 If `nuget.config` uses `<packageSourceMapping>`, add an explicit entry for `dotnet-ef` under `nuget.org`.
 
@@ -164,6 +165,8 @@ Repeat this gate for every configured migration provider and DbContext. A green 
 ### Data Migrations
 
 Migration files should contain schema changes only. Use one-time background jobs for non-trivial backfill and use `migrationBuilder.Sql()` only for simple, safe updates.
+
+Container image upgrades can change the database's expected persistence root without changing the EF schema. Treat a named-volume target change as a data migration: before switching it, require a verified backup plus migration/restore proof, or record that the volume is disposable. Verify known data after container recreation. A healthy replacement cluster can be newly initialized while the old volume still holds the only real data.
 
 ### Migration Ownership: Dedicated Migrator Host
 
