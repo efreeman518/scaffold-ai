@@ -55,8 +55,35 @@ This is a complete reference of all configuration sections used across the solut
     ]
   },
 
+  "DataProtection": {
+    "Persistence": "{DataProtectionPersistence}",
+    "AzureBlob": {
+      "ContainerName": "data-protection",
+      "BlobName": "keys.xml"
+    }
+  },
   "DataProtectionKeysFileUrl": "",
   "DataProtectionEncryptionKeyUrl": "",
+
+  "AiServices": {
+    "Provider": "None",
+    "UseSearch": false,
+    "UseAgents": false,
+    "UseVectorSearch": false,
+    "DevStubContent": false,
+    "Endpoint": "",
+    "ChatModel": "",
+    "EmbeddingModel": "",
+    "FoundryEndpoint": "",
+    "AgentModelDeployment": "",
+    "EmbeddingModelDeployment": "",
+    "SearchEndpoint": "",
+    "SearchIndexName": "",
+    "FoundryResourceName": "",
+    "FoundryResourceGroup": "",
+    "FoundryProjectEndpoint": "",
+    "FoundryAgentName": ""
+  },
 
   "OpenApiSettings": {
     "Enable": true
@@ -73,6 +100,17 @@ This is a complete reference of all configuration sections used across the solut
   },
 
   "AllowedHosts": "*"
+}
+```
+
+When and only when the resource plan includes `FoundryLocal`, merge these properties into the API's `AiServices` section. Do not emit this native-runtime surface for `None`, `AzureInference`, or `OpenAICompatible`:
+
+```json
+{
+  "DisableFoundryLocal": false,
+  "RequireFoundryLocal": false,
+  "LocalModel": "qwen2.5-0.5b",
+  "LocalWebUrl": "http://127.0.0.1:52415"
 }
 ```
 
@@ -127,27 +165,6 @@ This is a complete reference of all configuration sections used across the solut
 "AllowedOrigins": ["https://localhost:44318", "http://localhost:5173"]
 },
 
-"AiServices": {
-"Provider": "None",
-"UseSearch": false,
-"UseAgents": false,
-"UseVectorSearch": false,
-"DisableFoundryLocal": true,
-"RequireFoundryLocal": false,
-"LocalModel": "qwen2.5-0.5b",
-"LocalWebUrl": "http://127.0.0.1:52415",
-"DevStubContent": false,
-"FoundryEndpoint": "",
-"AgentModelDeployment": "",
-"EmbeddingModelDeployment": "",
-"SearchEndpoint": "",
-"SearchIndexName": "",
-"FoundryResourceName": "",
-"FoundryResourceGroup": "",
-"FoundryProjectEndpoint": "",
-"FoundryAgentName": ""
-},
-
 "Logging": {
 "LogLevel": {
       "Default": "Information",
@@ -186,8 +203,8 @@ This is a complete reference of all configuration sections used across the solut
 - `CacheSettings` is an array - each entry creates a named FusionCache instance
 - `FailSafeThrottleDurationSeconds` - note the unit is **seconds** (passed to `TimeSpan.FromSeconds()`)
 - `ForwardedClaims:TrustedGatewayClientIds` is the API allowlist for gateway service-token `azp`/`appid` values; omit the section when claim relay is unused, and fail startup if claim relay is registered with an empty list
-- Data Protection persistence is provider-aware. `AzureBlob` requires either `DataProtectionKeysFileUrl` or the `BlobStorage1` endpoint/connection used to derive it; `Redis` requires `Redis1`; `None` is limited to isolated development/test hosts. Key Vault encryption is independent and optional. Tests that select a persistence arm must inject that arm's required input. See [security.md](../skills/security.md#data-protection). Supply credentials through managed identity, never URL query strings.
+- Phase 2 maps `hostingLaneDefaults.<active>.dataProtectionPersistence` to runtime `DataProtection:Persistence`; `TASKFLOW_DATAPROTECTION_PERSISTENCE` is the environment override. `AzureBlob` requires either `DataProtectionKeysFileUrl` or the `BlobStorage1` endpoint/connection used to derive it; `Redis` requires `Redis1`; `None` is limited to isolated development/test hosts. Key Vault encryption is independent and optional. Tests that select a persistence arm must inject that arm's required input. See [security.md](../skills/security.md#data-protection). Supply credentials through managed identity, never URL query strings.
 - `ServiceAuth` section in Gateway maps cluster IDs to OAuth2 client credential configs
 - `AuthMode` belongs on each auth-owning host and must be one validated value (`Scaffold`, `Local`, or `Entra`); production hosts use the same intended mode across the chain
-- `AiServices:Provider` is the sole activation source. Endpoint, deployment, and connection values validate the selected provider but never activate it. Default to `None`; select `FoundryLocal` only when the optional native runtime was explicitly requested. `AiServices:RequireFoundryLocal` stays false in normal appsettings and is true only in `Test.FoundryLocal`.
+- `AiServices:Provider` is the sole activation source. Endpoint, deployment, and connection values validate the selected provider but never activate it. Default to `None`. `OpenAICompatible` additionally requires `AiServices:ApiKey`, supplied only through user secrets or an environment/secret store. Select `FoundryLocal` only when the optional native runtime was explicitly requested; that arm emits its conditional settings with `DisableFoundryLocal=false`. `Test.FoundryLocal` also sets `RequireFoundryLocal=true`.
 - For production/Azure: use Key Vault references or App Configuration for secrets

@@ -136,7 +136,7 @@ ASP.NET Core Data Protection handles encryption of cookies, anti-forgery tokens,
 
 ### Provider-aware persistence contract
 
-Select persistence through the hosting lane's `DataProtection:Persistence` value. Validate the selected arm before the host starts and name the missing input in the exception:
+Phase 2 maps `hostingLaneDefaults.<active>.dataProtectionPersistence` to runtime `DataProtection:Persistence`. `TASKFLOW_DATAPROTECTION_PERSISTENCE` is the environment override; otherwise the strict lane default applies. The shared hosting resolver returns the validated arm before host startup and names an unknown or cross-lane value in the exception.
 
 | Arm | Required input | Provisioning rule |
 |---|---|---|
@@ -147,6 +147,65 @@ Select persistence through the hosting lane's `DataProtection:Persistence` value
 Key persistence and key encryption are independent. `DataProtectionEncryptionKeyUrl`, when supplied, adds Azure Key Vault protection after persistence is selected. It is required only when the deployment policy requires at-rest key encryption, and it is rejected by a strict zero-Azure NonAzure lane. Do not require a Key Vault URL merely because Azure Blob persistence was selected.
 
 Keep these rules in the shared Bootstrapper path used by every cookie/token-producing host. A test factory that selects `AzureBlob` must also inject `DataProtectionKeysFileUrl` or `BlobStorage1`; otherwise the resulting startup error is configuration failure, not an unavailable AI, browser, or container runtime.
+
+### Registration skeleton
+
+Keep provider resolution and registration together. `CreateBlobServiceClient` accepts either an absolute service endpoint plus `DefaultAzureCredential` or a connection string. `DataProtection:AzureBlob:ContainerName` and `BlobName` default to `data-protection` and `keys.xml`; deployed infrastructure pre-creates the container, while local Azurite may create it during test setup.
+
+```csharp
+public static IServiceCollection AddAppDataProtection(
+    this IHostApplicationBuilder builder,
+    ILogger logger)
+{
+    var config = builder.Configuration;
+    var persistence = DataProtectionPersistenceResolver.Resolve(config); // lane-aware closed switch
+    var dataProtection = builder.Services.AddDataProtection(); // preserve the existing discriminator
+
+    switch (persistence)
+    {
+        case DataProtectionPersistence.AzureBlob:
+            var keysFileUrl = config["DataProtectionKeysFileUrl"];
+            if (!string.IsNullOrWhiteSpace(keysFileUrl))
+            {
+                dataProtection.PersistKeysToAzureBlobStorage(
+                    new Uri(keysFileUrl), CreateAzureCredential(config));
+                break;
+            }
+
+            var blobInput = config.GetConnectionString("BlobStorage1")
+                ?? config["BlobStorage1:blobServiceUri"]
+                ?? throw new InvalidOperationException(
+                    "DataProtection:Persistence=AzureBlob requires DataProtectionKeysFileUrl or BlobStorage1.");
+            var containerName = config["DataProtection:AzureBlob:ContainerName"] ?? "data-protection";
+            var blobName = config["DataProtection:AzureBlob:BlobName"] ?? "keys.xml";
+            var blobService = CreateBlobServiceClient(blobInput, CreateAzureCredential(config));
+            dataProtection.PersistKeysToAzureBlobStorage(
+                blobService.GetBlobContainerClient(containerName).GetBlobClient(blobName));
+            break;
+
+        case DataProtectionPersistence.Redis:
+            var redis = config.GetConnectionString("Redis1")
+                ?? throw new InvalidOperationException(
+                    "DataProtection:Persistence=Redis requires ConnectionStrings:Redis1.");
+            // shortcut: use one eager connection only when the app does not expose a shared multiplexer.
+            dataProtection.PersistKeysToStackExchangeRedis(ConnectionMultiplexer.Connect(redis));
+            break;
+
+        case DataProtectionPersistence.None:
+            logger.LogWarning("Data Protection keys are ephemeral and do not survive restart or scale-out.");
+            break;
+
+        default:
+            throw new InvalidOperationException($"Unsupported Data Protection persistence '{persistence}'.");
+    }
+
+    if (config["DataProtectionEncryptionKeyUrl"] is { Length: > 0 } encryptionKeyUrl)
+        dataProtection.ProtectKeysWithAzureKeyVault(
+            new Uri(encryptionKeyUrl), CreateAzureCredential(config));
+
+    return builder.Services;
+}
+```
 
 ### Packages
 
@@ -241,6 +300,6 @@ Secrets must be stored in Azure Key Vault (see [configuration-secrets.md](config
 - [ ] CORS configured in Gateway only - API rejects direct browser requests
 - [ ] `dotnet nuget audit` included in CI pipeline
 - [ ] Dependabot enabled only deliberately and configured per the GitHub Dependabot section (Dependabot secrets, manifest-per-directory, private-feed registries)
-- [ ] Data Protection configured with Azure Blob key storage and Key Vault key encryption
-- [ ] Secrets stored in Key Vault with rotation workflow documented
+- [ ] Data Protection runtime `Persistence` matches the active lane: Azure Blob has a key URL or `BlobStorage1`, Redis has `Redis1`, and `None` is limited to isolated development/tests
+- [ ] When Key Vault key encryption is selected, the encryption URL, managed identity permissions, stored secret policy, and rotation workflow are documented; strict NonAzure emits no Key Vault dependency
 - [ ] `ValidateOnStart()` used for critical configuration sections

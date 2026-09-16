@@ -410,7 +410,7 @@ Full decision, runtime, and verification rules: [../support/scalability-and-host
 
 ### AI Services
 
-Define AI integration resources when `includeAiServices: true`. Maps Phase 1 `aiCapabilities` to concrete Azure resources and code frameworks.
+Define AI integration resources when `includeAiServices: true`. Maps Phase 1 `aiCapabilities` to concrete resources and code frameworks. This focused fixture inventories capability only and is intentionally no-op until the active hosting lane explicitly selects one of the declared `aiProviders`; `includeAiServices` and the `foundry` block never activate a provider by themselves.
 
 ```yaml
 aiServices:
@@ -606,7 +606,7 @@ externalDependencyModes:
   appConfiguration: lazy-optional
   aspireDashboard: emulator
   openObserve: deployment-only
-  aiServices: lazy-optional       # Explicit aiProvider selects Foundry Local or Azure; None registers no-op. Raw provider config never activates an arm. AI Search stays deployment-only.
+  aiServices: lazy-optional       # Explicit aiProvider selects AzureInference, OpenAICompatible, FoundryLocal, or None. None registers no-op. Raw provider config never activates an arm. AI Search stays deployment-only.
   externalApis:
     - name: PaymentGateway
       mode: no-op stub

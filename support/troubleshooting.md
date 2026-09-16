@@ -201,7 +201,8 @@ Do not switch renderers, change launch ports, or rewrite app startup before ruli
 
 ```csharp
 var taskflowDb = builder.AddSqlServer("sql")
-    .WithImageTag("<resolved-stable-sql-tag>")
+    .WithImageTag("<resolved-reviewed-sql-tag>")
+    .WithImageSHA256("<resolved-sql-manifest-sha256>")
     .AddDatabase("taskflow-db");
 
 var api = builder.AddProject<Projects.TaskFlow_Api>("api")

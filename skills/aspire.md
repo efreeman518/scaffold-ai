@@ -136,7 +136,8 @@ if (!builder.ExecutionContext.IsPublishMode)
     {
         c.WithHostPort(38433)            // first-class on SqlServerServerResource
          .WithPassword(sqlPassword)
-         .WithImageTag("<resolved-stable-sql-tag>");
+         .WithImageTag("<resolved-reviewed-sql-tag>")
+         .WithImageSHA256("<resolved-sql-manifest-sha256>");
         // Persistent lifetime + named volume are a local `dotnet run` convenience. Under test
         // (IsAspireTesting()) leave the container ephemeral so DisposeAsync owns teardown - see Rules below.
         if (!IsAspireTesting())
@@ -208,8 +209,8 @@ The AppHost wiring snippet (Azure branch + local var-forward + existing-account)
 
 - If code-hosted agents or workflow agent nodes call tools, select a local model whose Foundry Local task list includes `tools`. `qwen2.5-0.5b` is a small pragmatic default; `phi-4` is chat-only.
 - Foundry Local is explicit, never availability-driven. Select `FoundryLocal` only when the optional native runtime is required; startup failure is red after optional-runtime preflight. `AiServices:DisableFoundryLocal=true` remains a defense-in-depth guard for offline and RID-free tiers.
-- `Test.Aspire` is RID-free, selects `None`, and keeps `AiServices:DisableFoundryLocal=true`; Azure live smoke runs there only for explicit `AzureInference`. Foundry Local live proof belongs in `Test.FoundryLocal`, which selects `FoundryLocal`, starts the API host directly, and requires `/api/v1/ai/status provider=local`.
-- Fully local run: select `AiServices:Provider=FoundryLocal`, then run the AppHost. Real Azure run: select `AiServices:Provider=AzureInference` and supply its required endpoint/deployment settings. Raw configuration presence and publish mode do not override the selected provider.
+- `Test.Aspire` is RID-free, selects `None`, and keeps `AiServices:DisableFoundryLocal=true`; Azure live smoke runs there only for explicit `AzureInference`. Foundry Local live proof belongs in `Test.FoundryLocal`, which sets `Provider=FoundryLocal`, `DisableFoundryLocal=false`, and `RequireFoundryLocal=true`, starts the API host directly, and requires `/api/v1/ai/status provider=local`.
+- Fully local run: set `AiServices:Provider=FoundryLocal` and `AiServices:DisableFoundryLocal=false`, then run the AppHost. Real Azure run: select `AiServices:Provider=AzureInference` and supply its required endpoint/deployment settings. Raw configuration presence and publish mode do not override the selected provider.
 - Projects + server-hosted agents are an Axis-2 escalation (Azure-only): see [ai-integration.md](ai-integration.md) (Foundry Projects and Server-Hosted Agents).
 
 ---
@@ -242,13 +243,17 @@ var eventHubs = builder.AddAzureEventHubs("eventhubs").RunAsEmulator();
 
 ### Emulator Image Pinning (and the Service Bus SQL sidecar)
 
-Resolve a concrete, reviewed tag for every emulator at scaffold time and record it in the implementation plan. A bare `.RunAsEmulator()` rides whatever tag the hosting package defaults to, while a floating `latest` tag changes without a source diff. Both make CI and local topology nondeterministic:
+Resolve a concrete, reviewed tag for every emulator at scaffold time and record it in the implementation plan. Shared CI also sets the immutable manifest digest through `WithImageSHA256`; omit the digest only for an explicitly local-only or unresolved cross-architecture topology and record that boundary. A bare `.RunAsEmulator()` rides whatever image the hosting package defaults to, while a floating `latest` tag changes without a source diff.
 
 ```csharp
 var storage = builder.AddAzureStorage("storage")
-    .RunAsEmulator(e => e.WithImageTag("<resolved-stable-azurite-tag>"));
+    .RunAsEmulator(e => e
+        .WithImageTag("<resolved-reviewed-azurite-tag>")
+        .WithImageSHA256("<resolved-azurite-manifest-sha256>"));
 var serviceBus = builder.AddAzureServiceBus("servicebus")
-    .RunAsEmulator(e => e.WithImageTag("<resolved-stable-servicebus-tag>"));
+    .RunAsEmulator(e => e
+        .WithImageTag("<resolved-reviewed-servicebus-tag>")
+        .WithImageSHA256("<resolved-servicebus-manifest-sha256>"));
 ```
 
 **The Service Bus emulator bundles its own SQL Server sidecar** - a separate container named `{servicebus}-mssql`. The Aspire package **hardcodes that SQL image tag**, and the `RunAsEmulator` callback **cannot reach it** (the callback configures only the emulator container, not the sidecar). Left alone it pulls a different, usually older SQL Server major than your `sql` resource - so the machine ends up with two full SQL images. Override it by pulling the resource out of the model right after `RunAsEmulator` and re-tagging it to match `sql`:
@@ -259,7 +264,8 @@ var serviceBus = builder.AddAzureServiceBus("servicebus")
 // builder.Resources.Single(...) needs System.Linq in scope.
 builder.CreateResourceBuilder(
         (ContainerResource)builder.Resources.Single(r => r.Name == "servicebus-mssql"))
-    .WithImageTag("<resolved-stable-sql-tag>");
+    .WithImageTag("<resolved-reviewed-sql-tag>")
+    .WithImageSHA256("<resolved-sql-manifest-sha256>");
 ```
 
 > **Compatibility caveat.** The Service Bus emulator is validated against its bundled SQL version, so forcing a newer major is a mild risk. Verify the emulator still reaches a healthy state after re-tagging (a mesh/Aspire test that exercises the bus is enough). If it regresses, drop the override and accept the second image.
@@ -318,7 +324,8 @@ var redisPwd = builder.AddParameter(
     secret: true);
 
 var redis = builder.AddRedis("redis", port: isTesting ? null : 6379, password: redisPwd)
-    .WithImageTag("<resolved-stable-redis-tag>");
+    .WithImageTag("<resolved-reviewed-redis-tag>")
+    .WithImageSHA256("<resolved-redis-manifest-sha256>");
 
 if (!isTesting)
 {
@@ -342,7 +349,9 @@ Pin the AMQP port for SDK clients and expose an HTTP management endpoint for adm
 var serviceBus = builder.AddAzureServiceBus("servicebus")
     .RunAsEmulator(emulator =>
     {
-        var serviceBusEmulator = emulator.WithImageTag("<resolved-stable-servicebus-tag>");
+        var serviceBusEmulator = emulator
+            .WithImageTag("<resolved-reviewed-servicebus-tag>")
+            .WithImageSHA256("<resolved-servicebus-manifest-sha256>");
 
         if (!isTesting)
         {
@@ -415,8 +424,8 @@ Fixed ports and explorer UIs are **local-dev affordances only**. In test runs:
 4. Use `WaitFor(...)` for startup ordering dependencies; database-touching runtime hosts also take `WaitForCompletion(migrator)` on the one-shot `{Host}.DatabaseMigrator` resource (graph owner: [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section Aspire Resource Wiring).
 5. Keep Gateway as public ingress, backend hosts internal.
 6. Keep AppHost resource names aligned with IaC modules in [iac.md](iac.md).
-7. Resolve and pin a concrete SQL Server image tag; EF SQL registrations must use the selected compatibility level.
-8. Pin every emulator to a concrete reviewed tag, never `latest`, and override the Service Bus emulator's hidden SQL sidecar tag - see *Emulator Image Pinning (and the Service Bus SQL sidecar)* above.
+7. Resolve and pin a reviewed SQL Server image tag plus manifest digest for shared CI; EF SQL registrations must use the selected compatibility level.
+8. Pin every shared-CI emulator with a reviewed tag plus `WithImageSHA256`, never `latest`, and override the Service Bus emulator's hidden SQL sidecar reference - see *Emulator Image Pinning (and the Service Bus SQL sidecar)* above.
 
 ---
 
@@ -460,7 +469,8 @@ var sqlPassword = builder.AddParameter("sql-password", LocalSqlSettings.SharedSa
 var sqlServer = builder.AddSqlServer("sql", sqlPassword)
     .WithLifetime(ContainerLifetime.Persistent)
     .WithDataVolume("{project}-sql-data")
-    .WithImageTag("<resolved-stable-sql-tag>");
+    .WithImageTag("<resolved-reviewed-sql-tag>")
+    .WithImageSHA256("<resolved-sql-manifest-sha256>");
 ```
 
 `AppHost/appsettings.Development.json` and `appsettings.Testing.json` must **not** contain a `Parameters` section. Leave them as `{}`.
