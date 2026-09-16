@@ -130,7 +130,7 @@ internal static class AzuriteContainerFixture
 }
 ```
 
-> **Redis:** when the app uses a distributed cache, generate a parallel `RedisContainerFixture` wrapping `Testcontainers.Redis` (`new RedisBuilder("redis:7").Build()`, `GetConnectionString()`) with the same `StartupError` shape, and start it in `IntegrationTestSetup` alongside the others.
+> **Redis:** when the app uses a distributed cache, generate a parallel `RedisContainerFixture` wrapping `Testcontainers.Redis` (`new RedisBuilder("redis:<resolved-reviewed-tag>@sha256:<resolved-manifest-digest>").Build()`, `GetConnectionString()`) with the same `StartupError` shape, and start it in `IntegrationTestSetup` alongside the others. A concrete tag without a digest is allowed only for a documented local-only fixture.
 
 ---
 

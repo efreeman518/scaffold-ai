@@ -134,61 +134,91 @@ services.AddCors(options =>
 
 ASP.NET Core Data Protection handles encryption of cookies, anti-forgery tokens, and other sensitive payloads. In multi-instance deployments, keys must be shared and persisted externally. **Why:** Without one persisted key ring, another replica or a restarted host cannot decrypt existing payloads, causing intermittent authentication failures and mass session invalidation. Therefore every replica uses the same durable key ring and application name.
 
-### Registration (Program.cs)
+### Provider-aware persistence contract
+
+Phase 2 maps `hostingLaneDefaults.<active>.dataProtectionPersistence` to runtime `DataProtection:Persistence`. `TASKFLOW_DATAPROTECTION_PERSISTENCE` is the environment override; otherwise the strict lane default applies. The shared hosting resolver returns the validated arm before host startup and names an unknown or cross-lane value in the exception.
+
+| Arm | Required input | Provisioning rule |
+|---|---|---|
+| `AzureBlob` | Either an absolute `DataProtectionKeysFileUrl`, or the named `BlobStorage1` endpoint/connection string injected by Aspire or deployment configuration | Infrastructure creates the production container. A local Azurite connection may create its test container on first use. Endpoint authentication uses `DefaultAzureCredential`; connection-string authentication uses the connection string. |
+| `Redis` | Named `Redis1` connection string | Reuse a registered `IConnectionMultiplexer` when the app exposes one; otherwise record the extra eager connection as a bounded shortcut. |
+| `None` | None | Development and isolated tests only. Log that keys do not survive restart or work across replicas. Do not use as a scaled deployment default. |
+
+Key persistence and key encryption are independent. `DataProtectionEncryptionKeyUrl`, when supplied, adds Azure Key Vault protection after persistence is selected. It is required only when the deployment policy requires at-rest key encryption, and it is rejected by a strict zero-Azure NonAzure lane. Do not require a Key Vault URL merely because Azure Blob persistence was selected.
+
+Keep these rules in the shared Bootstrapper path used by every cookie/token-producing host. A test factory that selects `AzureBlob` must also inject `DataProtectionKeysFileUrl` or `BlobStorage1`; otherwise the resulting startup error is configuration failure, not an unavailable AI, browser, or container runtime.
+
+### Registration skeleton
+
+Keep provider resolution and registration together. `CreateBlobServiceClient` accepts either an absolute service endpoint plus `DefaultAzureCredential` or a connection string. `DataProtection:AzureBlob:ContainerName` and `BlobName` default to `data-protection` and `keys.xml`; deployed infrastructure pre-creates the container, while local Azurite may create it during test setup.
 
 ```csharp
-static void ConfigureDataProtection(
-    IServiceCollection services,
-    IConfiguration config,
-    IHostEnvironment environment)
+public static IServiceCollection AddAppDataProtection(
+    this IHostApplicationBuilder builder,
+    ILogger logger)
 {
-    var credential = CreateAzureCredential(config);
-    var dataProtection = services.AddDataProtection()
-        .SetApplicationName($"{App}:{environment.EnvironmentName}");
-    var keysFileUrl = config.GetValue<string?>("DataProtectionKeysFileUrl", null);
-    var encryptionKeyUrl = config.GetValue<string?>("DataProtectionEncryptionKeyUrl", null);
-    var hasKeysFile = !string.IsNullOrWhiteSpace(keysFileUrl);
-    var hasEncryptionKey = !string.IsNullOrWhiteSpace(encryptionKeyUrl);
+    var config = builder.Configuration;
+    var persistence = DataProtectionPersistenceResolver.Resolve(config); // lane-aware closed switch
+    var dataProtection = builder.Services.AddDataProtection(); // preserve the existing discriminator
 
-    if (hasKeysFile != hasEncryptionKey)
-        throw new InvalidOperationException("Configure both Data Protection key URLs or neither.");
-
-    if (!hasKeysFile)
+    switch (persistence)
     {
-        if (!environment.IsDevelopment() && !environment.IsEnvironment("Testing"))
-            throw new InvalidOperationException("Both Data Protection key URLs are required outside Development and Testing.");
-        return;
+        case DataProtectionPersistence.AzureBlob:
+            var keysFileUrl = config["DataProtectionKeysFileUrl"];
+            if (!string.IsNullOrWhiteSpace(keysFileUrl))
+            {
+                dataProtection.PersistKeysToAzureBlobStorage(
+                    new Uri(keysFileUrl), CreateAzureCredential(config));
+                break;
+            }
+
+            var blobInput = config.GetConnectionString("BlobStorage1")
+                ?? config["BlobStorage1:blobServiceUri"]
+                ?? throw new InvalidOperationException(
+                    "DataProtection:Persistence=AzureBlob requires DataProtectionKeysFileUrl or BlobStorage1.");
+            var containerName = config["DataProtection:AzureBlob:ContainerName"] ?? "data-protection";
+            var blobName = config["DataProtection:AzureBlob:BlobName"] ?? "keys.xml";
+            var blobService = CreateBlobServiceClient(blobInput, CreateAzureCredential(config));
+            dataProtection.PersistKeysToAzureBlobStorage(
+                blobService.GetBlobContainerClient(containerName).GetBlobClient(blobName));
+            break;
+
+        case DataProtectionPersistence.Redis:
+            var redis = config.GetConnectionString("Redis1")
+                ?? throw new InvalidOperationException(
+                    "DataProtection:Persistence=Redis requires ConnectionStrings:Redis1.");
+            // shortcut: use one eager connection only when the app does not expose a shared multiplexer.
+            dataProtection.PersistKeysToStackExchangeRedis(ConnectionMultiplexer.Connect(redis));
+            break;
+
+        case DataProtectionPersistence.None:
+            logger.LogWarning("Data Protection keys are ephemeral and do not survive restart or scale-out.");
+            break;
+
+        default:
+            throw new InvalidOperationException($"Unsupported Data Protection persistence '{persistence}'.");
     }
 
-    dataProtection
-        .PersistKeysToAzureBlobStorage(new Uri(keysFileUrl!), credential)
-        .ProtectKeysWithAzureKeyVault(new Uri(encryptionKeyUrl!), credential);
-}
+    if (config["DataProtectionEncryptionKeyUrl"] is { Length: > 0 } encryptionKeyUrl)
+        dataProtection.ProtectKeysWithAzureKeyVault(
+            new Uri(encryptionKeyUrl), CreateAzureCredential(config));
 
-ConfigureDataProtection(builder.Services, builder.Configuration, builder.Environment);
-```
-
-### Config
-
-```json
-{
-  "DataProtectionKeysFileUrl": "https://{storage}.blob.core.windows.net/dataprotection/keys.xml",
-  "DataProtectionEncryptionKeyUrl": "https://{vault}.vault.azure.net/keys/{keyname}"
+    return builder.Services;
 }
 ```
 
 ### Packages
 
-`Azure.Extensions.AspNetCore.DataProtection.Blobs` + `Azure.Extensions.AspNetCore.DataProtection.Keys`.
+- Azure Blob persistence: `Azure.Extensions.AspNetCore.DataProtection.Blobs`.
+- Azure Key Vault encryption, only when configured: `Azure.Extensions.AspNetCore.DataProtection.Keys`.
+- Redis persistence: `Microsoft.AspNetCore.DataProtection.StackExchangeRedis`.
 
 ### Rules
 
-- Omit both config keys in development and isolated test hosts - Data Protection uses its local default key storage while retaining the application discriminator.
-- Use managed identity (`DefaultAzureCredential`) for both Blob and Key Vault access.
-- Use the same `SetApplicationName` value for every replica of one app; use a different value for unrelated apps sharing the key store.
-- Treat `SetApplicationName`, key-store location, encryption key, and purpose strings as persisted wire-contract inputs. Before changing any of them in an existing deployment, protect a payload with the previous release and prove the candidate release can unprotect it; otherwise plan and communicate session/token invalidation explicitly.
-- The Blob container and Key Vault key must exist before first deployment.
-- Key Vault key should have a rotation policy configured.
+- Use the same application discriminator for every replica of one app and a different discriminator for unrelated apps sharing the store. Preserve the framework's existing discriminator when adding persistence to a deployed app unless deliberate token invalidation is planned.
+- Treat the application discriminator, key-store location, encryption key, and purpose strings as persisted wire-contract inputs. Before changing one, protect a payload with the previous release and prove the candidate can unprotect it.
+- Fail before host startup on an unknown persistence value or missing selected-arm input. Never catch this error and reclassify it as another optional provider's failure.
+- Pre-provision production Blob containers and Key Vault keys. Configure a Key Vault rotation policy when Key Vault encryption is selected.
 
 ---
 
@@ -270,6 +300,6 @@ Secrets must be stored in Azure Key Vault (see [configuration-secrets.md](config
 - [ ] CORS configured in Gateway only - API rejects direct browser requests
 - [ ] `dotnet nuget audit` included in CI pipeline
 - [ ] Dependabot enabled only deliberately and configured per the GitHub Dependabot section (Dependabot secrets, manifest-per-directory, private-feed registries)
-- [ ] Data Protection configured with Azure Blob key storage and Key Vault key encryption
-- [ ] Secrets stored in Key Vault with rotation workflow documented
+- [ ] Data Protection runtime `Persistence` matches the active lane: Azure Blob has a key URL or `BlobStorage1`, Redis has `Redis1`, and `None` is limited to isolated development/tests
+- [ ] When Key Vault key encryption is selected, the encryption URL, managed identity permissions, stored secret policy, and rotation workflow are documented; strict NonAzure emits no Key Vault dependency
 - [ ] `ValidateOnStart()` used for critical configuration sections

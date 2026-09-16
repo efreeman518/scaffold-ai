@@ -32,8 +32,8 @@ Use this matrix as the default for Azure left-menu services. Re-check the servic
 | --- | --- | --- |
 | Azure emulators | App Configuration, Cosmos DB, Event Hubs, Service Bus, SignalR Service, Storage Blob/Queue/Table via Azure Storage | Use `AddAzure*().RunAsEmulator(...)` in run mode, real Azure on publish. Storage uses Azurite; Cosmos can use the preview emulator/Data Explorer where appropriate. |
 | Azure local containers | Azure Cache for Redis, Azure PostgreSQL Flexible Server, Azure SQL Database/Server | Use `AddAzure*().RunAsContainer(...)` in run mode, real Azure on publish (Redis: `AddAzureManagedRedis` - see Aspire API Facts). Prefer this over plain `AddRedis`, `AddPostgres`, or `AddSqlServer` when the published target must be Azure-managed. |
-| Azure AI local path | Microsoft Foundry (model inference) | Local (run-mode) path is currently the SDK-direct API-host workaround, attempted by default when Azure is absent (no opt-in; offline / RID-free tiers set `AiServices:DisableFoundryLocal`); the preferred `AddFoundry(...).RunAsFoundryLocal()` is temporarily broken (dotnet/aspire#12750, see *Azure AI Foundry* -> Known issue). Publish or configured real mode uses Azure Foundry; an existing account uses `RunAsExisting`/`PublishAsExisting`/`AsExisting`. |
-| Azure AI cloud-only by default | Azure AI Inference, Azure AI Search, Azure OpenAI, Foundry projects + server-hosted agents (`AddProject`/`AddPromptAgent`) | Use live Azure when configured/published and no-op stubs locally unless the current service page documents a local `RunAs*` path. Azure AI Search has no local emulator in this scaffold. Foundry prompt agents always deploy to Azure even under `aspire run` (no offline path), so keep them opt-in. |
+| Azure AI local path | Microsoft Foundry (model inference) | Only explicit `AiServices:Provider=FoundryLocal` activates the conditional SDK-direct API-host workaround; `None` never probes it. The preferred `AddFoundry(...).RunAsFoundryLocal()` is temporarily broken (dotnet/aspire#12750, see *Azure AI Foundry* -> Known issue). Explicit `AzureInference` uses Azure Foundry; an existing account uses `RunAsExisting`/`PublishAsExisting`/`AsExisting`. |
+| Azure AI cloud-only by default | Azure AI Inference, Azure AI Search, Azure OpenAI, Foundry projects + server-hosted agents (`AddProject`/`AddPromptAgent`) | Use live Azure only when explicitly selected and configured; use no-op stubs locally otherwise unless the current service page documents a local `RunAs*` path. Azure AI Search has no local emulator in this scaffold. Foundry prompt agents always deploy to Azure even under `aspire run` (no offline path), so keep them opt-in. |
 | Azure app/platform resources | App Service, Container Registry, AKS, Container App Jobs, Front Door, Virtual Network, Log Analytics, Application Insights, Data Explorer, Data Lake Storage, Web PubSub, Key Vault, User-assigned managed identity, role assignments | Model for publish or existing-resource wiring. Do not assume a local emulator. Use `RunAsExisting`, `PublishAsExisting`, `AsExisting`, or app-level no-op/lazy wiring as appropriate. |
 
 ### Non-Azure Local Integration Families
@@ -136,7 +136,8 @@ if (!builder.ExecutionContext.IsPublishMode)
     {
         c.WithHostPort(38433)            // first-class on SqlServerServerResource
          .WithPassword(sqlPassword)
-         .WithImageTag("<resolved-stable-sql-tag>");
+         .WithImageTag("<resolved-reviewed-sql-tag>")
+         .WithImageSHA256("<resolved-sql-manifest-sha256>");
         // Persistent lifetime + named volume are a local `dotnet run` convenience. Under test
         // (IsAspireTesting()) leave the container ephemeral so DisposeAsync owns teardown - see Rules below.
         if (!IsAspireTesting())
@@ -193,23 +194,23 @@ The fixed local SQL port and the `sql-password` parameter live INSIDE the `RunAs
 
 Use `Aspire.Hosting.Foundry` to model a chat model that provisions Azure on publish. The package is preview-only - pin it with an inline reason in `Directory.Packages.props`. The deployment resource name is the connection name consumers bind to.
 
-> **Local path note (canonical owner: [ai-integration.md](ai-integration.md), "SDK-direct API-host bootstrap").** `RunAsFoundryLocal()` is broken against GA Foundry Local (dotnet/aspire#12750); the current local path is the SDK-direct API-host workaround - no `chat` resource and no opt-in var (the API host attempts it by default when Azure is absent; a testing AppHost forces no-op via `AiServices:DisableFoundryLocal`), the API host drives `Microsoft.AI.Foundry.Local` directly. Diagnosis, API-host bootstrap, future-restored branch, and migration live there.
+> **Local path note (canonical owner: [ai-integration.md](ai-integration.md), "SDK-direct API-host bootstrap").** `RunAsFoundryLocal()` is broken against GA Foundry Local (dotnet/aspire#12750); the conditional local path uses the SDK-direct API-host workaround with no `chat` resource. Only explicit `AiServices:Provider=FoundryLocal` enters it; a testing AppHost selects `None` and keeps `AiServices:DisableFoundryLocal=true`. Diagnosis, API-host bootstrap, future-restored branch, and migration live there.
 
 Two independent axes - **lifecycle** (where the resource comes from) x **consumption** (raw inference vs. project + server-hosted agents). The lifecycle modes (`FoundryResource : AzureProvisioningResource`, so the general existing-resource APIs apply):
 
 | Mode | AppHost condition | Result |
 |---|---|---|
-| Foundry Local (current: `sdk-direct-api-host`) | No Azure mode selected (no opt-in var; offline / RID-free tiers set `AiServices:DisableFoundryLocal`) | Temporary workaround: no `chat` resource; the API host attempts `Microsoft.AI.Foundry.Local` by default when Azure is absent, falling back to no-op. Preferred `RunAsFoundryLocal()` is broken (see Known issue). No Azure subscription needed. Inference only. |
-| Provision new Azure Foundry | publish mode, `AiServices:FoundryEndpoint`, or app-specific env var, e.g. `MYAPP_USE_AZURE_FOUNDRY=true` | Bicep provisions the account + deploys the model. |
-| Connect to existing | as above, plus `FoundryResourceName`/`FoundryResourceGroup` set | `RunAsExisting(nameParam, rgParam)` / `PublishAsExisting(...)` / `AsExisting(...)` point at an already-provisioned account; the deployment name must match a model already there. |
-| Disabled | neither local nor Azure mode selected | No `chat` resource is wired; app registers no-op AI services. |
+| Foundry Local (conditional: `sdk-direct-api-host`) | `AiServices:Provider=FoundryLocal` and `AiServices:DisableFoundryLocal=false` | Temporary workaround: no `chat` resource; the API host starts `Microsoft.AI.Foundry.Local`. Startup failure is red after optional-runtime preflight. Preferred `RunAsFoundryLocal()` is broken (see Known issue). No Azure subscription needed. Inference only. |
+| Provision new Azure Foundry | `AiServices:Provider=AzureInference`, publish/provision lifecycle | Bicep provisions the account + deploys the model after required settings validate. |
+| Connect to existing | `AiServices:Provider=AzureInference`, existing-account lifecycle, plus `FoundryResourceName`/`FoundryResourceGroup` | `RunAsExisting(nameParam, rgParam)` / `PublishAsExisting(...)` / `AsExisting(...)` point at an already-provisioned account; the deployment name must match a model already there. |
+| Disabled | `AiServices:Provider=None` | No `chat` resource is wired; app registers no-op AI services. Raw endpoint/deployment settings do not activate a provider. |
 
 The AppHost wiring snippet (Azure branch + local var-forward + existing-account) is owned by [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) (its Azure AI Foundry wiring), loaded in the same Phase 5b session - do not restate it here.
 
 - If code-hosted agents or workflow agent nodes call tools, select a local model whose Foundry Local task list includes `tools`. `qwen2.5-0.5b` is a small pragmatic default; `phi-4` is chat-only.
-- Foundry Local is availability-driven (no opt-in): when Azure is absent the API host attempts it by default and falls back to a no-op `IChatClient` if the bootstrap fails. Set `AiServices:DisableFoundryLocal=true` to skip the attempt (offline / RID-free test tiers).
-- `Test.Aspire` is RID-free and must set `AiServices:DisableFoundryLocal=true`; Azure live smoke runs there only when Azure Foundry is configured. Foundry Local live proof belongs in `Test.FoundryLocal`, which starts the API host directly and requires `/api/v1/ai/status provider=local`.
-- Fully local run: `dotnet run --project src/Host/Aspire/AppHost` (local is attempted by default). Real Azure local run: set `AiServices:FoundryEndpoint` (or `$env:MYAPP_USE_AZURE_FOUNDRY = "true"`); `aspire publish` always takes the real Azure path.
+- Foundry Local is explicit, never availability-driven. Select `FoundryLocal` only when the optional native runtime is required; startup failure is red after optional-runtime preflight. `AiServices:DisableFoundryLocal=true` remains a defense-in-depth guard for offline and RID-free tiers.
+- `Test.Aspire` is RID-free, selects `None`, and keeps `AiServices:DisableFoundryLocal=true`; Azure live smoke runs there only for explicit `AzureInference`. Foundry Local live proof belongs in `Test.FoundryLocal`, which sets `Provider=FoundryLocal`, `DisableFoundryLocal=false`, and `RequireFoundryLocal=true`, starts the API host directly, and requires `/api/v1/ai/status provider=local`.
+- Fully local run: set `AiServices:Provider=FoundryLocal` and `AiServices:DisableFoundryLocal=false`, then run the AppHost. Real Azure run: select `AiServices:Provider=AzureInference` and supply its required endpoint/deployment settings. Raw configuration presence and publish mode do not override the selected provider.
 - Projects + server-hosted agents are an Axis-2 escalation (Azure-only): see [ai-integration.md](ai-integration.md) (Foundry Projects and Server-Hosted Agents).
 
 ---
@@ -242,13 +243,17 @@ var eventHubs = builder.AddAzureEventHubs("eventhubs").RunAsEmulator();
 
 ### Emulator Image Pinning (and the Service Bus SQL sidecar)
 
-Resolve a concrete, reviewed tag for every emulator at scaffold time and record it in the implementation plan. A bare `.RunAsEmulator()` rides whatever tag the hosting package defaults to, while a floating `latest` tag changes without a source diff. Both make CI and local topology nondeterministic:
+Resolve a concrete, reviewed tag for every emulator at scaffold time and record it in the implementation plan. Shared CI also sets the immutable manifest digest through `WithImageSHA256`; omit the digest only for an explicitly local-only or unresolved cross-architecture topology and record that boundary. A bare `.RunAsEmulator()` rides whatever image the hosting package defaults to, while a floating `latest` tag changes without a source diff.
 
 ```csharp
 var storage = builder.AddAzureStorage("storage")
-    .RunAsEmulator(e => e.WithImageTag("<resolved-stable-azurite-tag>"));
+    .RunAsEmulator(e => e
+        .WithImageTag("<resolved-reviewed-azurite-tag>")
+        .WithImageSHA256("<resolved-azurite-manifest-sha256>"));
 var serviceBus = builder.AddAzureServiceBus("servicebus")
-    .RunAsEmulator(e => e.WithImageTag("<resolved-stable-servicebus-tag>"));
+    .RunAsEmulator(e => e
+        .WithImageTag("<resolved-reviewed-servicebus-tag>")
+        .WithImageSHA256("<resolved-servicebus-manifest-sha256>"));
 ```
 
 **The Service Bus emulator bundles its own SQL Server sidecar** - a separate container named `{servicebus}-mssql`. The Aspire package **hardcodes that SQL image tag**, and the `RunAsEmulator` callback **cannot reach it** (the callback configures only the emulator container, not the sidecar). Left alone it pulls a different, usually older SQL Server major than your `sql` resource - so the machine ends up with two full SQL images. Override it by pulling the resource out of the model right after `RunAsEmulator` and re-tagging it to match `sql`:
@@ -259,7 +264,8 @@ var serviceBus = builder.AddAzureServiceBus("servicebus")
 // builder.Resources.Single(...) needs System.Linq in scope.
 builder.CreateResourceBuilder(
         (ContainerResource)builder.Resources.Single(r => r.Name == "servicebus-mssql"))
-    .WithImageTag("<resolved-stable-sql-tag>");
+    .WithImageTag("<resolved-reviewed-sql-tag>")
+    .WithImageSHA256("<resolved-sql-manifest-sha256>");
 ```
 
 > **Compatibility caveat.** The Service Bus emulator is validated against its bundled SQL version, so forcing a newer major is a mild risk. Verify the emulator still reaches a healthy state after re-tagging (a mesh/Aspire test that exercises the bus is enough). If it regresses, drop the override and accept the second image.
@@ -318,7 +324,8 @@ var redisPwd = builder.AddParameter(
     secret: true);
 
 var redis = builder.AddRedis("redis", port: isTesting ? null : 6379, password: redisPwd)
-    .WithImageTag("<resolved-stable-redis-tag>");
+    .WithImageTag("<resolved-reviewed-redis-tag>")
+    .WithImageSHA256("<resolved-redis-manifest-sha256>");
 
 if (!isTesting)
 {
@@ -342,7 +349,9 @@ Pin the AMQP port for SDK clients and expose an HTTP management endpoint for adm
 var serviceBus = builder.AddAzureServiceBus("servicebus")
     .RunAsEmulator(emulator =>
     {
-        var serviceBusEmulator = emulator.WithImageTag("<resolved-stable-servicebus-tag>");
+        var serviceBusEmulator = emulator
+            .WithImageTag("<resolved-reviewed-servicebus-tag>")
+            .WithImageSHA256("<resolved-servicebus-manifest-sha256>");
 
         if (!isTesting)
         {
@@ -415,8 +424,8 @@ Fixed ports and explorer UIs are **local-dev affordances only**. In test runs:
 4. Use `WaitFor(...)` for startup ordering dependencies; database-touching runtime hosts also take `WaitForCompletion(migrator)` on the one-shot `{Host}.DatabaseMigrator` resource (graph owner: [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section Aspire Resource Wiring).
 5. Keep Gateway as public ingress, backend hosts internal.
 6. Keep AppHost resource names aligned with IaC modules in [iac.md](iac.md).
-7. Resolve and pin a concrete SQL Server image tag; EF SQL registrations must use the selected compatibility level.
-8. Pin every emulator to a concrete reviewed tag, never `latest`, and override the Service Bus emulator's hidden SQL sidecar tag - see *Emulator Image Pinning (and the Service Bus SQL sidecar)* above.
+7. Resolve and pin a reviewed SQL Server image tag plus manifest digest for shared CI; EF SQL registrations must use the selected compatibility level.
+8. Pin every shared-CI emulator with a reviewed tag plus `WithImageSHA256`, never `latest`, and override the Service Bus emulator's hidden SQL sidecar reference - see *Emulator Image Pinning (and the Service Bus SQL sidecar)* above.
 
 ---
 
@@ -460,7 +469,8 @@ var sqlPassword = builder.AddParameter("sql-password", LocalSqlSettings.SharedSa
 var sqlServer = builder.AddSqlServer("sql", sqlPassword)
     .WithLifetime(ContainerLifetime.Persistent)
     .WithDataVolume("{project}-sql-data")
-    .WithImageTag("<resolved-stable-sql-tag>");
+    .WithImageTag("<resolved-reviewed-sql-tag>")
+    .WithImageSHA256("<resolved-sql-manifest-sha256>");
 ```
 
 `AppHost/appsettings.Development.json` and `appsettings.Testing.json` must **not** contain a `Parameters` section. Leave them as `{}`.

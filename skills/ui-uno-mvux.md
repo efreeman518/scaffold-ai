@@ -83,6 +83,7 @@ Non-negotiables:
 - Registered with **StrongReferenceMessenger** (see host wiring above) - weak references let records get collected.
 - Receive handler is `static` and takes `recipient` - closing over `this` defeats weak-reference safety and produces analyzer warnings.
 - Parameter name in the lambda must not be `_` (conflicts with discard in some generator paths). Use `msg` / `message`.
+- Process-wide change notifications may refresh shared lists, but editor reset and navigation-scoped messages must carry an entity/model correlation key or unregister with route lifetime. Never broadcast an uncorrelated editor reset through the singleton messenger: stale editor models can receive it and lose unsaved state.
 
 ### Buffered Child Items in Create Mode
 

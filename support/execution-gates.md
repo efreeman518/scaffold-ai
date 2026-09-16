@@ -386,7 +386,7 @@ If live Entra setup is not yet performed, log registration/roles/consent plus pe
 
 **Scaffold mode is the default.** AI integration is complete when AI-backed interfaces compile, resolve from DI, and tests pass with stubs or no-op implementations. Live Foundry/AI Search endpoints are deployment-only dependencies and do not block scaffold completion.
 
-Provider contract: Azure Foundry when configured, else Foundry Local when available, else no-op. No-op is valid for non-live tests only. `Test.Aspire` checks Azure eligibility before AppHost creation and proves Azure live smoke only when configured. `Test.FoundryLocal` starts the API host directly after its optional-runtime preflight and checks `/api/v1/ai/status`. Explicit false run flags are fast opt-outs, not prerequisites for absent optional providers. Classification owner: [../skills/ai-integration.md](../skills/ai-integration.md) section Optional Live-Provider Classification.
+Provider contract: `AiServices:Provider` is the sole activation source and defaults to `None`; raw endpoint, deployment, connection, and runtime-availability values only validate the selected provider. AppHost, runtime DI, status, and live-test eligibility use the same resolver. No-op is valid for non-live tests only. `Test.Aspire` checks explicit Azure selection and configuration before AppHost creation. `Test.FoundryLocal` exists only when the optional native provider was selected, starts the API host after its runtime preflight, and checks `/api/v1/ai/status`. Explicit false run flags are fast opt-outs, not prerequisites for absent optional providers. Classification owner: [../skills/ai-integration.md](../skills/ai-integration.md) section Optional Live-Provider Classification.
 
 | Mode | Required |
 |---|---|

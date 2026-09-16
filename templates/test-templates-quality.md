@@ -164,7 +164,7 @@ public sealed class AggregateBoundaryTests : BaseTest
 >
 > **MudBlazor timing:** Always `waitFor` inputs before fill and use 15 s timeout for delete dialogs as defined in [../skills/testing-quality.md](../skills/testing-quality.md) section Hosted Browser UI.
 >
-> **Base URL:** Aspire assigns dynamic ports to UI hosts, especially React/Vite apps. Resolve the base URL at run time via `PlaywrightStackFixture` below - env var when an externally hosted stack is provided, otherwise self-host the AppHost and read the UI resource's actual endpoint. **Never generate a hard-coded URL fallback, and never generate `[Ignore]`d tests pointed at a guessed URL.** Explicit `{APP}_PLAYWRIGHT_TESTS_ENABLED=false` or failed Docker preflight is inconclusive. After Docker succeeds, unresolved named endpoints and AppHost/browser failures dump diagnostics and fail red. For Uno WASM, also pass the dynamically resolved Gateway endpoint into the app through the test-mode query string so the browser client does not fall back to a fixed dev port.
+> **Base URL:** Aspire assigns dynamic ports to UI hosts, especially React/Vite apps. Resolve the base URL at run time via `PlaywrightStackFixture` below - env var when an externally hosted stack is provided, otherwise self-host the AppHost and read the UI resource's actual endpoint. **Never generate a hard-coded URL fallback, and never generate `[Ignore]`d tests pointed at a guessed URL.** Explicit `{APP}_PLAYWRIGHT_TESTS_ENABLED=false` or failed Docker preflight is inconclusive. After Docker succeeds, unresolved named endpoints and AppHost/browser failures dump diagnostics and fail red. A fixture may retry one fresh host only when every named resource is `FailedToStart`, no resource process started, and no exit code or log directory exists; capture that state, retry once, and keep every other failure red. A generic timeout is never enough to retry or become inconclusive. For Uno WASM, also pass the dynamically resolved Gateway endpoint into the app through the test-mode query string so the browser client does not fall back to a fixed dev port.
 
 ### File: `tests/Test.PlaywrightUI/PlaywrightStackFixture.cs`
 
@@ -343,6 +343,7 @@ Rules:
 - Test methods must not start Appium, start an Android Emulator, or build APKs. They only connect to the prepared device/server.
 - Default `dotnet test tests/Test.Mobile/Test.Mobile.csproj --filter TestCategory=MobileUI` with `{APP}_MOBILE_TESTS_ENABLED` unset/false must return `Assert.Inconclusive` without touching Appium or emulator.
 - `run-mobile-tests.ps1` owns Android restore/build, emulator readiness, Appium readiness, `{APP}_MOBILE_TESTS_ENABLED=true`, `dotnet test`, and TRX output. Explicit runner lanes fail fast red if APK, emulator/device, Appium, or UiAutomator2 is missing/broken.
+- When explicitly selected with `--settings tests/{App}.runsettings` or in Visual Studio, assembly initialization outside test methods may build the default APK and own an unavailable loopback Appium process. It must not start or choose an emulator/device, use an explicit remote server, or affect ordinary CLI acceptance.
 - Android local runs require Appium CLI/server and the UiAutomator2 driver.
 - The runner builds the Android package from a full Uno restore graph:
 
@@ -352,7 +353,7 @@ dotnet build src/UI/{Project}.Uno/{Project}.Uno.csproj -p:TargetFrameworkOverrid
 ```
 
 - Mark tests `[TestCategory("MobileUI")]`.
-- Add method-level `[Timeout]` to every mobile test so Appium hangs cannot consume the lane.
+- Add method-level `[Timeout]` to every mobile test so Appium hangs cannot consume the lane. Method, assembly, and lane deadlines must exceed the configured startup maximum plus assertion and cleanup budgets; the outer timeout must never cancel a longer inner startup allowance first.
 - Native mobile scope stays small: app launch, native surface, first-viewport accessibility, one reliable text-entry smoke. Do not drive deep CRUD, search persistence, child collections, or long-scroll Skia forms with Appium/UiAutomator2.
 - Use `MobileBy.AccessibilityId` for exact `AutomationProperties.Name` lookups. Avoid broad XPath except fallback probing.
 - Write tests against the mobile helpers below, not repeated raw `driver.PageSource` asserts. Oracle and assertion strategy (screenshot-primary, non-empty artifact, no accessibility-tree asserts for Skia) live in [testing-quality.md](../skills/testing-quality.md#uno-mobile-test-split) - follow it, do not restate it here.
