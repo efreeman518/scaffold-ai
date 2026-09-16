@@ -78,7 +78,7 @@ CONDITIONAL_EVIDENCE: tuple[
         (),
     ),
     (
-        ({"includeAiServices": True},),
+        ({"includeAiServices": True, "aiProvidersContainsFoundryLocal": True},),
         (),
         ("tests/Test.FoundryLocal/Test.FoundryLocal.csproj",),
     ),
@@ -287,6 +287,13 @@ def _condition_matches(actual: object, expected: object) -> bool:
     return actual == expected
 
 
+def _condition_value(resource: dict, key: str) -> object:
+    if key == "aiProvidersContainsFoundryLocal":
+        providers = resource.get("aiProviders")
+        return isinstance(providers, list) and "FoundryLocal" in providers
+    return resource.get(key)
+
+
 def _strict_lane_errors(resource: dict) -> list[str]:
     lanes = resource.get("hostingLanes")
     if not isinstance(lanes, list):
@@ -344,7 +351,7 @@ def check_declared_evidence(reference_root: Path, resource: dict) -> list[str]:
             (
                 cond for cond in conditions
                 if all(
-                    _condition_matches(resource.get(key), expected)
+                    _condition_matches(_condition_value(resource, key), expected)
                     for key, expected in cond.items()
                 )
             ),
