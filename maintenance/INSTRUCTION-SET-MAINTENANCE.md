@@ -9,15 +9,15 @@ Maintenance-only doc - lives in `maintenance/`, **not** copied by
 
 ## Why this exists
 
-Adding the Foundry "local path temporarily broken" guidance took four correction rounds. Root cause was
-**duplication**: the same volatile facts (RunAsFoundryLocal broken, version pins, dotnet/aspire#12750, the
-SDK-direct workaround, migration steps) were restated across ~7 files, so every reframe meant editing all of
-them and each round missed spots. Two aggravators: volatile and stable content interleaved, and docs embedding
-un-compiled copyable code that drifts from reality. This audit keeps the set single-source-of-truth (SSOT) so
-the next change touches one owner, not seven.
+The expensive failure mode is **duplication of volatile facts**. When the same pin, known issue, workaround, or
+migration step is restated across several files, every reframe means editing all of them, and each round misses
+spots - a single provider-guidance change once took four correction rounds across roughly seven files. Two
+aggravators: volatile and stable content interleaved in one file, and docs embedding un-compiled copyable code
+that drifts from reality. Retiring a provider lane has the same shape in reverse: the removal has to find every
+restatement. This audit keeps the set single-source-of-truth (SSOT) so the next change touches one owner, not seven.
 
-The Foundry topic has already been consolidated (owner: [skills/ai-integration.md](../skills/ai-integration.md))
-and is the worked example for the procedure below.
+AI provider guidance is the worked example for the procedure below
+(owner: [skills/ai-integration.md](../skills/ai-integration.md)).
 
 ## The manual procedure
 
@@ -41,11 +41,7 @@ py -3 - <<'PY'
 import pathlib
 # canary substring -> the single file allowed to contain it
 CANARIES = {
-    "13.4.5-preview": "skills/ai-integration.md",
-    "StartWebServiceAsync": "skills/ai-integration.md",
     "Microsoft.Extensions.AI.OpenAI": "skills/ai-integration.md",
-    "Microsoft.AI.Foundry.Local.Core": "skills/ai-integration.md",  # native transitive payload; RID-bound test lane needs its own direct ref
-    'AiProviderInfo("local")': "skills/ai-integration.md",  # explicitly selected local-provider signal; pointers say "AiProviderInfo" only
     "Provider selection is declarative, never inferred.": "skills/ai-integration.md",  # cross-file activation contract; endpoint/runtime presence must not select a provider
     'AiProviderInfo("stub")': "skills/ai-integration.md",  # opt-in dev-stub content tier; pointers say "AiProviderInfo" / provider "stub" only
     "machine capacity, not a contract failure": "skills/ai-integration.md",  # capacity-timeout is Inconclusive, not Fail; keeps the old "timeout -> Fail" wording from drifting back
@@ -116,8 +112,13 @@ PY
 ```
 **Maintain the canary list:** every time you consolidate a topic (step 5), add one distinctive string from
 its owner here so future drift is caught. Pick strings that are intrinsic to the topic and unlikely to be
-quoted in pointers (a version like `13.4.5-preview`, an API name like `StartWebServiceAsync`, a workaround-only
-package). Do **not** use strings the pointers legitimately repeat (e.g. `dotnet/aspire#12750`).
+quoted in pointers - an API name (`StartMobileSession`), a diagnostic id (`NU1011`), a config key
+(`package-ecosystem:`), or a full call including its argument. Do **not** use a bare name the pointers
+legitimately repeat: `AiProviderInfo` is quoted by pointer files, so the canary is `AiProviderInfo("stub")`.
+
+**Retiring a topic:** when a lane or provider is removed from the set, delete its canaries in the same pass.
+A canary whose owner no longer contains the string fails the check as drift and trains the next reader to
+ignore the output.
 
 ### 3. Deep duplication scan (judgment)
 
@@ -125,7 +126,7 @@ Look for the same snippet/rule/explanation in 2+ files. Grep for distinctive met
 read the hits:
 
 ```bash
-rtk grep -rl "AddFusionCache\|AddServiceDefaults\|AddSqlServer(\|ScaffoldAuthHandler\|NotImplementedException" \
+grep -rl "AddFusionCache\|AddServiceDefaults\|AddSqlServer(\|ScaffoldAuthHandler\|NotImplementedException" \
   skills/ patterns/ support/ templates/ ai/
 ```
 For each cluster, ask: is this a concept restated (consolidate) or a legitimate per-phase minimum (leave, add
@@ -174,7 +175,7 @@ are pointers.
 
 ## Consolidated owner map
 
-- Foundry lifecycle/provider guidance: [skills/ai-integration.md](../skills/ai-integration.md).
+- AI provider selection, lifecycle, and live-lane classification: [skills/ai-integration.md](../skills/ai-integration.md).
 - AppHost graph, ServiceDefaults body, OpenTelemetry, and health wiring:
   [patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md). Host files keep call sites only.
 - FusionCache registration loop: [skills/caching.md](../skills/caching.md). Wiring files point to it.
@@ -203,6 +204,6 @@ different production constraints rather than remove competing authority.
 
 ## Current work queue
 
-No ranked hotspot remains from the 2026-07-13 audit. Keep step 3 mandatory and add a queue item only when a scan
+No ranked hotspot remains from the last audit. Keep step 3 mandatory and add a queue item only when a scan
 finds competing full owners or volatile facts copied across files. Phase-local call sites and cross-phase minimum
 guidance are intentional when fresh-session usability requires them.

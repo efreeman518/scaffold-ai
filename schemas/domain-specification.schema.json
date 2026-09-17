@@ -108,6 +108,12 @@
         "$ref": "#/$defs/policyMatrix"
       }
     },
+    "contentLifecyclePolicy": {
+      "$ref": "#/$defs/contentLifecyclePolicy"
+    },
+    "ugcLifecyclePolicy": {
+      "$ref": "#/$defs/ugcLifecyclePolicy"
+    },
     "aiCapabilities": {
       "$ref": "#/$defs/aiCapabilities"
     },
@@ -176,8 +182,10 @@
     },
     "entity": {
       "type": "object",
+      "description": "Phase 1 gate: every entity carries a name and at least one property. An entity with no properties makes Phase 4 emit an empty DTO. isTenantEntity is not required - it defaults to true.",
       "required": [
-        "name"
+        "name",
+        "properties"
       ],
       "properties": {
         "name": {
@@ -244,6 +252,7 @@
         },
         "properties": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "$ref": "#/$defs/property"
           }
@@ -735,6 +744,53 @@
           "items": {
             "type": "object"
           }
+        }
+      }
+    },
+    "contentLifecyclePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Publish/schedule/rollback behavior for editorial content.",
+      "properties": {
+        "supportsDraftSnapshot": {
+          "type": "boolean"
+        },
+        "supportsPublishedSnapshot": {
+          "type": "boolean"
+        },
+        "rollbackStrategy": {
+          "type": "string"
+        },
+        "scheduledPublishIdempotent": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ugcLifecyclePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Moderation and visibility behavior for user-generated content.",
+      "properties": {
+        "moderationMode": {
+          "type": "string",
+          "enum": [
+            "pre-moderation",
+            "post-moderation",
+            "none"
+          ]
+        },
+        "visibilityStates": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "softDeleteEnabled": {
+          "type": "boolean"
+        },
+        "authorRedactionSupported": {
+          "type": "boolean"
         }
       }
     },

@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Generates** | `tests/Test.Unit/Services/{Entity}ServiceTests.cs`, `tests/Test.Unit/Mappers/{Entity}MapperTests.cs` |
-| **Requires** | [service-template](service-template.md), [data-mapping-template](data-mapping-template.md), interfaces from Phase 4 |
+| **Generates** | `tests/Test.Unit/Services/{Entity}ServiceTests.cs`, `tests/Test.Unit/Mappers/{Entity}MapperTests.cs`, `tests/Test.Unit/MessageHandlers/{EventName}HandlerTests.cs` |
+| **Requires** | [service-template](service-template.md), [data-mapping-template](data-mapping-template.md), [message-handler-template](message-handler-template.md) (when events are in scope), interfaces from Phase 4 |
 | **Phase** | 5b (App Core TDD) |
 | **Protocol** | Write these tests BEFORE implementing services. See [../ai/tdd-protocol.md](../ai/tdd-protocol.md). |
 
@@ -247,6 +247,104 @@ Required multi-tenant ownership cases:
 
 ---
 
+## Message Handler Tests
+
+### File: `tests/Test.Unit/MessageHandlers/{EventName}HandlerTests.cs`
+
+**Generate one class per handler whenever [message-handler-template](message-handler-template.md) is generated.** `IMessageHandler<T>` implementations run off the background bus, so a broken handler never fails a request - the save succeeds and the side effect silently does not happen. The three cases below pin exactly the behaviours the handler template calls non-negotiable: the side effect fires, redelivery is idempotent, and a missing aggregate is a no-op rather than a throw that poisons the queue.
+
+Handlers are plain classes with constructor dependencies - same flat shape as the service tests above: `Mock<T>` fields inline, one `CreateHandler` helper, no shared base.
+
+```csharp
+using Application.Contracts.Events;
+using Application.MessageHandlers;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace Test.Unit.MessageHandlers;
+
+/// <summary>
+/// Guards the off-request side-effect path. A handler that throws, double-applies, or silently skips
+/// its work cannot be caught by service or endpoint tests - the request has already returned.
+/// </summary>
+[TestClass]
+[TestCategory("Unit")]
+public class {EventName}HandlerTests
+{
+    private readonly Mock<I{Entity}RepositoryTrxn> _repoTrxnMock = new();
+
+    // Async test class -> declare the instance TestContext and flow TestContext.CancellationToken
+    // into every cancellable async call. See ../skills/testing.md Cancellation-Token discipline.
+    public TestContext TestContext { get; set; } = null!;
+
+    [TestMethod]
+    public async Task Given_ValidEvent_When_HandleAsync_Then_SideEffectAppliedAndSaved()
+    {
+        // Arrange
+        var entity = {Entity}.Create(TestConstants.TenantId, "Before").Value!;
+        var message = new {EventName}(entity.Id.Value, TestConstants.TenantId, "Detail");
+        _repoTrxnMock.Setup(r => r.Get{Entity}Async(entity.Id, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(entity);
+        _repoTrxnMock.Setup(r => r.SaveChangesAsync(
+                It.IsAny<OptimisticConcurrencyWinner>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(1);
+
+        // Act
+        await CreateHandler().HandleAsync(message, TestContext.CancellationToken);
+
+        // Assert
+        _repoTrxnMock.Verify(r => r.SaveChangesAsync(
+            It.IsAny<OptimisticConcurrencyWinner>(), It.IsAny<CancellationToken>()), Times.Once);
+        // Assert the specific state change the handler owns, not just that a save happened.
+    }
+
+    [TestMethod]
+    public async Task Given_SameEventDeliveredTwice_When_HandleAsync_Then_SideEffectAppliedOnce()
+    {
+        // Arrange - at-least-once delivery means the bus WILL redeliver on retry.
+        var entity = {Entity}.Create(TestConstants.TenantId, "Before").Value!;
+        var message = new {EventName}(entity.Id.Value, TestConstants.TenantId, "Detail");
+        _repoTrxnMock.Setup(r => r.Get{Entity}Async(entity.Id, true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(entity);
+        var handler = CreateHandler();
+
+        // Act
+        await handler.HandleAsync(message, TestContext.CancellationToken);
+        await handler.HandleAsync(message, TestContext.CancellationToken);
+
+        // Assert - the observable end state matches one delivery (no duplicate child, no double increment).
+        Assert.AreEqual(1, entity.{ChildEntities}.Count);
+    }
+
+    [TestMethod]
+    public async Task Given_MissingAggregate_When_HandleAsync_Then_ReturnsWithoutSavingOrThrowing()
+    {
+        // Arrange - the row can be gone by the time a queued event is drained.
+        var message = new {EventName}(Guid.NewGuid(), TestConstants.TenantId, "Detail");
+        _repoTrxnMock.Setup(r => r.Get{Entity}Async(
+                It.IsAny<{Entity}Id>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(({Entity}?)null);
+
+        // Act - a throw here would fail the handler forever on every redelivery.
+        await CreateHandler().HandleAsync(message, TestContext.CancellationToken);
+
+        // Assert
+        _repoTrxnMock.Verify(r => r.SaveChangesAsync(
+            It.IsAny<OptimisticConcurrencyWinner>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private {EventName}Handler CreateHandler() =>
+        new(new NullLogger<{EventName}Handler>(), _repoTrxnMock.Object);
+}
+```
+
+Notes:
+
+- A **log-only** handler (audit, telemetry) drops the repository mock and asserts against a capturing `ILogger` instead; keep the redelivery case - an audit written twice is still a defect.
+- Handlers registered under `[ScopedMessageHandler]` need no special test setup; the attribute governs runtime scoping, not construction.
+- Bus wiring (`AutoRegisterHandlers` reaching this handler) is host behaviour, not handler behaviour - cover it once in the mesh/integration tier rather than per handler.
+
+---
+
 ## Mapper Tests
 
 ### File: `tests/Test.Unit/Mappers/{Entity}MapperTests.cs`
@@ -301,16 +399,16 @@ public class {Entity}MapperTests
         var child = new {ChildEntity}Builder()
             .With{Entity}Id(entity.Id)
             .Build();
-        entity.{ChildEntity}s.Add(child);
+        entity.{ChildEntities}.Add(child);
 
         // Act
         var fullDto = entity.ToDto();
-        var expectedChild = entity.{ChildEntity}s.Single().ToDto();
+        var expectedChild = entity.{ChildEntities}.Single().ToDto();
 
         // Assert
-        Assert.AreEqual(1, fullDto.{ChildEntity}s.Count);
-        Assert.AreEqual(expectedChild.Id, fullDto.{ChildEntity}s[0].Id);
-        Assert.AreEqual(expectedChild.{Entity}Id, fullDto.{ChildEntity}s[0].{Entity}Id);
+        Assert.AreEqual(1, fullDto.{ChildEntities}.Count);
+        Assert.AreEqual(expectedChild.Id, fullDto.{ChildEntities}[0].Id);
+        Assert.AreEqual(expectedChild.{Entity}Id, fullDto.{ChildEntities}[0].{Entity}Id);
         // Assert every child property mirrored by the parent inline projection
     }
 
@@ -391,13 +489,13 @@ public class MapperProjectionParityTests
     {
         // Only generate this method for aggregate roots whose Projection inlines child DTOs.
         var entity = new {Entity}Builder().Build();
-        entity.{ChildEntity}s.Add(new {ChildEntity}Builder().With{Entity}Id(entity.Id).Build());
+        entity.{ChildEntities}.Add(new {ChildEntity}Builder().With{Entity}Id(entity.Id).Build());
 
         var fullDto = entity.ToDto();
-        var expectedChild = entity.{ChildEntity}s.Single().ToDto();
+        var expectedChild = entity.{ChildEntities}.Single().ToDto();
 
-        Assert.AreEqual(1, fullDto.{ChildEntity}s.Count);
-        Assert.AreEqual(expectedChild.Id, fullDto.{ChildEntity}s[0].Id);
+        Assert.AreEqual(1, fullDto.{ChildEntities}.Count);
+        Assert.AreEqual(expectedChild.Id, fullDto.{ChildEntities}[0].Id);
         // Assert every child property the parent inline projection emits.
     }
 

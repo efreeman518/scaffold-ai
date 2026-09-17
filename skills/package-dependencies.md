@@ -1,5 +1,8 @@
 # Package Dependencies (Shared Base Types)
 
+> **When to read:** Phase 3, and any time you add, upgrade, or resolve a package - the `packageStrategy` layout, the shared `EF.*` base-type contracts, version resolution (`Latest, Not Pinned`), and feed/central-management wiring.
+> **Skip if:** the package set is already resolved and the task adds no dependency; pure domain, endpoint, or UI logic against types already referenced.
+
 Use this file as a compact contract map for shared base-type packages/projects. The contracts described here are sourced one of three ways depending on `packageStrategy` (set in `.scaffold/resource-implementation.yaml`):
 
 | `packageStrategy` | How layers are consumed |

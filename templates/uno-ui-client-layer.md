@@ -79,7 +79,7 @@ namespace {Project}.Uno.Core.Business.Services.{Feature};
 /// </summary>
 public interface I{Entity}Service
 {
-    /// <summary>Get all {entity}s.</summary>
+    /// <summary>Get all {entities}.</summary>
     ValueTask<IImmutableList<{Entity}>> GetAll(CancellationToken ct);
 
     /// <summary>Get a single {entity} by ID.</summary>
@@ -98,7 +98,7 @@ public interface I{Entity}Service
     ValueTask Favorite({Entity} entity, CancellationToken ct);
 
     // Add child collection methods as needed:
-    // ValueTask<IImmutableList<{ChildEntity}>> Get{ChildEntity}s(Guid {entity}Id, CancellationToken ct);
+    // ValueTask<IImmutableList<{ChildEntity}>> Get{ChildEntities}(Guid {entity}Id, CancellationToken ct);
 }
 ```
 

@@ -83,7 +83,7 @@ storageProviders: [AzureBlob, S3]
 readModelProviders: [Cosmos, PostgreSqlJsonb, MongoDb]
 auditProviders: [AzureTable, Relational]
 searchProviders: [AzureAiSearch, PgVector, Sql]
-aiProviders: [AzureInference, OpenAICompatible, FoundryLocal, None]
+aiProviders: [AzureInference, OpenAICompatible, None]
 dataProtectionPersistence: [AzureBlob, Redis, None]
 deployTargets: [ContainerApps, DockerCompose]
 ```
@@ -98,13 +98,11 @@ deployTargets: [ContainerApps, DockerCompose]
 | Read model | `Cosmos` | `PostgreSqlJsonb`, optional `MongoDb` |
 | Audit | `AzureTable` | `Relational` |
 | Search | `Sql`, optional `AzureAiSearch` | `Sql`, optional `PgVector` |
-| AI | `None`, optional `AzureInference` | `None`, optional `OpenAICompatible` or `FoundryLocal` |
+| AI | `None`, optional `AzureInference` | `None`, optional `OpenAICompatible` |
 | Data Protection | `AzureBlob` | `Redis` |
 | Deployment | `ContainerApps` | `DockerCompose` |
 
 Keep `Sql` search and `None` AI as defaults unless that lane provisions and validates the optional provider. `NonAzure` means zero Azure runtime dependencies: reject Azure App Configuration, Key Vault, Azure Data Protection key encryption, and every Azure-owned provider even when supplied through environment variables. A project that intentionally mixes provider families must declare a separately named lane and its compatibility matrix instead of weakening `NonAzure`. `Portable` remains a one-release input alias for `NonAzure`; do not emit it as a canonical lane. `Relational` remains a one-release input alias for the default NonAzure `PostgreSqlJsonb` read model. `MongoDb` is the explicit document-database alternative.
-
-`FoundryLocal` remains conditional for an app that explicitly requires and proves the native runtime. It is never selected because a package, endpoint, or runtime happens to be present, and TaskFlow no longer supplies runnable proof for that arm.
 
 ## Statelessness and Stateful Exceptions
 
@@ -190,4 +188,4 @@ Pin shared CI and deployed images with both a reviewed tag and immutable digest.
 
 ## Proof
 
-TaskFlow implementations and tests are indexed in [taskflow-proof-map.md](taskflow-proof-map.md). The dated evidence and promotion decisions for the September 2026 refactor live in [scaffold-proof-scale-audit-2026-09-04-to-2026-09-09.md](scaffold-proof-scale-audit-2026-09-04-to-2026-09-09.md).
+TaskFlow implementations and tests are indexed in [taskflow-proof-map.md](taskflow-proof-map.md).

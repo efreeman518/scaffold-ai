@@ -6,6 +6,8 @@
 | **Depends on** | [api.md](../skills/api.md) |
 | **Referenced by** | [api.md](../skills/api.md), [api-host-wiring.md](../patterns/api-host-wiring.md) |
 
+> **Token vs log placeholder:** `{ExceptionType}` and `{Message}` in the `LogError` template below are **log property names** bound to the trailing arguments, not scaffold tokens - leave them verbatim. Only `{Host}` on this page is substituted. Rule: [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) section Disambiguating Tokens From Logging And Interpolation.
+
 ## Purpose
 
 Global `IExceptionHandler` that maps unexpected/infrastructure exceptions to `ProblemDetails` responses. This is the **safety net** - not a control-flow mechanism. All expected business outcomes flow through `Result<T>`/`DomainResult<T>`.
@@ -129,7 +131,7 @@ app.UseExceptionHandler();
 - [ ] `UseExceptionHandler()` called in pipeline before routing
 - [ ] `AddProblemDetails(...)` registered with separate `requestId`, W3C `traceId`, and `spanId`
 - [ ] Typed errors and exception errors both exercise the correlation contract
-- [ ] Stack traces gated by environment (not exposed in Production)
+- [ ] Stack traces gated by environment (not exposed in Production), **proved by both arms of `tests/Test.Endpoints/Middleware/DefaultExceptionHandlerTests.cs`** - generate it from [test-templates-endpoint.md](test-templates-endpoint.md) section Exception Handler Tests
 - [ ] All mapped exceptions return correct HTTP status codes
 - [ ] Logging uses structured placeholders, not string interpolation
 - [ ] No business logic errors handled here - those use `Result<T>` pattern

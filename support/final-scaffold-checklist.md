@@ -66,6 +66,51 @@ Use `curl`, HTTPie, REST Client, or Scalar. Record status codes and endpoint dis
 
 ---
 
+## Mechanical Scans
+
+Three Completion Criteria below are deterministic source scans rather than judgment calls. Run them from the generated app root and paste the output into `HANDOFF.md` - a claim without one of these outputs is self-report.
+
+**Scan 1 - `NotImplementedException` outside the scaffold-skipped surface.** The allowlist is the skipped surface defined in the matching criterion: `Infrastructure.Stubs/`, `NoOp*.cs`, and the vendored `src/Packages/` base types reachable only through those stubs. Anything else is a failure:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$skipped = '[\\/]Infrastructure\.Stubs[\\/]|[\\/]NoOp[^\\/]*\.cs$|[\\/]src[\\/]Packages[\\/]'
+$hits = Get-ChildItem src, tests -Recurse -Filter *.cs |
+    Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' -and $_.FullName -notmatch $skipped } |
+    Select-String -Pattern 'throw new NotImplementedException'
+$hits | ForEach-Object { "$($_.Path):$($_.LineNumber)" }
+if ($hits) { throw "$($hits.Count) NotImplementedException outside the scaffold-skipped surface." }
+Write-Output 'NotImplementedException scan clean.'
+```
+
+**Scan 2 - unsubstituted scaffold placeholders.** Case-sensitive, and limited to the multi-character tokens from [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) that cannot legitimately appear in generated code. Single-word tokens such as `{Entity}` and `{Status}` are deliberately excluded because `ILogger` message templates and string interpolation use the same spelling - those stay a read-through:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$tokens = '\{Project\}|\{ProjectName\}|\{SolutionName\}|\{Org\}|\{Host\}|\{Gateway\}|\{App\}|\{APP\}|' +
+          '\{entity-route\}|\{child-entities\}|\{EntityPlural\}|<packagePrefix>|<packagePrefix>|<target-dotnet-major>'
+$hits = Get-ChildItem src, tests -Recurse -Include *.cs,*.json,*.csproj,*.props,*.xaml,*.razor,*.ts,*.tsx,*.yml,*.yaml,*.bicep |
+    Where-Object { $_.FullName -notmatch '[\\/](bin|obj|node_modules|dist)[\\/]' } |
+    Select-String -Pattern $tokens -CaseSensitive
+$hits | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Matches[0].Value)" }
+if ($hits) { throw "$($hits.Count) unsubstituted placeholder token(s) remain." }
+Write-Output 'Placeholder scan clean.'
+```
+
+**Scan 3 - lumped files (one public type per file).** Counts top-level type declarations, which sit at column 0 under file-scoped namespaces; nested types are indented and correctly ignored. This one **prints candidates rather than throwing**. CQRS `{Entity}Requests.cs` / `{Entity}Handlers.cs` groups and the other legitimate exceptions are listed in [../skills/solution-structure.md](../skills/solution-structure.md) section Non-Negotiables. Match every hit to an exception or split it:
+
+```powershell
+$typeLine = '^(public|internal|file)\s+(?:(?:sealed|abstract|static|partial|readonly|ref|unsafe)\s+)*(?:class|record|struct|interface|enum|delegate)\b'
+Get-ChildItem src, tests -Recurse -Filter *.cs |
+    Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' } |
+    ForEach-Object {
+        $count = (Select-String -Path $_.FullName -Pattern $typeLine).Count
+        if ($count -gt 1) { "$($_.FullName): $count top-level types" }
+    }
+```
+
+---
+
 ## Completion Criteria
 
 - [ ] `dotnet restore`, serial `dotnet build .\{SolutionName}.slnx -m:1`, and unfiltered serial `dotnet test .\{SolutionName}.slnx --no-build -m:1` pass. No filtered fast-tier run substitutes for this acceptance gate; no test assembly aborts in `[AssemblyInitialize]`.
@@ -83,7 +128,7 @@ Use `curl`, HTTPie, REST Client, or Scalar. Record status codes and endpoint dis
 - [ ] OpenAPI/Scalar loads.
 - [ ] Human acceptance smoke was attempted for at least one primary workflow. Any gap is recorded in `HANDOFF.md` section UAT / Acceptance Gaps with source, current evidence, root cause, and closure plan.
 - [ ] **Aspire AppHost clean startup:** `dotnet run --project src/Host/Aspire/AppHost` reaches the dashboard with every registered resource in **Running** state, no exceptions in resource logs, and `/healthz/live` plus `/healthz/ready` returning 200 on every API/server host that exposes probes. UI resources without probes pass when their root URL renders without exception. Stub-mode external deps (`emulator`, `lazy-optional`, `no-op stub`, `deployment-only`) count as healthy when their stub/emulator path responds.
-- [ ] **AI provider lanes (when enabled):** Azure eligibility is checked before Aspire creation; absent Azure configuration and absent Foundry Local runtime are named `Assert.Inconclusive` outcomes. A healthy local provider that exceeds its bounded generation budget is also inconclusive; configured/discovered-provider startup, provider mismatch, status, routing, HTTP, JSON, schema, and contract failures remain red. Explicit false run flags are optional fast opt-outs. Canonical matrix: [../skills/ai-integration.md](../skills/ai-integration.md) section Optional Live-Provider Classification.
+- [ ] **AI provider lanes (when enabled):** Azure eligibility is checked before Aspire creation; absent Azure configuration is a named `Assert.Inconclusive` outcome. A reachable provider that exceeds its bounded generation budget is also inconclusive; configured-provider startup, provider mismatch, status, routing, HTTP, JSON, schema, and contract failures remain red. Explicit false run flags are optional fast opt-outs. Canonical matrix: [../skills/ai-integration.md](../skills/ai-integration.md) section Optional Live-Provider Classification.
 - [ ] **Every UI host starts cleanly - Aspire-registered AND standalone:**
   - Blazor (when enabled): standalone `dotnet run` reaches `Application started` + root URL renders; when added to AppHost, the resource reaches Running and a Refit call returns data (or typed empty state).
   - React/Vite (when enabled): `npm run lint` + `npm run build` pass; standalone Vite root renders; when added to AppHost, the resource reaches Running on its current dynamic URL and one Gateway/API-backed page loads.
@@ -92,11 +137,16 @@ Use `curl`, HTTPie, REST Client, or Scalar. Record status codes and endpoint dis
   - Uno `WasmUI` (when generated): at least one `TestCategory=WasmUI` smoke runs. Only explicit `{APP}_WASM_TESTS_ENABLED=false` or failed Docker preflight may mark it `Assert.Inconclusive`; Docker success makes missing tooling, AppHost/resource/readiness, and browser failures red with diagnostics.
   - Backend connectivity from UI: at least one entity list page loads against the Gateway/API without console exceptions (empty or typed-empty state acceptable for secondary surfaces).
 - [ ] **Primary-actor vertical slice runs end-to-end with seeded data (not just green unit tests).** With the AppHost booted and the Development seeder run, the primary actor's main flow works through the actual UI: the primary list/detail surface shows the seeded records (not an empty list), and one primary-actor action (create/submit/the core domain verb) completes against the running stack. UI interactivity is live (Blazor: interactive render mode opted in, not static SSR; Uno: commands fire and chrome renders).
+  Cite a named test run, not an impression. With a UI enabled, the browser suite drives the real stack (it self-hosts the AppHost and resolves the resource URLs):
+  `dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --filter "TestCategory=PlaywrightUI" -m:1`.
+  For `api-only` scaffolds with no UI, the equivalent is the multi-endpoint workflow tier against a real database:
+  `dotnet test tests/Test.E2E/Test.E2E.csproj --filter "TestCategory=E2E" -m:1`.
+  Record the exact command, its exit code, and the passing/inconclusive counts in `HANDOFF.md`. A green unit run, or the unfiltered acceptance run alone, does not satisfy this criterion - name the filtered run that exercised the primary flow.
 - [ ] If `applicationStyle: switch`, both `Application:Style=Service` and `Application:Style=Cqrs` have at least one endpoint-mode smoke test. The two modes expose the same route templates and response envelopes.
-- [ ] No generated source file outside the **scaffold-skipped surface** contains `throw new NotImplementedException`. The skipped surface is limited to: (a) `NoOp*` fallback stubs in `Infrastructure.Stubs/` (or equivalent) registered via `TryAddSingleton`/`TryAddScoped` for entities the scaffold contracts but does not activate, and (b) override methods on `<packagePrefix>.*` repository/storage base types that are only reachable through those `NoOp*` stubs. Per [../ai/contract-scaffolding.md](../ai/contract-scaffolding.md), even these stubs should prefer safe defaults (`Result.Success`, empty collections, completed `Task`) - throwing is permitted only when no safe default exists for the return shape.
-- [ ] No scaffold placeholders remain in source/config.
+- [ ] No generated source file outside the **scaffold-skipped surface** contains `throw new NotImplementedException`. The skipped surface is limited to: (a) `NoOp*` fallback stubs in `Infrastructure.Stubs/` (or equivalent) registered via `TryAddSingleton`/`TryAddScoped` for entities the scaffold contracts but does not activate, and (b) override methods on `<packagePrefix>.*` repository/storage base types that are only reachable through those `NoOp*` stubs. Per [../ai/contract-scaffolding.md](../ai/contract-scaffolding.md), even these stubs should prefer safe defaults (`Result.Success`, empty collections, completed `Task`) - throwing is permitted only when no safe default exists for the return shape. Mechanical check: section Mechanical Scans, Scan 1.
+- [ ] No scaffold placeholders remain in source/config. Mechanical check: section Mechanical Scans, Scan 2.
 - [ ] No `<packagePrefix>.*` shared base type is reimplemented in application/domain/host layers - they live in feed packages or `src/Packages/<packagePrefix>.*` projects only, per `packageStrategy`.
-- [ ] **One public type per file** across all generated `.cs` files in `src/` and `tests/` (including `src/Packages/<Prefix>.*`). File name matches the type. Lumped files (multiple top-level public/internal types) are a failure unless they fall under the exception list in [../skills/solution-structure.md](../skills/solution-structure.md) section Non-Negotiables.
+- [ ] **One public type per file** across all generated `.cs` files in `src/` and `tests/` (including `src/Packages/<packagePrefix>.*`). File name matches the type. Lumped files (multiple top-level public/internal types) are a failure unless they fall under the exception list in [../skills/solution-structure.md](../skills/solution-structure.md) section Non-Negotiables. Mechanical check: section Mechanical Scans, Scan 3 - it lists candidates; match each to an exception or split it.
 - [ ] Deployment-only dependencies are recorded as non-blocking residuals.
 - [ ] **Harness entrypoints are finalized for steady state** (see section Finalize Harness Entrypoints below). `AGENTS.md` carries an app-specific summary **outside** the `<!-- ai-scaffold: start --> ... <!-- ai-scaffold: end -->` markers; `CLAUDE.md` stays an `@AGENTS.md` import stub and `.github/copilot-instructions.md` stays a thin stub pointing at `AGENTS.md`. The `AGENTS.md` marked block keeps only the durable vertical-slice + demoted scaffold/adopt pointers and the conditional graphify block.
 - [ ] **Project root is clean.** Only the following files/dirs are expected at the project root after scaffold completion:
@@ -168,7 +218,7 @@ Alongside the deployment TODOs, copy the item below into `HANDOFF.md` as an opti
 
 ## If A Check Fails
 
-- Build/test failure: one focused fix pass, rerun the exact failing command.
+- Build/test failure: rerun the exact failing command after a fix pass, within the budget in [OPERATIONS.md](OPERATIONS.md) section Fail-Fast Protocol.
 - Feed failure: fix `nuget.config`, `Directory.Packages.props`, or project package references before changing code.
 - Structure failure: generate the missing scaffold artifact instead of loosening the validator.
 - Language failure: update `.scaffold/UBIQUITOUS-LANGUAGE.md` or `.scaffold/DESIGN-DECISIONS.md` to match the accepted domain model before changing code names.

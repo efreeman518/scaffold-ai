@@ -1,8 +1,16 @@
+---
+description: "Add a new entity vertical slice to an existing C#/.NET solution. Use when: add entity, new entity, vertical slice, add feature, add resource, add endpoint, extend application, new table, new API endpoint."
+argument-hint: "<Entity> <target project directory>"
+disable-model-invocation: true
+---
+
 # Add Vertical Slice
 
 Add a new entity vertical slice to an existing C#/.NET solution.
 
 **Entity and target:** $ARGUMENTS
+
+If no entity or target was supplied, ask the developer for both before loading anything.
 
 All instruction files live under `.instructions/` in the project root. All file references below are relative to that folder.
 
@@ -15,7 +23,7 @@ You are adding a complete entity slice (domain -> data -> application -> API -> 
 1. Read `.instructions/support/vertical-slice-checklist.md` - follow the fast-path section.
 2. Read `.instructions/ai/placeholder-tokens.md` for naming conventions.
 3. Load the templates listed in the checklist's "Load Set for Slice" section (under `.instructions/templates/`).
-4. If `.scaffold/resource-implementation.yaml` exists, read it for `scaffoldMode` and `testingProfile`.
+4. Confirm `scaffoldMode` and `testingProfile` from `.scaffold/resource-implementation.yaml`. If that file is absent, ask the developer for both rather than assuming defaults.
 
 ## Pre-Flight
 
@@ -34,6 +42,7 @@ Follow the canonical Slice Execution Order in `.instructions/support/vertical-sl
 - Do not modify shared infrastructure - only add entity-specific files.
 - Do not skip DI registration or endpoint mapping.
 - Follow existing code patterns for consistency.
+- If any instruction behavior turned out missing, ambiguous, or wrong this session - a checklist step that did not cover the case, a template token with no definition, a gate that misfired - append a one-line entry to `.scaffold/INSTRUCTION-GAPS.md` (create `.scaffold/` at project root if absent) before reporting done. Do not modify files under `.instructions/`.
 
 ## Gate
 

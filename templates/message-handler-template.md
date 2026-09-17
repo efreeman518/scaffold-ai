@@ -1,5 +1,7 @@
 # Message Handler Template
 
+> **Token vs log placeholder:** the `ILogger` message templates below mix both. `{EventName}` is a scaffold token; `{Handler}`, `{Event}`, `{Id}`, `{Action}`, `{Entity}`, `{User}` inside a log message string are **log property names** bound to the trailing arguments - leave them verbatim. After substitution the surviving `{...}` count must equal the trailing-argument count. Rule: [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) section Disambiguating Tokens From Logging And Interpolation.
+
 ## Output
 
 | Field | Value |
@@ -183,6 +185,6 @@ public class ProviderWebhookReceivedHandler(
 - Each handler handles **one event type**. Use separate handler classes for different events.
 - Handlers run **in-process** via `IInternalMessageBus`. For cross-service messaging, use Azure Service Bus (see [function-app.md](../skills/function-app.md) for Service Bus triggers).
 - `AuditInterceptor` publishes `AuditEntry<...>` through this same bus after `SaveChangesAsync`. If queue/bus/handler wiring is incomplete, entity saves succeed but audit/side-effect handlers never run.
-- Keep handlers **idempotent** - the same event may be delivered more than once in retry scenarios.
+- Keep handlers **idempotent** - the same event may be delivered more than once in retry scenarios. Prove it: every handler gets a `tests/Test.Unit/MessageHandlers/{EventName}HandlerTests.cs` from [test-templates-service.md](test-templates-service.md) section Message Handler Tests, covering the applied side effect, redelivery, and a missing aggregate.
 - Use `CancellationToken` and honor cancellation in all async operations.
 - If workflow compensation metadata exists, keep rollback handlers explicit and ordered according to workflow policy.

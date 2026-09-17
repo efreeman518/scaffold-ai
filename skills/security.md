@@ -53,6 +53,7 @@ app.UseRateLimiter();  // After UseRouting, before UseAuthorization
 > ```csharp
 > services.Configure<RateLimiterOptions>(o => o.GlobalLimiter = PartitionedRateLimiter.CreateChained<HttpContext>());
 > ```
+> This is a test-only bypass: keep it behind an explicit Testing guard and add a negative test proving Production still rate-limits ([testing.md](testing.md) section Never Silently Pass).
 
 ---
 
@@ -226,12 +227,14 @@ public static IServiceCollection AddAppDataProtection(
 
 ### CI Pipeline
 
-Add `dotnet nuget audit` to CI builds:
+Run the vulnerability audit after restore. Severity policy is owned by [../support/execution-gates.md](../support/execution-gates.md) section Vulnerability Audit. The generated workflow step shape lives in [cicd.md](cicd.md).
 
 ```yaml
-- script: dotnet restore --locked-mode
-- script: dotnet nuget audit --level moderate --output json
+- run: dotnet restore {SolutionName}.slnx --locked-mode
+- run: dotnet list {SolutionName}.slnx package --vulnerable --include-transitive
 ```
+
+There is no `dotnet nuget audit` verb - do not emit one. `dotnet list package --vulnerable` also exits `0` even when it reports findings, so the step must inspect its output to warn or fail; the `<NuGetAudit>` build property below is the complementary mechanism that fails the build itself.
 
 ### GitHub Dependabot
 
@@ -293,12 +296,12 @@ Secrets must be stored in Azure Key Vault (see [configuration-secrets.md](config
 ## Verification Checklist
 
 - [ ] Rate limiting registered with per-tenant and/or per-endpoint policies
-- [ ] Rate limiter disabled in `CustomApiFactory` for tests
+- [ ] Rate limiter disabled in `CustomApiFactory` only behind an explicit Testing guard, with a negative test proving Production retains the limiter ([testing.md](testing.md) section Never Silently Pass)
 - [ ] `StructureValidator` enforces `MaxLength` matching EF configuration
 - [ ] User content stays canonical in storage and is context-encoded at the rendering boundary
 - [ ] Security headers middleware added (X-Content-Type-Options, X-Frame-Options)
 - [ ] CORS configured in Gateway only - API rejects direct browser requests
-- [ ] `dotnet nuget audit` included in CI pipeline
+- [ ] CI runs `dotnet list package --vulnerable --include-transitive` after restore and gates on its output; `<NuGetAudit>`/`<NuGetAuditLevel>` set in build props; no workflow references a `dotnet nuget audit` verb (it does not exist)
 - [ ] Dependabot enabled only deliberately and configured per the GitHub Dependabot section (Dependabot secrets, manifest-per-directory, private-feed registries)
 - [ ] Data Protection runtime `Persistence` matches the active lane: Azure Blob has a key URL or `BlobStorage1`, Redis has `Redis1`, and `None` is limited to isolated development/tests
 - [ ] When Key Vault key encryption is selected, the encryption URL, managed identity permissions, stored secret policy, and rotation workflow are documented; strict NonAzure emits no Key Vault dependency

@@ -49,4 +49,4 @@ app.MapHealthChecks("/healthz", new()).AllowAnonymous(); // operator aggregate
 - `/healthz/live` runs only `"live"` checks. `/healthz/ready` runs only `"ready"` checks. `/healthz` runs the operator aggregate and is never the liveness target.
 - Do not duplicate ServiceDefaults self-liveness - add domain-specific readiness only.
 - **Why:** dependency failure must stop new traffic through readiness without making the orchestrator restart a healthy process through liveness.
-- Verify a failed critical dependency makes `/healthz/ready` unhealthy while `/healthz/live` remains healthy.
+- Verify a failed critical dependency makes `/healthz/ready` unhealthy while `/healthz/live` remains healthy. This is a required test, not a manual check: generate `tests/Test.Endpoints/HealthProbeContractTests.cs` from [test-templates-endpoint.md](test-templates-endpoint.md) section Health Probe Contract Tests, which forces a `"ready"`-tagged check to fail and asserts the two probes diverge.

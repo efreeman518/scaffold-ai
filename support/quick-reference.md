@@ -98,7 +98,6 @@ public static void AutoRegisterMessageHandlers(this IHost host)
 ```
 
 Call `AutoRegisterMessageHandlers()` after `Build()`. `AuditInterceptor` publishes through `IInternalMessageBus`, and that bus dispatches through the channel background queue rather than inline.
-```
 
 ---
 

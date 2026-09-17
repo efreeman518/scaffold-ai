@@ -1,5 +1,8 @@
 # Uno Platform UI - Platform-Specific Rules
 
+> **When to read:** Phase 5c, when a specific Uno target needs attention - a browser-WASM or Android build/deploy failure, trimming or AOT behavior, a platform-conditional API, or the Uno CI legs.
+> **Skip if:** no Uno project in scope; Uno work that is presentation-only (MVUX, XAML, navigation, business services - see the companions below); Blazor or React UI work.
+
 Platform-specific build, deploy, and debugging rules for Uno (WASM, Android), plus CI requirements. Loaded during Phase 5c when an Uno UI project is in scope and a specific target needs attention.
 
 Companion files:

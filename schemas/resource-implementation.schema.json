@@ -38,6 +38,12 @@
       "default": "service",
       "description": "Application endpoint/application shape. service emits service endpoints only. cqrs emits CQRS request handlers/endpoints only. switch emits both and gates route mapping via Application:Style plus <APP>_APPLICATION_STYLE."
     },
+    "repositoryContractStyle": {
+      "type": "string",
+      "enum": ["per-entity", "hybrid", "generic-only"],
+      "default": "hybrid",
+      "description": "Whether every entity gets a bespoke I{Entity}RepositoryTrxn/Query pair (per-entity), only entities with bespoke read/write logic do (hybrid), or none do (generic-only). An aggregate root with owned children always keeps a bespoke Trxn contract regardless of this value (GR-15)."
+    },
     "packagePrefix": {
       "type": "string",
       "minLength": 1,
@@ -79,6 +85,16 @@
     "includeGitHubActions": { "type": "boolean", "default": false },
     "includeAzd": { "type": "boolean", "default": false },
     "includeAiServices": { "type": "boolean", "default": false },
+    "includeGrpc": {
+      "type": "boolean",
+      "default": false,
+      "description": "Generate gRPC service contracts and host wiring alongside the HTTP surface."
+    },
+    "seedData": {
+      "type": "boolean",
+      "default": false,
+      "description": "Generate the local-development seed startup task (dev tenant, dev user, sample rows). Never seeds outside Development."
+    },
     "database": {
       "type": "string",
       "enum": ["AzureSQL", "SQLServer", "PostgreSQL"],
@@ -169,7 +185,7 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "type": "string", "enum": ["AzureInference", "OpenAICompatible", "FoundryLocal", "None"] }
+      "items": { "type": "string", "enum": ["AzureInference", "OpenAICompatible", "None"] }
     },
     "dataProtectionPersistence": {
       "type": "array",
@@ -264,8 +280,8 @@
     "compliance": { "$ref": "#/$defs/compliance" },
     "moneyCalculationPolicy": { "type": "object" },
     "timeBoundaryPolicy": { "type": "object" },
-    "entitlementPolicy": { "type": "object" },
-    "ingestionSemantics": { "type": "object" }
+    "entitlementPolicy": { "$ref": "#/$defs/entitlementPolicy" },
+    "ingestionSemantics": { "$ref": "#/$defs/ingestionSemantics" }
   },
   "allOf": [
     {
@@ -408,7 +424,7 @@
         },
         "auditProvider": { "type": "string", "enum": ["AzureTable", "Relational"] },
         "searchProvider": { "type": "string", "enum": ["AzureAiSearch", "PgVector", "Sql", "None"] },
-        "aiProvider": { "type": "string", "enum": ["AzureInference", "OpenAICompatible", "FoundryLocal", "None"] },
+        "aiProvider": { "type": "string", "enum": ["AzureInference", "OpenAICompatible", "None"] },
         "dataProtectionPersistence": { "type": "string", "enum": ["AzureBlob", "Redis", "None"] },
         "deploymentTarget": { "type": "string", "enum": ["ContainerApps", "AppService", "AKS", "DockerCompose", "Kubernetes"] }
       }
@@ -496,16 +512,7 @@
         },
         "children": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["name", "entity", "relationship"],
-            "properties": {
-              "name": { "type": "string" },
-              "entity": { "type": "string" },
-              "relationship": { "type": "string" },
-              "joinEntity": { "type": "string" }
-            }
-          }
+          "items": { "$ref": "#/$defs/childMapping" }
         },
         "navigation": {
           "type": "array",
@@ -536,9 +543,47 @@
         }
       }
     },
+    "childMapping": {
+      "type": "object",
+      "required": ["name", "entity", "relationship"],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "relationship": { "const": "many-to-many" } },
+            "required": ["relationship"]
+          },
+          "then": { "required": ["joinEntity"] }
+        }
+      ],
+      "properties": {
+        "name": { "type": "string" },
+        "entity": { "type": "string" },
+        "relationship": {
+          "type": "string",
+          "enum": ["one-to-many", "one-to-one", "many-to-many", "self-referencing", "polymorphic-join"]
+        },
+        "joinEntity": { "type": "string" }
+      }
+    },
     "typedProperty": {
       "type": "object",
       "required": ["name", "type"],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "enum": ["string", "nvarchar", "varchar"] } },
+            "required": ["type"]
+          },
+          "then": { "required": ["maxLength"] }
+        },
+        {
+          "if": {
+            "properties": { "type": { "enum": ["money", "decimal"] } },
+            "required": ["type"]
+          },
+          "then": { "required": ["precision", "scale"] }
+        }
+      ],
       "properties": {
         "name": { "type": "string" },
         "type": { "type": "string" },
@@ -657,7 +702,7 @@
         "appHostApi": { "type": "string" },
         "localMode": {
           "type": "string",
-          "enum": ["RunAsEmulator", "RunAsContainer", "RunAsFoundryLocal", "sdk-direct-api-host", "RunAsExisting", "AsExisting", "local-container", "local-project", "none", "deployment-only", "lazy-optional", "no-op stub"]
+          "enum": ["RunAsEmulator", "RunAsContainer", "RunAsExisting", "AsExisting", "local-container", "local-project", "none", "deployment-only", "lazy-optional", "no-op stub"]
         },
         "publishMode": {
           "type": "string",
@@ -679,12 +724,6 @@
           "properties": {
             "projectName": { "type": "string" },
             "lifecycle": { "type": "string", "enum": ["local-or-provision", "existing"] },
-            "localRuntimeMode": {
-              "type": "string",
-              "enum": ["RunAsFoundryLocal", "sdk-direct-api-host"],
-              "default": "sdk-direct-api-host",
-              "description": "Local Foundry runtime path. 'RunAsFoundryLocal' = preferred/target Aspire path, usable once Aspire.Hosting.Foundry bundles Foundry Local SDK >= 1.x. 'sdk-direct-api-host' = conditional temporary workaround: the AppHost wires no foundry/chat resource, resolves and forwards the explicit FoundryLocal provider selection plus DisableFoundryLocal=false, and the API host drives Microsoft.AI.Foundry.Local directly. None never activates it. Has no effect on the Azure path."
-            },
             "resourceName": { "type": "string" },
             "resourceGroup": { "type": "string" },
             "connectionName": { "type": "string" },
@@ -696,8 +735,7 @@
                 "properties": {
                   "name": { "type": "string" },
                   "purpose": { "type": "string", "enum": ["agent-reasoning", "embedding", "completion"] },
-                  "deploymentName": { "type": "string" },
-                  "localModel": { "type": "string" }
+                  "deploymentName": { "type": "string" }
                 }
               }
             },
@@ -743,6 +781,28 @@
       "properties": {
         "defaultClassification": { "type": "string" },
         "entities": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "entitlementPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Deterministic combination of multiple grant sources. Owned by this file; the domain specification points here.",
+      "properties": {
+        "sourcePriority": { "type": "array", "items": { "type": "string" } },
+        "conflictResolution": { "type": "string" },
+        "revokeBehavior": { "type": "string" }
+      }
+    },
+    "ingestionSemantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Ordering and lateness contract for event/time-series ingestion. Owned by this file; the domain specification points here.",
+      "properties": {
+        "eventTimePolicy": { "type": "string" },
+        "orderingExpectation": { "type": "string" },
+        "allowedLateness": { "type": "string" },
+        "watermarkStrategy": { "type": "string" },
+        "outOfOrderHandling": { "type": "string" }
       }
     }
   }

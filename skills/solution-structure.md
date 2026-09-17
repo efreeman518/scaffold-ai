@@ -11,7 +11,7 @@ Define the canonical clean-architecture layout and dependency direction used by 
 3. Domain projects never reference Application or Infrastructure.
 4. Use central package management via `Directory.Packages.props`.
 5. Host projects add host-specific wiring only; shared registrations stay in Bootstrapper.
-6. **One public type per file.** Each `.cs` file declares exactly one public/internal top-level type and the file name matches that type. This rule is **universal** - it applies to generated app code (`src/Domain`, `src/Application`, `src/Infrastructure`, `src/Host`, `src/UI`, `tests`) **and** to local-package source under `src/Packages/<Prefix>.*` (the vendored `<packagePrefix>.*` shared surface). Lumped files (e.g. `ServiceBus.cs` declaring multiple message types, `Models.cs` declaring multiple DTOs, `Constants.cs` containing nested helper classes) must be split at generation time. The only permitted exceptions are: (a) nested types whose visibility is `private` to the outer type, (b) records / classes that exist solely to parameterize a generic type and are tightly coupled to the declaring file (rare - prefer splitting), and (c) compiler-generated partials. When scaffolding touches an existing lumped vendored file under `src/Packages/`, split it during that same sub-phase rather than leaving it as a tracked debt item.
+6. **One public type per file.** Each `.cs` file declares exactly one public/internal top-level type and the file name matches that type. This rule is **universal** - it applies to generated app code (`src/Domain`, `src/Application`, `src/Infrastructure`, `src/Host`, `src/UI`, `tests`) **and** to local-package source under `src/Packages/<packagePrefix>.*` (the vendored `<packagePrefix>.*` shared surface). Lumped files (e.g. `ServiceBus.cs` declaring multiple message types, `Models.cs` declaring multiple DTOs, `Constants.cs` containing nested helper classes) must be split at generation time. The only permitted exceptions are: (a) nested types whose visibility is `private` to the outer type, (b) records / classes that exist solely to parameterize a generic type and are tightly coupled to the declaring file (rare - prefer splitting), and (c) compiler-generated partials. When scaffolding touches an existing lumped vendored file under `src/Packages/`, split it during that same sub-phase rather than leaving it as a tracked debt item.
 
 ---
 
@@ -72,7 +72,6 @@ tests/
 |-- Test.Integration/                 # component: one class vs one real store (standalone Testcontainers SQL/Azurite/Redis)
 |-- Test.Integration.{Project}.FlowEngine/ # when FlowEngine definition validation is in scope
 |-- Test.Aspire/                      # mesh: full AppHost graph over HTTP (lazy-started; Docker-gated)
-|-- Test.FoundryLocal/                # RID-bound local AI lane when Foundry Local is in scope
 |-- Test.Endpoints/                   # WebApplicationFactory in-memory; per-endpoint contract tests
 |-- Test.E2E/                         # WebApplicationFactory + Testcontainers SQL; multi-endpoint workflow chains
 |-- Test.Architecture/                # NetArchTest layering rules
@@ -188,7 +187,7 @@ Pair `warning` with `TreatWarningsAsErrors` (opt in via `Directory.Build.props` 
 
 Note: Domain rules and specifications live in `Domain.Model/Rules/` (or `Domain.Model/Specifications/`). A separate `Domain.Rules` project is not required.
 
-Note: `src/Packages/` exists only when `packageStrategy` is `local` or `hybrid` (set in `.scaffold/resource-implementation.yaml`). Generate one packable project per entry in `localPackageLayers`, matching the layer set in [`../support/ef-packages-reference.md`](../support/ef-packages-reference.md). Each project sets `IsPackable=true` and `<PackageId>=<Prefix>.<Layer>` so it can later be published to a feed and consumed via `<PackageReference>` without restructuring. When `applicationStyle` is `cqrs` or `switch`, include `<Prefix>.CQRS` in this local/feed layer set. When `packageStrategy: feed`, omit the `Packages/` folder entirely - the contracts come from `customNugetFeeds`.
+Note: `src/Packages/` exists only when `packageStrategy` is `local` or `hybrid` (set in `.scaffold/resource-implementation.yaml`). Generate one packable project per entry in `localPackageLayers`, matching the layer set in [`../support/ef-packages-reference.md`](../support/ef-packages-reference.md). Each project sets `IsPackable=true` and `<PackageId>=<packagePrefix>.<Layer>` so it can later be published to a feed and consumed via `<PackageReference>` without restructuring. When `applicationStyle` is `cqrs` or `switch`, include `<packagePrefix>.CQRS` in this local/feed layer set. When `packageStrategy: feed`, omit the `Packages/` folder entirely - the contracts come from `customNugetFeeds`.
 
 ---
 
@@ -211,7 +210,7 @@ Application + Infrastructure -> {Host}.Bootstrapper
 {Host}.Bootstrapper -> host projects (API/Scheduler/FunctionApp)
 ```
 
-`src/Packages/<Prefix>.*` projects sit at the **bottom** of the dependency graph in `local`/`hybrid` mode - every other layer may depend on them, but they may not depend on any project-specific layer. In `feed` mode, this constraint is enforced by NuGet (packages can't reference local projects).
+`src/Packages/<packagePrefix>.*` projects sit at the **bottom** of the dependency graph in `local`/`hybrid` mode - every other layer may depend on them, but they may not depend on any project-specific layer. In `feed` mode, this constraint is enforced by NuGet (packages can't reference local projects).
 
 ### Host Rules
 
@@ -295,7 +294,7 @@ Criterion: wrap when the provider's surface is provider-shaped, transport-couple
 | `Application.Mappers` | `Application.Models`, `Domain.Model`, `Domain.Shared` |
 | `Application.Contracts` | `Application.Models`, `Domain.Model`, `Domain.Shared` |
 | `Application.Services` | `Application.Contracts`, `Application.Mappers`, `Application.Models`, domain projects, + external packages whose interface is the contract (e.g. FusionCache) |
-| `Application.Cqrs` | `Application.Contracts`, `Application.Mappers`, `Application.Models`, domain projects, `<Prefix>.CQRS`, + external packages whose interface is the contract (e.g. FusionCache) |
+| `Application.Cqrs` | `Application.Contracts`, `Application.Mappers`, `Application.Models`, domain projects, `<packagePrefix>.CQRS`, + external packages whose interface is the contract (e.g. FusionCache) |
 | `Infrastructure.Data` | domain projects |
 | `Infrastructure.Repositories` | `Application.Contracts`, `Infrastructure.Data` |
 | `{Host}.Bootstrapper` | app/infrastructure implementations |

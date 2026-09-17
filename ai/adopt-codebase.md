@@ -38,7 +38,7 @@ Same three files as a greenfield Phase 1. Create `.scaffold/` at project root if
 
 When the developer chooses **merge**, apply these rules per artifact:
 
-- **Code-derived facts overwrite artifact facts.** Entities, properties, types, relationship types, and DI-visible decisions in the existing artifacts are replaced by what inspection finds. The Inference Rules above govern what counts as a fact.
+- **Code-derived facts overwrite artifact facts.** Entities, properties, types, relationship types, and DI-visible decisions in the existing artifacts are replaced by what inspection finds. The [Inference Rules](#inference-rules) below govern what counts as a fact.
 - **Developer narrative is preserved verbatim.** Rationale text, decision context, and rejected-synonym reasoning in the existing artifacts carry forward unchanged unless the developer rewrites them.
 - **Contradicted decisions are superseded, never rewritten.** When code contradicts an existing `D-###`, mark that entry superseded with a forward link and add a new code-inferred `D-###` (`inferred-from: file:line`). This matches the supersede rule in [../README.md](../README.md) section Phase-1 Artifact Lifecycle.
 - **Artifact-only entries are removed or annotated.** Entities and terms present in the artifacts but absent from code are removed from `domain-specification.yaml`; their language entries move to Rejected Synonyms or gain a `removed - absent from code` note so the history stays visible.

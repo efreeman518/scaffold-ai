@@ -1,5 +1,8 @@
 # Uno Platform UI - MVUX, Routing, XAML, Business Services, Auth
 
+> **When to read:** Phase 5c, when building Uno presentation code - an MVUX model or `Feed`/`State`, a route or navigation registration, a XAML page or template, a business-service/API client wrapper, or UI auth wiring.
+> **Skip if:** no Uno project in scope; platform build/deploy/CI problems (see `ui-uno-platforms.md`); project setup and app hosting (see `ui-uno-shell.md`); Blazor or React UI work.
+
 Presentation-layer rules: MVUX models, navigation, XAML patterns, business-service contracts, and auth wiring. Loaded during Phase 5c when an Uno UI project is in scope.
 
 Companion files:
@@ -407,33 +410,7 @@ In `Business/Services`:
 
 ### Client-API Contract Rules
 
-The API wraps all CRUD payloads in `DefaultRequest<T>` (inbound) and `DefaultResponse<T>` (outbound). The Kiota client stub (or hand-written `TaskFlowApiClient`) must match this envelope.
-
-**Request wrapping** - POST (create) and PUT (update) endpoints expect `{"item": {dto}}`, not the bare DTO:
-
-```csharp
-// OK CORRECT - wraps DTO in DefaultRequest envelope
-var response = await _http.PostAsJsonAsync("/api/categories",
-    new DefaultRequest<CategoryDto> { Item = dto }, ct);
-
-// FAIL WRONG - sends bare DTO, API deserializes Item as null -> NRE
-var response = await _http.PostAsJsonAsync("/api/categories", dto, ct);
-```
-
-**Response unwrapping** - GET and mutating endpoints return `{"item": {dto}}`:
-
-```csharp
-// OK CORRECT - unwraps from DefaultResponse envelope
-var wrapper = await _http.GetFromJsonAsync<DefaultResponse<CategoryDto>>(url, ct);
-return wrapper?.Item;
-
-// FAIL WRONG - reads bare DTO, all properties are null/default
-return await _http.GetFromJsonAsync<CategoryDto>(url, ct);
-```
-
-**Search is different** - search endpoints accept `SearchRequest<TFilter>` directly (no wrapping) and return `PagedResponse<T>` with a `data` array (not `DefaultResponse`).
-
-**Routes, validation limits, and enum wire-strings live in one shared source** consumed by the client, the server validator, and test mocks. They drift independently otherwise, and an `/api/{**catch-all}` fallback makes route drift a silent 404 instead of a loud failure; hand-pinned route strings in strict test mocks then validate the stale contract. Pair with the round-trip test in [testing-quality.md](testing-quality.md).
+The wire contract - `DefaultRequest<T>` / `DefaultResponse<T>` envelopes, the unwrapped `SearchRequest<TFilter>` / `PagedResponse<T>` search shape, the shared `EF.Common.Contracts` types, and the empirically-verified page-index base - is owned by [api.md](api.md) -> *Request / Response Envelope Contract*. The Kiota client stub (or hand-written `{Project}ApiClient`) binds to it as written; pair with the round-trip test in [testing-quality.md](testing-quality.md).
 
 #### Trimmed browser-WASM JSON contract
 
@@ -443,31 +420,10 @@ Wire every JSON call explicitly through generated metadata: use the `PostAsJsonA
 
 #### Pagination contract
 
-**Reuse the shared contract types - do not hand-roll envelopes.** Reference `EF.Common.Contracts`
-(directly, or via the `{Project}.Application.Models` project that already pulls it in - same source
-of truth the Blazor client uses) and bind to its `SearchRequest<TFilter>` / `PagedResponse<T>` /
-`DefaultRequest<T>` / `DefaultResponse<T>` directly. Re-deriving client-side `SearchRequest` /
-`PagedResponse` classes is the root cause of the silent paging bugs below: a hand-rolled envelope
-drifts from the server on the wire name (`pageIndex` vs `pageNumber`) and on the index base, and
-each drift fails silently (you get the same page on every request, or an off-by-one page counter).
-
-**The page-index base (0- vs 1-based) is a property of the running API, not a constant - verify it
-empirically.** Request page 0 vs page 1 against a seeded list with `PageSize = 1` and inspect which
-one returns the first row; that tells you the base. Do not assume. Once known, send that base
-consistently and do **no** offset conversion in the response parser (the server echoes back whatever
-base it used; adding `+1`/`-1` desyncs the UI page counter).
-
-Debugging checklist when paging misbehaves - inspect the raw request/response JSON in devtools:
-
-- **"Always returns the same page"**: the wire field name is wrong (`pageNumber` instead of
-  `pageIndex`), or the base you are sending does not match the server. Confirm the field name and
-  re-verify the base empirically.
-- **Pager shows the correct total pages but the "current page" is one off, or "Next" returns the
-  rows just shown**: a response-side setter is adding/removing an offset (`PageNumber = value + 1`).
-  Pass the server's value through unchanged.
-
-Reusing `EF.Common.Contracts` removes both classes of bug because the wire shape is defined once,
-server-side and client-side, by the same types.
+Envelope types, the `EF.Common.Contracts` reuse rule, the empirically-verified page-index base, and
+the drift symptoms live in [api.md](api.md) -> *Request / Response Envelope Contract*. Bind the Uno
+client to those types directly; do not re-derive `SearchRequest` / `PagedResponse` in the UI project,
+and do no offset conversion in the response parser.
 
 ## Auth Rules
 

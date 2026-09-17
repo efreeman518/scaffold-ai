@@ -113,7 +113,7 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 - [ ] Agent function tools wrapping existing `I{Entity}Service` domain operations
 - [ ] Agent middleware (logging, auth context propagation, content safety)
 - [ ] Multi-agent workflow with executors + edges (if `workflow.enabled: true`)
-- [ ] Aspire resource wiring from `aspireResources` and [skills/aspire.md](../skills/aspire.md): resolve the explicit lane `aiProvider` first; only `AzureInference` adds/references an Azure chat resource, only explicitly selected `FoundryLocal` enters the conditional SDK-direct API-host workaround while `RunAsFoundryLocal()` is broken (dotnet/aspire#12750), `OpenAICompatible` validates its endpoint/key/model in the consuming host, and `None` wires no provider; add `AddProject()`/`AddPromptAgent()` only if `agentHosting` is server-hosted; use `AddAzureSearch()` for Azure AI Search
+- [ ] Aspire resource wiring from `aspireResources` and [skills/aspire.md](../skills/aspire.md): resolve the explicit lane `aiProvider` first; only `AzureInference` adds/references an Azure chat resource, `OpenAICompatible` validates its endpoint/key/model in the consuming host, and `None` wires no provider; add `AddProject()`/`AddPromptAgent()` only if `agentHosting` is server-hosted; use `AddAzureSearch()` for Azure AI Search
 - [ ] Bootstrapper DI registration for AI services
 - [ ] API endpoints for search + agent interactions
 - [ ] Configuration: Foundry endpoint (+ existing-resource name/RG and project endpoint when used), model deployment names, search index names in appsettings
@@ -261,6 +261,7 @@ _During Phase 3, search for CLIs, MCP servers, and online resources matching pro
 
 Before starting Phase 4 (contract scaffolding), verify all of the following:
 
+- [ ] `python {instructionsRoot}/scripts/validate-scaffold-artifacts.py --root . --phase 3` exits 0 - both `.scaffold` YAML contracts still validate against [`schemas/`](../schemas/) after any Phase 3 edit. Paste the observed output per [../support/execution-gates.md](../support/execution-gates.md) section Verification Evidence Rule.
 - [ ] `nuget.config` validated (`configure-ef-packages-feed.py --check-only` exits 0) for `feed` and `hybrid`; no solution exists at Phase 3, so full `dotnet restore` proof lands with the Phase 4 build gate; in `local`, the file may be absent and NuGet's default `nuget.org` source applies
 - [ ] All open questions resolved or explicitly deferred with TODO
 - [ ] `scaffoldMode`, `testingProfile`, and all host flags confirmed

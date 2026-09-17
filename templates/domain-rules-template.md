@@ -89,7 +89,7 @@ public class {Entity}CannotDeactivateWithActiveChildrenRule : RuleBase<{Entity}>
 
     public override bool IsSatisfiedBy({Entity} subject) =>
         !subject.Flags.HasFlag({Entity}Flags.IsInactive) ||
-        !subject.{ChildEntity}s.Any(c => !c.Flags.HasFlag({ChildEntity}Flags.IsInactive));
+        !subject.{ChildEntities}.Any(c => !c.Flags.HasFlag({ChildEntity}Flags.IsInactive));
 }
 
 /// <summary>

@@ -378,13 +378,6 @@ DEPLOYMENT_HARDENING_CONTRACT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "Unknown configured values fail startup",
         "Never consume a floating `latest` tag",
     ),
-    "support/scaffold-proof-scale-audit-2026-09-04-to-2026-09-09.md": (
-        "[PR 10]",
-        "[PR 11]",
-        "[PR 12]",
-        "## Selection Rule",
-        "## Follow-On Defects That Changed Scaffold Policy",
-    ),
     "skills/messaging.md": (
         "### Transactional Producer: Outbox",
         "### At-Least-Once Consumer: Inbox",
@@ -1381,6 +1374,121 @@ def check_ef_package_api(findings: Findings) -> None:
                 )
 
 
+# --- Audit-remediation regression guards -------------------------------------
+# Each guard below pins a defect class that was found in the instruction set and
+# fixed. They are cheap, exact checks; none of them depends on prose wording.
+
+# Naive `+s` pluralization produces `Categorys` / `Addresss`. The glossary derives
+# plurals with real English rules, so the naive token forms must not reappear.
+NAIVE_PLURAL_TOKENS = ("{Entity}s", "{ChildEntity}s")
+
+# CLI verbs that do not exist. An instruction prescribing one emits CI that fails
+# on first run. `dotnet nuget` has no `audit` verb; the real mechanisms are
+# `dotnet list package --vulnerable` and the <NuGetAudit> MSBuild property.
+NONEXISTENT_COMMANDS = ("dotnet nuget audit",)
+
+# A guard phrase naming the bad verb so an agent does not emit it is the desired state.
+NEGATED_MENTION_PATTERN = re.compile(
+    r"there is no|is not a( real)? verb|does not exist|do not emit|never emit|no such", re.IGNORECASE
+)
+
+# Foundry Local is not a supported provider lane: it is fragile, and the reference
+# app carries no implementation of it. Azure AI Foundry (the cloud service) stays.
+FOUNDRY_LOCAL_PATTERN = re.compile(
+    r"foundry\s+local|FoundryLocal|Microsoft\.AI\.Foundry\.Local", re.IGNORECASE
+)
+
+# Dated, repo-specific audit reports are author-side evidence. `support/` ships
+# whole into every consuming app, so they would be permanent context tax there.
+DATED_REPORT_PATTERN = re.compile(r"-\d{4}-\d{2}-\d{2}(-to-\d{4}-\d{2}-\d{2})?\.md$")
+
+CLAUDE_COMMAND_KEYS = ("description:", "argument-hint:")
+
+
+def check_naive_plural_tokens(path: Path, findings: Findings) -> None:
+    text = path.read_text(encoding="utf-8")
+    for token in NAIVE_PLURAL_TOKENS:
+        if token in text:
+            correct = "{Entities}" if token == "{Entity}s" else "{ChildEntities}"
+            findings.err(
+                path,
+                f"naive plural token {token} - use {correct} (real English pluralization, "
+                f"see ai/placeholder-tokens.md Derivation Rules)",
+            )
+
+
+def check_nonexistent_commands(path: Path, findings: Findings) -> None:
+    """Flag a prescription, not a warning about one. An instruction file is allowed - and
+    encouraged - to name a nonexistent verb in order to tell an agent never to emit it."""
+    for num, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        for cmd in NONEXISTENT_COMMANDS:
+            if cmd not in line:
+                continue
+            if NEGATED_MENTION_PATTERN.search(line):
+                continue
+            findings.err(path, f"line {num}: prescribes a command that does not exist: `{cmd}`")
+
+
+def check_no_foundry_local(path: Path, findings: Findings) -> None:
+    for num, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if FOUNDRY_LOCAL_PATTERN.search(line):
+            findings.err(
+                path,
+                f"line {num}: Foundry Local is not a supported provider lane - remove it "
+                f"(Azure AI Foundry, AddFoundry, and FoundryEndpoint are unaffected)",
+            )
+
+
+def check_no_dated_reports(findings: Findings) -> None:
+    for rel in ("support", "maintenance", "ai", "skills", "patterns"):
+        base = INSTRUCTIONS_ROOT / rel
+        if not base.exists():
+            continue
+        for path in sorted(base.rglob("*.md")):
+            if DATED_REPORT_PATTERN.search(path.name):
+                findings.err(
+                    path,
+                    "dated repo-specific report in the shipped payload - keep audit evidence "
+                    "out of the instruction set",
+                )
+
+
+def check_claude_command_frontmatter(findings: Findings) -> None:
+    """A slash command's description is the only text a model sees when deciding to load it."""
+    base = INSTRUCTIONS_ROOT / ".claude" / "commands"
+    if not base.exists():
+        return
+    for path in sorted(base.glob("*.md")):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        if not lines or lines[0].strip() != "---":
+            findings.err(path, "slash command has no YAML frontmatter - add description and argument-hint")
+            continue
+        try:
+            end = next(i for i in range(1, len(lines)) if lines[i].strip() == "---")
+        except StopIteration:
+            findings.err(path, "slash command frontmatter is not terminated")
+            continue
+        block = chr(10).join(lines[1:end])
+        for key in CLAUDE_COMMAND_KEYS:
+            if key not in block:
+                findings.err(path, f"slash command frontmatter missing `{key.rstrip(':')}`")
+
+
+def check_agents_path_rule(findings: Findings) -> None:
+    """AGENTS.md loads in every session in this repo and cites `.instructions/` paths
+    that only exist in an installed app. It must carry the dual-path rule."""
+    path = INSTRUCTIONS_ROOT / "AGENTS.md"
+    if not path.exists():
+        return
+    text = path.read_text(encoding="utf-8")
+    if ".instructions/" in text and "Path rule" not in text:
+        findings.err(
+            path,
+            "cites `.instructions/` paths without the dual-path rule - a reader in this repo "
+            "resolves them to nothing (see START-AI.md, Harness Adapter Rule)",
+        )
+
+
 def main() -> int:
     findings = Findings()
 
@@ -1395,8 +1503,14 @@ def main() -> int:
         check_version_prose(path, findings)
         check_action_reference_policy(path, findings)
         check_deprecated_layout(path, findings)
+        check_naive_plural_tokens(path, findings)
+        check_nonexistent_commands(path, findings)
+        check_no_foundry_local(path, findings)
 
     check_command_shape(findings)
+    check_claude_command_frontmatter(findings)
+    check_agents_path_rule(findings)
+    check_no_dated_reports(findings)
     check_maintenance_guards(findings)
     check_payload_shape(findings)
     check_readme_install_table(findings)

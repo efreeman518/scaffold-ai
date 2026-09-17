@@ -49,7 +49,7 @@ RUN dotnet publish src/Host/{Host}.Api/{Host}.Api.csproj \
 # `-chiseled` has no ICU/tzdata, so pair it with <InvariantGlobalization>true</InvariantGlobalization>
 # in the host .csproj. Step up to `-noble-chiseled-extra` only when the app needs globalization
 # (culture-aware formatting/sorting, non-UTC time zones) or libstdc++.
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:<target-dotnet-major>.0-noble-chiseled AS runtime
 WORKDIR /app
 COPY --from=publish /app/publish .
 
@@ -72,7 +72,8 @@ Same pattern but replace `{Host}.Api` with `{Host}.Scheduler` and include Ticker
 ## Variant: Function App
 
 ```dockerfile
-FROM mcr.microsoft.com/azure-functions/dotnet-isolated:4-dotnet-isolated10.0 AS runtime
+# The leading `4` is the Functions host major, not a .NET version - it is not substituted.
+FROM mcr.microsoft.com/azure-functions/dotnet-isolated:4-dotnet-isolated<target-dotnet-major>.0 AS runtime
 WORKDIR /home/site/wwwroot
 COPY --from=publish /app/publish .
 # Isolated worker listens on port 80 (image sets no ASPNETCORE_URLS).
@@ -115,7 +116,7 @@ Two provider-driven escalations are hard rules, silent until runtime:
 ## Rules
 
 - **Always use chiseled base images** for production - smaller attack surface, no shell. Default to the most-chiseled variant (`-noble-chiseled`) and escalate to `-noble-chiseled-extra` only when needed - see *Chiseled variant selection* above.
-- **Base image versions track the target .NET major without floating tags** - substitute `<target-dotnet-major>` at scaffold time for both SDK and runtime images. Keep the image major aligned with `TargetFramework`; update both in the same change that raises the TFM.
+- **Base image versions track the target .NET major without floating tags** - substitute `<target-dotnet-major>` in **every** stage naming a .NET image: SDK, `aspnet` runtime, and the `dotnet-isolated<target-dotnet-major>.0` segment of the Functions tag. The leading `4` in that tag is the Functions host major and stays literal. Keep the image major aligned with `TargetFramework`; update both in the same change that raises the TFM.
 - **Restore layer caching:** Copy `.csproj` files first, then `dotnet restore`, then copy source. This ensures source changes don't invalidate the restore cache.
 - **Port:** Default to `8080` for ASP.NET hosts (API/Gateway/Scheduler) on Container Apps. **Exception: Azure Functions isolated worker listens on 80** - see the Function App variant above.
 - **Non-root:** Chiseled images run as non-root by default.

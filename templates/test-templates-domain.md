@@ -91,7 +91,7 @@ public class {Entity}Tests
 
         // Assert
         Assert.IsTrue(result.IsSuccess);
-        Assert.AreEqual(1, entity.{ChildEntity}s.Count);
+        Assert.AreEqual(1, entity.{ChildEntities}.Count);
     }
 
     [TestMethod]
@@ -107,7 +107,7 @@ public class {Entity}Tests
 
         // Assert - idempotent
         Assert.IsTrue(result.IsSuccess);
-        Assert.AreEqual(1, entity.{ChildEntity}s.Count);
+        Assert.AreEqual(1, entity.{ChildEntities}.Count);
     }
 }
 ```

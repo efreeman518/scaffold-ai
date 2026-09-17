@@ -322,14 +322,7 @@ public interface I{Project}ApiClient
 
 ### Request / Response Envelope Rules
 
-(Same contract as the Uno client - keep both clients in lock-step.)
-
-- **Create / Update** expect `{"item": {dto}}`. Wrap: `new DefaultRequest<T> { Item = dto }`. Sending the bare DTO deserializes `Item` as `null` and the server returns an NRE.
-- **Get / Create / Update** return `{"item": {dto}}`. Unwrap: `response.Item`.
-- **Search** accepts `SearchRequest<TFilter>` directly (not wrapped) and returns `PagedResponse<T>` with `data` (items) and `total` (count).
-- **Reuse the shared `SearchRequest<T>` / `PagedResponse<T>` from `EF.Common.Contracts`** (via the `{Project}.Application.Models` reference) - do not redefine envelopes in the Blazor project. The page-index base (0- vs 1-based) is a property of the running API, not a constant: verify it empirically (request page 0 vs page 1 against a seeded list and inspect which returns the first row) before wiring the pager. Do not hard-code an assumed base - sending the wrong one silently returns the same page on every request.
-
-See [ui-uno-mvux.md](ui-uno-mvux.md) -> *Client-API Contract Rules* for the detailed payload diagrams; the same contract applies.
+The wire contract is a server concern and is owned by [api.md](api.md) -> *Request / Response Envelope Contract*: `DefaultRequest<T>` / `DefaultResponse<T>` on CRUD, unwrapped `SearchRequest<TFilter>` / `PagedResponse<T>` on search, shared `EF.Common.Contracts` types on both sides, and the page-index base verified empirically. Bind the Refit interface to those types; do not redefine envelopes in the Blazor project.
 
 ### Refit JSON Serializer
 

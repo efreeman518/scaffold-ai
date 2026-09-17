@@ -6,49 +6,51 @@ Expected file layout when scaffolding is complete. All paths are relative to the
 
 > **Scope:** Backend layers below are always emitted. Optional Phase 5c hosts (Blazor, React, Uno) extend this index - those sections only apply when the corresponding `enabledFeatures` flag is set in `HANDOFF.md` (`includeBlazorUI`, `includeReactUI`, `includeUnoUI`). For host-internal layout details, see [../skills/ui-blazor.md](../skills/ui-blazor.md), [../skills/ui-react.md](../skills/ui-react.md), and [../skills/ui-uno.md](../skills/ui-uno.md).
 
+> **Project-name prefix:** paths below assume the default `projectNamePrefix: solution-name` (see [../ai/domain-specification-schema.md](../ai/domain-specification-schema.md) section Project Identity), so every project folder carries the `{Project}` / `{Host}` prefix - `src/Domain/{Project}.Domain.Model/` resolves to `src/Domain/TaskFlow.Domain.Model/` in the reference app. Under `projectNamePrefix: none`, drop the prefix and the leading dot from every project folder and namespace (`src/Domain/Domain.Model/`). The Aspire `AppHost` / `ServiceDefaults` folders are unprefixed either way.
+
 ## Domain Layer
 | Artifact | Path |
 |---|---|
-| Entity (root) | `src/Domain/Domain.Model/TodoItem.cs` |
-| Entity (child) | `src/Domain/Domain.Model/Comment.cs` |
-| Value object | `src/Domain/Domain.Model/DateRange.cs` |
+| Entity (root) | `src/Domain/{Project}.Domain.Model/TodoItem.cs` |
+| Entity (child) | `src/Domain/{Project}.Domain.Model/Comment.cs` |
+| Value object | `src/Domain/{Project}.Domain.Model/DateRange.cs` |
 
 ## Data Access
 | Artifact | Path |
 |---|---|
-| EF config (entity) | `src/Infrastructure/Infrastructure.Data/Configurations/TodoItemConfiguration.cs` |
-| Write repository | `src/Infrastructure/Infrastructure.Repositories/TodoItemRepositoryTrxn.cs` |
-| Read repository | `src/Infrastructure/Infrastructure.Repositories/TodoItemRepositoryQuery.cs` |
-| Trxn DbContext | `src/Infrastructure/Infrastructure.Data/{App}DbContextTrxn.cs` |
-| Query DbContext | `src/Infrastructure/Infrastructure.Data/{App}DbContextQuery.cs` |
-| Updater | `src/Infrastructure/Infrastructure.Repositories/TodoItemUpdater.cs` |
+| EF config (entity) | `src/Infrastructure/{Project}.Infrastructure.Data/Configurations/TodoItemConfiguration.cs` |
+| Write repository | `src/Infrastructure/{Project}.Infrastructure.Repositories/TodoItemRepositoryTrxn.cs` |
+| Read repository | `src/Infrastructure/{Project}.Infrastructure.Repositories/TodoItemRepositoryQuery.cs` |
+| Trxn DbContext | `src/Infrastructure/{Project}.Infrastructure.Data/{App}DbContextTrxn.cs` |
+| Query DbContext | `src/Infrastructure/{Project}.Infrastructure.Data/{App}DbContextQuery.cs` |
+| Updater | `src/Infrastructure/{Project}.Infrastructure.Repositories/TodoItemUpdater.cs` |
 
 ## Application Layer
 | Artifact | Path |
 |---|---|
-| Service | `src/Application/Application.Services/TodoItemService.cs` |
-| DTO | `src/Application/Application.Models/TodoItemDto.cs` |
-| Search filter | `src/Application/Application.Models/TodoItemSearchFilter.cs` |
-| Mapper | `src/Application/Application.Mappers/TodoItemMapper.cs` |
-| Contracts | `src/Application/Application.Contracts/` |
-| Error constants | `src/Application/Application.Contracts/ErrorConstants.cs` |
-| DefaultRequest | `src/Application/Application.Models/DefaultRequest.cs` (record) |
-| DefaultResponse | `src/Application/Application.Models/DefaultResponse.cs` (record) |
-| Structure validator | `src/Application/Application.Services/Rules/{Entity}StructureValidator.cs` |
-| Service error messages | `src/Application/Application.Services/Rules/ServiceErrorMessages.cs` |
-| Tenant info DTO | `src/Application/Application.Models/TenantInfoDto.cs` *(multi-tenant only)* |
-| Tenant boundary validator | `src/Application/Application.Services/TenantBoundaryValidator.cs` *(multi-tenant only)* |
-| Tenant boundary interface | `src/Application/Application.Contracts/ITenantBoundaryValidator.cs` *(multi-tenant only)* |
-| Validation helper | `src/Application/Application.Services/Rules/ValidationHelper.cs` *(multi-tenant only)* |
-| Tenant logging extensions | `src/Application/Application.Services/Rules/TenantBoundaryLoggingExtensions.cs` *(multi-tenant only)* |
-| Tenant rules | `src/Application/Application.Services/Rules/TenantRules.cs` *(multi-tenant only)* |
-| Message handler | `src/Application/Application.MessageHandlers/TodoItemCreatedEventHandler.cs` |
-| Application style switch | `src/Application/Application.Contracts/ApplicationStyle.cs` *(when applicationStyle: switch)* |
-| CQRS requests | `src/Application/Application.Cqrs/Features/{Entity}/{Entity}Requests.cs` *(when applicationStyle: cqrs or switch)* |
-| CQRS handlers | `src/Application/Application.Cqrs/Features/{Entity}/{Entity}Handlers.cs` *(when applicationStyle: cqrs or switch)* |
-| CQRS feature registration | `src/Application/Application.Cqrs/Features/{Entity}/{Entity}CqrsRegistrations.cs` *(when applicationStyle: cqrs or switch)* |
-| CQRS shared helpers | `src/Application/Application.Cqrs/Features/Shared/CqrsHandlerSupport.cs` *(when applicationStyle: cqrs or switch)* |
-| CQRS root registration | `src/Application/Application.Cqrs/Registration/CqrsApplicationRegistration.cs` *(when applicationStyle: cqrs or switch)* |
+| Service | `src/Application/{Project}.Application.Services/TodoItemService.cs` |
+| DTO | `src/Application/{Project}.Application.Models/TodoItemDto.cs` |
+| Search filter | `src/Application/{Project}.Application.Models/TodoItemSearchFilter.cs` |
+| Mapper | `src/Application/{Project}.Application.Mappers/TodoItemMapper.cs` |
+| Contracts | `src/Application/{Project}.Application.Contracts/` |
+| Error constants | `src/Application/{Project}.Application.Contracts/ErrorConstants.cs` |
+| DefaultRequest | `src/Application/{Project}.Application.Models/DefaultRequest.cs` (record) |
+| DefaultResponse | `src/Application/{Project}.Application.Models/DefaultResponse.cs` (record) |
+| Structure validator | `src/Application/{Project}.Application.Services/Rules/{Entity}StructureValidator.cs` |
+| Service error messages | `src/Application/{Project}.Application.Services/Rules/ServiceErrorMessages.cs` |
+| Tenant info DTO | `src/Application/{Project}.Application.Models/TenantInfoDto.cs` *(multi-tenant only)* |
+| Tenant boundary validator | `src/Application/{Project}.Application.Services/TenantBoundaryValidator.cs` *(multi-tenant only)* |
+| Tenant boundary interface | `src/Application/{Project}.Application.Contracts/ITenantBoundaryValidator.cs` *(multi-tenant only)* |
+| Validation helper | `src/Application/{Project}.Application.Services/Rules/ValidationHelper.cs` *(multi-tenant only)* |
+| Tenant logging extensions | `src/Application/{Project}.Application.Services/Rules/TenantBoundaryLoggingExtensions.cs` *(multi-tenant only)* |
+| Tenant rules | `src/Application/{Project}.Application.Services/Rules/TenantRules.cs` *(multi-tenant only)* |
+| Message handler | `src/Application/{Project}.Application.MessageHandlers/TodoItemCreatedEventHandler.cs` |
+| Application style switch | `src/Application/{Project}.Application.Contracts/ApplicationStyle.cs` *(when applicationStyle: switch)* |
+| CQRS requests | `src/Application/{Project}.Application.Cqrs/Features/{EntityPlural}/{Entity}Requests.cs` *(when applicationStyle: cqrs or switch)* |
+| CQRS handlers | `src/Application/{Project}.Application.Cqrs/Features/{EntityPlural}/{Entity}Handlers.cs` *(when applicationStyle: cqrs or switch)* |
+| CQRS feature registration | `src/Application/{Project}.Application.Cqrs/Features/{EntityPlural}/{Entity}CqrsRegistrations.cs` *(when applicationStyle: cqrs or switch)* |
+| CQRS shared helpers | `src/Application/{Project}.Application.Cqrs/Features/Shared/CqrsHandlerSupport.cs` *(when applicationStyle: cqrs or switch)* |
+| CQRS root registration | `src/Application/{Project}.Application.Cqrs/Registration/CqrsApplicationRegistration.cs` *(when applicationStyle: cqrs or switch)* |
 
 Default scaffold and TaskFlow reference app keep DTOs and mappers in `Application.Models` and `Application.Mappers` so service and CQRS styles share one contract. A CQRS-only vertical slice may instead put feature-specific models, mappers, projections, and adapters under `Application.Cqrs/Features/{Entity}` when those shapes are not shared.
 

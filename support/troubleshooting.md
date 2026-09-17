@@ -14,7 +14,7 @@ AI agents generate code. Engineers own environment and runtime setup.
 
 When an error appears:
 1. Classify it (code-generation vs infrastructure/tooling)
-2. Attempt **one** code-fix pass only when it is code-generation **in the new project**
+2. Apply the fix-pass budget in [OPERATIONS.md](OPERATIONS.md) section Fail-Fast Protocol - it is one pass for a new error, **plus one extra pass only for a deterministic mechanical cascade of the same root-cause fix**, and never a fix loop for infrastructure
 3. If still failing (or infrastructure-related), log in `HANDOFF.md` and continue with non-blocked work
 
 ---
@@ -38,14 +38,14 @@ Do not run a full-stack validation when a targeted build or endpoint check would
 
 ---
 
-## AI Fixes (One Pass Max)
+## AI Fixes (Scope)
 
 The AI may fix:
 - Missing `using`, `ProjectReference`, or package entries
 - Missing DI registration, `DbSet<>`, endpoint map, or token substitution
 - Namespace/path mismatches caused by scaffolding
 
-Then run the phase validation command and continue only if green.
+This section owns **what** may be fixed. **How many passes** is owned by [OPERATIONS.md](OPERATIONS.md) section Fail-Fast Protocol, including the extra pass reserved for a deterministic mechanical cascade. Then run the phase validation command and continue only if green.
 
 ---
 

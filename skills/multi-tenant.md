@@ -20,8 +20,9 @@ Enforce tenant isolation through data, service, and request-context layers with 
 2. DbContext applies tenant query filters automatically for tenant entities.
 3. Services validate tenant boundary before returning/modifying entity data.
 4. Create/update flows derive tenant from request context, not client payload.
-5. Global-admin bypass is explicit and auditable.
+5. Global-admin bypass is explicit and auditable, and is derived from the role claim (`AppConstants.ROLE_GLOBAL_ADMIN` on `ClaimTypes.Role`) checked by `EnsureGlobalAdmin(...)`.
 6. DTOs retain `TenantId` for response/round-trip compatibility, but clients never own write-side tenant selection.
+7. No request header, query parameter, or environment flag flips tenant filtering. An ambient bypass is reachable in Production by anyone who can set it, and it sidesteps the boundary validator that enforces isolation; the role-claim path above is the only bypass.
 
 ---
 
@@ -193,6 +194,8 @@ Minimum test matrix:
 5. missing request-context tenant fails even when the DTO supplies a non-empty tenant,
 6. tenant-change attempts fail.
 
+Drive case 3 with the role claim, never a test-only header. Assert the claim type as well as the outcome: a bare `"roles"` claim leaves roles empty and the bypass never fires ([identity-management.md](identity-management.md) section Claim-type contract), which makes a negative test pass for the wrong reason. Test shapes: [testing.md](testing.md).
+
 ---
 
 ## Verification
@@ -203,7 +206,8 @@ Minimum test matrix:
 - [ ] `TenantBoundaryValidator` is used in service operations
 - [ ] DTO retains `TenantId`, but create/update flows overwrite it from request context before validation/mapping
 - [ ] no write path uses `RequestTenantId ?? dto.TenantId` or otherwise falls back to payload tenant
-- [ ] global-admin bypass is explicit and limited
+- [ ] global-admin bypass is explicit and limited, derived from the role claim via `EnsureGlobalAdmin(...)`
+- [ ] no request header, query parameter, or env flag bypasses tenant filtering
 - [ ] generic create/update paths remain tenant-local; any cross-tenant admin mutation has a separate authorization contract
 - [ ] tests cover same-tenant, cross-tenant, admin-bypass, forged-payload, and missing-context scenarios
 - [ ] cross-check with [application-layer.md](application-layer.md) and [domain-model.md](domain-model.md)

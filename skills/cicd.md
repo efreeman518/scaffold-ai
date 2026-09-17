@@ -22,7 +22,7 @@ Use GitHub Actions for:
 2. Promotion path is explicit (`dev -> staging -> prod`) with environment protections.
 3. Deploy artifacts are immutable by commit SHA tag.
 4. Scheduler schema/dependency steps run before scheduler rollout.
-5. PR CI runs only the fast tiers (`Unit`/`UI`/`Presentation`/`Endpoint`/`Architecture`, no Docker). Every heavy or special-runtime tier (`Integration`/`Aspire`/`E2E`/`PlaywrightUI`/`MobileUI`/Foundry Local/`Load`/`Benchmark`/`Mutation`) is a default-off `workflow_dispatch` toggle, never run automatically.
+5. PR CI runs only the fast tiers (`Unit`/`UI`/`Presentation`/`Endpoint`/`Architecture`, no Docker). Every heavy or special-runtime tier (`Integration`/`Aspire`/`E2E`/`PlaywrightUI`/`MobileUI`/`Load`/`Benchmark`/`Mutation`) is a default-off `workflow_dispatch` toggle, never run automatically.
 6. **Private NuGet feed auth:** If the solution references packages from authenticated feeds (e.g., GitHub Packages), the workflow must authenticate before `dotnet restore`. Store a PAT as a repo secret (e.g., `NUGET_PAT`) and add an auth step. Without this, restore fails with `NU1301 / 401 Unauthorized`. See the NuGet auth step below.
 7. **ACA managed identity can pull ACR but NOT GHCR.** When images live in a **private** GHCR package, the ACA managed identity cannot authenticate to `ghcr.io`. Set an explicit registry credential on each app with a PAT that has `read:packages`: `az containerapp registry set --name <app> --server ghcr.io --username <gh-user> --password <PAT>`. `GITHUB_TOKEN` does NOT work as the ACA pull password - it is job-scoped and expires when the job ends. **Public** GHCR packages need no pull secret. State this tradeoff when offering GHCR as the registry.
 8. **DB migrations run as an explicit pipeline step, never in runtime hosts.** The `{App}.DatabaseMigrator` image runs as a one-shot Container Apps Job BEFORE the image swap so schema leads code; every runtime deploy job gates on its success (see the migrator job step below). Canonical migration rules: [data-persistence-advanced.md](../support/data-persistence-advanced.md) section Migration Ownership: Dedicated Migrator Host.
@@ -72,7 +72,7 @@ A temporary action rollback is allowed only for a specific documented issue. Rec
 **Trigger policy: fast tiers auto, everything heavy is a manual toggle.** The fast tiers
 (`Unit`, `UI`, `Presentation`, `Endpoint`, `Architecture`) take no Docker and run automatically on every PR. Every
 heavy or special-runtime tier - `Integration`, `Aspire`, `E2E` (Docker), `PlaywrightUI`
-(hosted stack), `MobileUI` (emulator + Appium), Foundry Local live AI (native runtime),
+(hosted stack), `MobileUI` (emulator + Appium),
 `Load`, `Benchmark`, `Mutation` - is a default-off `workflow_dispatch` boolean a maintainer
 opts into. Declare a toggle (and emit its step/job) **only for tiers this scaffold actually
 generated** - the capability-gated table in [testing.md](testing.md) decides which projects
@@ -122,10 +122,6 @@ on:
         type: boolean
         default: false
         description: "Run Test.Mobile (MobileUI) through run-mobile-tests.ps1 (separate job; requires Android SDK + emulator + Appium + UiAutomator2)"
-      includeFoundryLocal:
-        type: boolean
-        default: false
-        description: "Run Test.FoundryLocal live AI smoke (separate job; RID-bound, requires the native Foundry Local runtime)"
       includeLoad:
         type: boolean
         default: false
@@ -156,8 +152,13 @@ jobs:
         with:
           global-json-file: global.json
 
-      # Ephemeral hosted runner only: install extra workloads if solution includes WASM/Uno projects
-      # - run: dotnet workload install wasm-tools
+      # Emit this step when the solution includes a Uno/WASM head (add `android` when Android is in
+      # scope) - see skills/ui-uno-platforms.md section CI Requirements. Without it the fast lane
+      # skips a compile surface the deploy builds, breaking Non-Negotiable 12. Omit the step for a
+      # solution with no WASM/Uno project. Ephemeral hosted runners only: a persistent self-hosted
+      # runner preflights workloads and fails with the install command instead of installing them.
+      - name: Install required workloads
+        run: dotnet workload install wasm-tools
 
       - run: dotnet restore {SolutionName}.slnx
 
@@ -172,9 +173,12 @@ jobs:
 
       - run: dotnet build {SolutionName}.slnx --no-restore --configuration Release
 
-      # Fast tiers: always run, no Docker, no gate.
+      # Fast tiers: always run, no Docker, no gate. Emit one step per fast-tier project this
+      # scaffold generated - every generated fast tier runs, or PR CI understates coverage.
       # Target specific test projects to avoid "No test matches" noise from unrelated projects
       - run: dotnet test tests/Test.Unit/Test.Unit.csproj --no-build --configuration Release --blame-hang --blame-hang-timeout 5m
+      # Test.UI (UI / Presentation categories) - emit only when UI model/presentation coverage exists.
+      - run: dotnet test tests/Test.UI/Test.UI.csproj --no-build --configuration Release
       - run: dotnet test tests/Test.Endpoints/Test.Endpoints.csproj --no-build --configuration Release
       - run: dotnet test tests/Test.Architecture/Test.Architecture.csproj --no-build --configuration Release
 
@@ -196,7 +200,7 @@ jobs:
       # Test.Mutation runs via the Stryker local tool, not `dotnet test`.
       - if: ${{ github.event_name == 'workflow_dispatch' && inputs.includeMutation == true }}
         run: dotnet stryker --project tests/Test.Mutation/Test.Mutation.csproj
-      # Test.PlaywrightUI / Test.Mobile / Test.FoundryLocal each need runner setup the main
+      # Test.PlaywrightUI and Test.Mobile each need runner setup the main
       # job should not carry - see the separate jobs below.
 ```
 
@@ -249,6 +253,7 @@ Treat Aspire, Playwright, and WasmUI projects as resource-heavy. Keep their work
 | Category | Trigger | Prerequisite / notes |
 |---|---|---|
 | `Unit` | Auto (PR) | none |
+| `UI` / `Presentation` | Auto (PR) | none (`Test.UI`, headless; emitted only when the scaffold generated the project) |
 | `Endpoint` | Auto (PR) | none (WebApplicationFactory contract coverage) |
 | `Architecture` | Auto (PR) | none |
 | `Integration` | Manual (`includeIntegration`) | Docker (component vs one standalone Testcontainer) |
@@ -256,7 +261,6 @@ Treat Aspire, Playwright, and WasmUI projects as resource-heavy. Keep their work
 | `E2E` | Manual (`includeE2E`) | Docker (multi-endpoint chains, Testcontainers SQL) |
 | `PlaywrightUI` | Manual (`includePlaywright`) | hosted stack + browser install (own job) |
 | `MobileUI` | Manual (`includeMobile`) | `tests/Test.Mobile/run-mobile-tests.ps1`; Android SDK + emulator + Appium + UiAutomator2; fail-fast prerequisites (own job) |
-| Foundry Local (`LiveAI`) | Manual (`includeFoundryLocal`) | native Foundry Local runtime, RID-bound (own job) |
 | `Load` | Manual (`includeLoad`) | heavy; NBomber via `dotnet test --filter TestCategory=Load` |
 | `Benchmark` | Manual (`includeBenchmarks`) | heavy; BenchmarkDotNet via `dotnet run` (NOT `dotnet test`) |
 | `Mutation` | Manual (`includeMutation`) | heavy; Stryker via `dotnet stryker` (NOT `dotnet test`) |
@@ -273,6 +277,9 @@ playwright:
   steps:
     - uses: actions/checkout@<latest-stable-sha>
     - uses: actions/setup-dotnet@<latest-stable-sha>
+    # This job builds the solution on a fresh runner, so it needs the same workload step as the
+    # main job when the solution includes a Uno/WASM head.
+    - run: dotnet workload install wasm-tools
     - run: dotnet build {SolutionName}.slnx --configuration Release -m:1
     - name: Install Playwright browsers
       run: pwsh tests/Test.PlaywrightUI/bin/Release/$(TargetFramework)/playwright.ps1 install --with-deps
@@ -284,9 +291,9 @@ For PR-time runs, gate `Test.PlaywrightUI` to nightly to keep PR loops fast.
 
 If `Test.PlaywrightUI` wraps Node Playwright for React/Vite, run `npm ci`, install browsers, then let the C# test adapter invoke one `node node_modules/@playwright/test/cli.js test --project <name>` process per project. Capture stdout/stderr and pass the shared remaining startup-deadline token; `{APP}_PLAYWRIGHT_PROJECT_TIMEOUT_SECONDS` is only a shorter subordinate cap.
 
-### Special-Runtime Jobs (`Test.Mobile`, `Test.FoundryLocal`)
+### Special-Runtime Job (`Test.Mobile`)
 
-These two tiers need a runtime the main job must not carry, so each is its own
+This tier needs a runtime the main job must not carry, so it is its own
 `workflow_dispatch`-gated job, emitted only when the tier was generated.
 
 **`Test.Mobile` (`MobileUI`, Appium).** Needs Android SDK + running emulator + Appium + UiAutomator2. Default `dotnet test` with no enable flag self-marks `Inconclusive` without touching mobile dependencies. Explicit CI mobile lane must call `tests/Test.Mobile/run-mobile-tests.ps1`; that runner sets `{APP}_MOBILE_TESTS_ENABLED=true`, produces TRX, and fails fast red when APK, emulator/device, Appium, or UiAutomator2 is missing/broken. Use generated runner logic, or `reactivecircus/android-emulator-runner` as the emulator provider and still call the runner inside it.
@@ -305,26 +312,7 @@ mobile:
      script: pwsh -NoProfile -File tests/Test.Mobile/run-mobile-tests.ps1
 ```
 
-**`Test.FoundryLocal` (live AI smoke).** RID-bound native tier - the runner must install and
-bootstrap the Foundry Local runtime before the test loads the native
-`Microsoft.AI.Foundry.Local` SDK. The lane decides the provider via `GET /api/v1/ai/status`, not a CLI probe.
-Failure versus inconclusive classification belongs to [ai-integration.md](ai-integration.md) -> *Provider Test Tiers* / *Deciding the Live Lane Without Probing the CLI*.
-
-```yaml
-foundry-local:
-  runs-on: ubuntu-latest
-  if: github.event_name == 'workflow_dispatch' && inputs.includeFoundryLocal == true
-  steps:
-    - uses: actions/checkout@<latest-stable-sha>
-    - uses: actions/setup-dotnet@<latest-stable-sha>
-      with: { global-json-file: global.json }
-    - name: Install + bootstrap Foundry Local runtime
-      run: |
-        # Install the Foundry Local runtime per its docs, then warm the model.
-        # foundry model run <model>   # bootstrap before the RID-bound test loads the native SDK
-    - name: Run live AI smoke (RID-bound)
-      run: dotnet test tests/Test.FoundryLocal/Test.FoundryLocal.csproj --configuration Release --filter "TestCategory=LiveAI" -m:1
-```
+Live AI smoke (`LiveAI`) runs against Azure AI Foundry inside the `Aspire` mesh lane above; it needs no dedicated job or workload. Failure versus inconclusive classification belongs to [ai-integration.md](ai-integration.md) -> *Provider Test Tiers*.
 
 ---
 
@@ -635,7 +623,8 @@ For `scaffoldMode: lite`:
 
 ## Verification
 
-- [ ] `ci.yml` runs the fast tiers (`Unit`/`Endpoint`/`Architecture`) on PR with no Docker and no `if:` gate
+- [ ] `ci.yml` runs every generated fast tier (`Unit`, `UI`/`Presentation`, `Endpoint`, `Architecture`) on PR with no Docker and no `if:` gate; a generated fast-tier project with no step is a coverage gap, not a choice
+- [ ] every compile surface the deploy builds also compiles in the fast lane (Non-Negotiable 12): a solution with a Uno/WASM head installs `wasm-tools` before build on the hosted runner, or the workflow names the required manual build explicitly
 - [ ] `ci.yml` declares a `workflow_dispatch` boolean (default false) for every manual tier it references, and emits one only for tiers this scaffold generated; every `inputs.*` referenced in an `if:` is declared
 - [ ] heavy tiers carry the `workflow_dispatch && inputs.<x>` gate, do not overlap, and use `-m:1`; Benchmarks use `dotnet run` and Mutation uses `dotnet stryker` (never `dotnet test`); disk reclaim covers Integration/Aspire/E2E
 - [ ] scheduled/manual acceptance provisions generated prerequisites, then runs unfiltered `dotnet test {SolutionName}.slnx --no-build -m:1`; filtered fast tiers remain diagnostic lanes, not acceptance
