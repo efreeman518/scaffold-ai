@@ -27,14 +27,34 @@ Evidence rules:
 Phases 5a and 5b use test-first TDD: red -> green -> refactor. See [../ai/tdd-protocol.md](../ai/tdd-protocol.md).
 Phase 5c is tests-after for optional hosts. Phase 5d adds quality gate suites, mutation testing, and a full regression - see [testing-quality.md](testing-quality.md).
 
-## BDD Naming Convention
+## Test Naming Convention
 
-All test methods use Given_When_Then:
+Two forms, chosen by what is under test. Both are canonical; this section owns the rule.
+
+**`Given_<precondition>_When_<action>_Then_<outcome>`** - the default. Use it for a behavioral scenario with a
+meaningful precondition: domain rules, handler and service behaviour, endpoint contracts, validation outcomes.
 
 ```csharp
 [TestMethod]
 public async Task Given_ValidInput_When_EntityCreated_Then_ReturnsSuccess() { }
 ```
+
+**`<Subject>_<Condition>_<Outcome>`** - use it when a specific member or a structural fact is under test and there is
+no meaningful "Given": a named method's behaviour under a condition, a resolver's defaulting, a migration or schema
+property, a rendered-page invariant. Forcing these into Given/When/Then produces an empty `Given_` clause that reads
+as noise.
+
+```csharp
+[TestMethod]
+public void ResolveAiProvider_NonAzureLane_DefaultsToNone() { }
+
+[TestMethod]
+public async Task Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema() { }
+```
+
+Pick the form per test, not per file; both appear in the same class where the subjects differ. If a test reads
+naturally either way, prefer Given/When/Then. Method names are stable identifiers - coverage matrices and gate
+checks reference them by exact name, so renaming one is a deliberate change, not cleanup.
 
 ## Test Class Documentation Convention
 

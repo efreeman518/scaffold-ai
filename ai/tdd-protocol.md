@@ -58,16 +58,12 @@ NOT RED: a compile error (rule 7), or a test that passes against a no-op stub re
 
 ---
 
-## BDD Naming Convention
+## Test Naming Convention
 
-All test methods use `Given_When_Then`.
-
-Rules:
-- `Given` describes the precondition or initial state
-- `When` describes the action under test
-- `Then` describes the expected outcome
-- Use PascalCase segments separated by underscores
-- Keep names descriptive but concise
+Owned by [../skills/testing.md](../skills/testing.md) section Test Naming Convention: `Given_When_Then` for a
+behavioral scenario, `<Subject>_<Condition>_<Outcome>` when a named member or structural fact is under test and
+there is no meaningful precondition. Use PascalCase segments separated by underscores; keep names descriptive but
+concise.
 
 ---
 

@@ -25,28 +25,22 @@
 
 ## Naming Convention
 
-`Given_When_Then` is the default and the canonical rule ([../skills/testing.md](../skills/testing.md) section BDD Naming Convention). Use it for every test that describes **behaviour** - a stimulus applied to a subject producing an observable outcome:
+Owned by [../skills/testing.md](../skills/testing.md) section Test Naming Convention. Both canonical forms appear in
+this tier, and the choice is per test:
 
 ```csharp
+// Behavioral scenario with a real precondition.
 [TestMethod]
 public async Task Given_AuditEntry_When_AppendAsyncToAzurite_Then_TableEntityPersistedWithExpectedKeys() { }
-```
 
-This tier is the one place that also carries a second form, `Subject_Action_Outcome`, for tests that assert a **structural fact about infrastructure** rather than a behavioural scenario - migrations apply, a query filter restricts, a junction navigates, an index exists. These have no meaningful "Given": the subject is the schema itself, and forcing the triple produces noise like `Given_Migrations_When_Applied_Then_ApplyCleanly`.
-
-```csharp
+// Structural fact about infrastructure - the subject is the schema, so there is no meaningful "Given".
 [TestMethod]
 public async Task Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema() { }
 ```
 
-Pick by the question the test answers, not by the file it lands in:
+Method names here are referenced by exact name from the coverage matrix below and from gate checks, so treat a rename
+as a deliberate change.
 
-| Question | Form | Examples in this file |
-|---|---|---|
-| "What happens when X occurs?" | `Given_When_Then` | audit append round-trip, projection pipeline |
-| "Is this schema/infrastructure fact true?" | `Subject_Action_Outcome` | migration apply, tenant query filter, M:N junction, paging stability |
-
-Within one class, do not mix forms for the same kind of assertion, and keep method names stable - the coverage matrix below indexes tests by exact name.
 
 ## Fixture model
 

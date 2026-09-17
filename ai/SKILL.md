@@ -54,7 +54,7 @@ This sizing does **not** change phase semantics, gates, or conflict-resolution o
 - Generate code only in the user's new project directory **(GR-07)**.
 - Use `.slnx` (not legacy `.sln`) **(GR-03)**.
 - Use central package management (`Directory.Packages.props`) **(GR-03)**.
-- **One public type per file (GR-02)** - universal rule across generated app code and `src/Packages/<packagePrefix>.*` vendored sources alike. File name matches the type. Lumped files (multiple DTOs, message types, nested helpers) are split at generation time, not deferred. See [../skills/solution-structure.md](../skills/solution-structure.md) section Non-Negotiables for the exception list.
+- **One public type per file (GR-02)** - across generated app code and `src/Packages/<packagePrefix>.*` vendored sources alike. File name matches the type. Files that lump unrelated types (multiple DTOs, message types, nested helpers) are split at generation time, not deferred; a cohesive family that serves the type named in the file name is exempt. See [../skills/solution-structure.md](../skills/solution-structure.md) section Non-Negotiables for the exception list.
 - Default the .NET SDK and every package to latest stable; after adding packages, verify restore and build **(GR-08)**. MCP server setup: see [../README.md](../README.md).
 - Record instruction gaps in `.scaffold/INSTRUCTION-GAPS.md` (do not hot-edit installed `.instructions/` files mid-scaffold) **(GR-07)**. Create the `.scaffold/` directory at project root if absent. Instruction maintainers later fold approved findings into the owning instruction file (maintainer skill `/fold-feedback`).
 - All mode/profile/flag defaults come from [resource-implementation-schema.md](resource-implementation-schema.md) (**Canonical Defaults**).

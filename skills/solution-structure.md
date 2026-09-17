@@ -11,7 +11,21 @@ Define the canonical clean-architecture layout and dependency direction used by 
 3. Domain projects never reference Application or Infrastructure.
 4. Use central package management via `Directory.Packages.props`.
 5. Host projects add host-specific wiring only; shared registrations stay in Bootstrapper.
-6. **One public type per file.** Each `.cs` file declares exactly one public/internal top-level type and the file name matches that type. This rule is **universal** - it applies to generated app code (`src/Domain`, `src/Application`, `src/Infrastructure`, `src/Host`, `src/UI`, `tests`) **and** to local-package source under `src/Packages/<packagePrefix>.*` (the vendored `<packagePrefix>.*` shared surface). Lumped files (e.g. `ServiceBus.cs` declaring multiple message types, `Models.cs` declaring multiple DTOs, `Constants.cs` containing nested helper classes) must be split at generation time. The only permitted exceptions are: (a) nested types whose visibility is `private` to the outer type, (b) records / classes that exist solely to parameterize a generic type and are tightly coupled to the declaring file (rare - prefer splitting), and (c) compiler-generated partials. When scaffolding touches an existing lumped vendored file under `src/Packages/`, split it during that same sub-phase rather than leaving it as a tracked debt item.
+6. **One public type per file.** Each `.cs` file declares exactly one public/internal top-level type and the file name matches that type. This applies to generated app code (`src/Domain`, `src/Application`, `src/Infrastructure`, `src/Host`, `src/UI`, `tests`) and to local-package source under `src/Packages/<packagePrefix>.*`.
+
+   **What the rule targets:** *unrelated* types sharing a file - `Models.cs` declaring six DTOs, `Constants.cs` holding nested helpers, `ServiceBus.cs` declaring every message type. Lumping like that obscures coupling and impairs navigation. Split it at generation time.
+
+   **What it does not target:** one cohesive family that is read and changed together. Splitting a four-line type into its own file costs more navigation than it saves. The recognized families are:
+
+   - Nested types whose visibility is `private` to the outer type.
+   - Compiler-generated partials.
+   - An abstract base plus the trivial concrete subclasses that exist only to bind it to a specific dependency.
+   - A strongly-typed ID or value family implementing one shared interface, with its factory.
+   - An enum or marker plus the single resolver/extension type that exists only to interpret it.
+   - Near-identical tooling-only adapters that differ only by type argument (design-time factories, for example).
+   - CQRS feature groups: `{Entity}Requests.cs` and `{Entity}Handlers.cs` (see the slice checklist's file map).
+
+   A family qualifies only when every type in the file serves the one named in the file name. When in doubt, split. The Phase 5d lumped-file scan in [../support/final-scaffold-checklist.md](../support/final-scaffold-checklist.md) prints candidates rather than failing, precisely because this call needs judgment: match each hit to a family above or split it.
 
 ---
 
