@@ -9,6 +9,8 @@
 | **Depends on** | [repository-template](repository-template.md), [data-mapping-template](data-mapping-template.md), [structure-validator-template](structure-validator-template.md) |
 | **Referenced by** | [endpoint-template](endpoint-template.md), [bootstrapper.md](../skills/bootstrapper.md) |
 
+> **Token vs log placeholder:** one `ILogger` template below carries both - in `"Failed to publish {Entity}CreatedEvent for {Id}; ..."`, `{Entity}` is a scaffold token and `{Id}` is the log property bound to the single trailing argument. Substitute the first, leave the second verbatim, then confirm the surviving `{...}` count equals the trailing-argument count. Rule: [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) section Disambiguating Tokens From Logging And Interpolation.
+
 > **Multi-tenant toggle:** Lines marked `// [MULTI-TENANT]` apply only when the domain specification enables multi-tenancy. DTOs retain `TenantId` for response/round-trip compatibility, but write services overwrite it from `IRequestContext` before validation/mapping; clients never select tenant ownership. For single-tenant scaffolds, omit `ITenantBoundaryValidator` injection, tenant stamping, boundary checks, tenant filter enforcement, and `TenantInfoDto` in `DefaultResponse`. TaskFlow demonstrates multi-tenant patterns.
 
 ## File: Application/Services/{Entity}Service.cs

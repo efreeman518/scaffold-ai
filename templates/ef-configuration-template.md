@@ -85,7 +85,7 @@ public class {Entity}Configuration : EntityBaseConfiguration<{Entity}, {Entity}I
                .HasDefaultValue({Entity}Flags.None);
 
         // ===== Relationships =====
-        builder.HasMany(e => e.{ChildEntity}s)
+        builder.HasMany(e => e.{ChildEntities})
                .WithOne()
                .HasForeignKey("{Entity}Id")
                .OnDelete(DeleteBehavior.Cascade);

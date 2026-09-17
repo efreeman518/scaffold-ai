@@ -1,7 +1,6 @@
 ---
 name: golden-path
-description: "Run the end-to-end golden-path regression: drive headless agent sessions through scaffold phases against the fixture with build/test gates. Heavy author-side regression, source-repo only. Trigger: /golden-path."
-trigger: /golden-path
+description: "Run the end-to-end golden-path regression: drive headless agent sessions through scaffold phases against the fixture with build/test gates. Heavy author-side regression, source-repo only. Trigger: /golden-path. Use when: before a release, after a large instruction refactor, end-to-end regression, verify scaffolding still works, golden path run."
 ---
 
 # /golden-path

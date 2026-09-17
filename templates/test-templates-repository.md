@@ -7,13 +7,10 @@
 | **Phase** | 5a (Foundation TDD) |
 | **Protocol** | Write these tests AFTER entity is implemented (green). See [../ai/tdd-protocol.md](../ai/tdd-protocol.md). |
 
-## BDD Naming Convention
+## Test Naming Convention
 
-All test methods use `Given_When_Then`:
-```csharp
-[TestMethod]
-public async Task Given_ValidEntity_When_Created_Then_CanBeRetrieved() { }
-```
+Owned by [../skills/testing.md](../skills/testing.md) section Test Naming Convention. `Given_When_Then` is the
+default; `<Subject>_<Condition>_<Outcome>` applies when a named member or structural fact is under test.
 
 ---
 

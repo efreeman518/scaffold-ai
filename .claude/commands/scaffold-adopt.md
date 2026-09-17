@@ -1,3 +1,9 @@
+---
+description: "Adopt the scaffold workflow onto an existing C#/.NET solution by deriving Phase-1 artifacts from code inspection. Use when: brownfield adoption, existing solution, retrofit scaffold, inherit project, legacy app onboarding, generate scaffold artifacts from code."
+argument-hint: "<target project directory>"
+disable-model-invocation: true
+---
+
 # Adopt Existing C#/.NET Codebase
 
 Generate Phase-1 artifacts (`.scaffold/domain-specification.yaml`, `.scaffold/UBIQUITOUS-LANGUAGE.md`, `.scaffold/DESIGN-DECISIONS.md`) from an **existing** C#/.NET solution by code inspection. Use this command when adopting the scaffold workflow onto a brownfield project so that `/vertical-slice` and the regular Phase 2+ flow become usable.
@@ -14,13 +20,14 @@ You are executing the brownfield adoption workflow - a code-driven replacement f
 
 1. Read `.instructions/START-AI.md` section Phase-1 Artifact Lifecycle Rule. The drift principle (*the artifact loses to code reality*) governs this entire session: existing code is authoritative.
 2. Read `.instructions/ai/adopt-codebase.md` - it is the canonical execution guide.
-3. Confirm with the developer that the solution builds (`dotnet build` exits 0) and that they accept code-as-authority for any conflict with prior intent.
-4. If `.scaffold/` already contains any of the three artifacts, ask whether to replace, merge, or abort before continuing.
-5. Walk the Inspection Order in `.instructions/ai/adopt-codebase.md` section Inspection Order. After each pass, recap findings and ask the developer to confirm or correct.
-6. For each inferred design decision, run the Decision Confirmation Loop in `.instructions/ai/adopt-codebase.md` section Decision Confirmation Loop.
-7. Write the three artifacts under `.scaffold/` per the schema/templates referenced in `.instructions/ai/adopt-codebase.md` section Output Artifacts.
-8. Write `HANDOFF.md` at project root with `workflowStatus: active`, `currentPhase: 2`, `currentSubPhase: ""`, `contractsScaffolded: false`, and a section Completed note: "Phase 1 adopted from existing codebase via `ai/adopt-codebase.md` inference."
-9. Stop. The next session resumes at Phase 2 (Resource Definition) exactly as for a greenfield project.
+3. Read `.instructions/ai/domain-specification-schema.md`, `.instructions/templates/ubiquitous-language-template.md`, and `.instructions/templates/design-decisions-template.md` so the generated artifacts match canonical shape.
+4. Confirm with the developer that the solution builds (`dotnet build` exits 0) and that they accept code-as-authority for any conflict with prior intent.
+5. If `.scaffold/` already contains any of the three artifacts, ask whether to replace, merge, or abort before continuing.
+6. Walk the Inspection Order in `.instructions/ai/adopt-codebase.md` section Inspection Order. After each pass, recap findings to the developer using the Branch Recap Format from `.instructions/ai/shared-understanding-interview.md` section Branch Recap Format, then ask them to confirm or correct.
+7. For each inferred design decision, run the Decision Confirmation Loop in `.instructions/ai/adopt-codebase.md` section Decision Confirmation Loop.
+8. Write the three artifacts under `.scaffold/` per the schema/templates referenced in `.instructions/ai/adopt-codebase.md` section Output Artifacts.
+9. Write `HANDOFF.md` at project root with `workflowStatus: active`, `currentPhase: 2`, `currentSubPhase: ""`, `contractsScaffolded: false`, and a section Completed note: "Phase 1 adopted from existing codebase via `ai/adopt-codebase.md` inference."
+10. Stop. The next session resumes at Phase 2 (Resource Definition) exactly as for a greenfield project.
 
 ## Pre-Flight
 

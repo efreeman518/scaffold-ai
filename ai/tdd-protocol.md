@@ -29,11 +29,11 @@ Tests must verify behavior through public interfaces or endpoints. Avoid asserti
 > RED confirmation is mandatory. Do not skip it.
 
 1. **Write tests FIRST.** Do not write any production code until the test file(s) for the current slice exist and compile.
-2. **Confirm RED before implementing.** Run `dotnet test` and verify the new tests **fail with assertion errors**. If they pass against no-op stubs, tighten assertions until they fail. Record the failing test count.
+2. **Confirm RED before implementing, and record the evidence.** Run `dotnet test` and verify the new tests **fail with assertion errors**. If they pass against no-op stubs, tighten assertions until they fail. RED is held to the same standard as GREEN by [`../support/execution-gates.md`](../support/execution-gates.md) section Verification Evidence Rule. Paste the observed output - the exact command, the exit code, the failing test names, and the failing count - into the session and into `HANDOFF.md`. A remembered or expected RED is not a RED. If you did not run it, it did not fail.
 3. **Implement ONLY enough to pass.** Write the minimum production code needed to make the failing tests pass. Do not add untested behavior.
 4. **Confirm GREEN immediately.** Run `dotnet test` after implementation. All tests must pass. If any fail, fix before moving to the next slice.
 5. **Never batch multiple slices.** Complete the full RED -> GREEN cycle for one entity slice before starting the next.
-6. **No simultaneous test + implementation files.** In a single file-generation pass, produce either test files OR implementation files - not both. The only exception is activating `{Entity}Builder.Build()` alongside entity implementation (Step 5 of Phase 5a).
+6. **Test files land before production files.** The ordering rule is about artifacts, not about how many files one tool call writes - batch the whole slice's test files in one pass if that is efficient. What must hold: every test file for the slice exists, compiles, and has produced a recorded RED run (rule 2) **before** any production implementation file for that slice is written or changed. The only exception is activating `{Entity}Builder.Build()` alongside entity implementation (Step 5 of Phase 5a). When the developer has approved committing ([`../support/OPERATIONS.md`](../support/OPERATIONS.md) section Git Checkpoint Protocol), commit the test files on their own first - that makes the ordering verifiable after the fact with `git log --stat` instead of only at the moment it happened.
 7. **Do not accept compile-fail as RED.** Fix compile issues first, then confirm assertion-fail RED.
 8. **No horizontal red/green.** Write and green one vertical tracer before expanding the same pattern to the next entity or layer.
 9. **Cover every terminal branch and in-handler transform.** A handler/service method with more than one terminal outcome leaves **one test per branch** - e.g. a completion handler whose pass path sets `Completed` and whose fail path sets `CompletedPartial` needs both tested, not just the passing path. Any in-handler clamp / normalize / transform leaves **one test for that transform** - e.g. a dimension-score clamp to `[0, max]`. A binary terminal branch or a clamp with only the happy path tested is incomplete behavior (rule 3 inverted: non-trivial logic leaves a runnable check).
@@ -58,16 +58,12 @@ NOT RED: a compile error (rule 7), or a test that passes against a no-op stub re
 
 ---
 
-## BDD Naming Convention
+## Test Naming Convention
 
-All test methods use `Given_When_Then`.
-
-Rules:
-- `Given` describes the precondition or initial state
-- `When` describes the action under test
-- `Then` describes the expected outcome
-- Use PascalCase segments separated by underscores
-- Keep names descriptive but concise
+Owned by [../skills/testing.md](../skills/testing.md) section Test Naming Convention: `Given_When_Then` for a
+behavioral scenario, `<Subject>_<Condition>_<Outcome>` when a named member or structural fact is under test and
+there is no meaningful precondition. Use PascalCase segments separated by underscores; keep names descriptive but
+concise.
 
 ---
 
@@ -83,7 +79,7 @@ Process each entity in the dependency order established in Phase 4 (parents firs
 dotnet test --filter "TestCategory=Unit"
 ```
 
-   Expected: tests fail with assertions or `NotImplementedException`, not compile errors.
+   Expected: tests fail with assertions or `NotImplementedException`, not compile errors. Paste the observed failing output and count (rule 2) before writing any implementation.
 4. **Implement entity + rules**:
 
 - Replace `NotImplementedException` bodies in `Create()`, `Update()`, and rule methods.
@@ -129,7 +125,7 @@ Git checkpoint after gate passes.
 dotnet test --filter "TestCategory=Unit"
 ```
 
-   Expected: new tests fail because no-op stubs return empty/default values.
+   Expected: new tests fail because no-op stubs return empty/default values. Paste the observed failing output and count (rule 2) before writing any implementation.
 3. **Implement service + mapper + validator** and replace the no-op service registration.
 4. **Run GREEN (Unit)**:
 
@@ -217,6 +213,8 @@ A vertical slice is TDD-complete when:
 - [ ] Repository tests exist and pass (5a)
 - [ ] Service tests exist and pass (5b)
 - [ ] Endpoint tests exist and pass (5b)
+- [ ] **Each of the above has a recorded RED before its GREEN** - command, exit code, failing test names, and failing count pasted per rule 2. A slice whose only recorded run is green was not written test-first, whatever order the files appear in.
+- [ ] No production implementation file for this slice was written or changed before its tests reached a recorded RED (rule 6). Where committing was approved, `git log --stat` shows the test-only commit ahead of the implementation commit.
 - [ ] At least one vertical tracer behavior was proven through the public contract or endpoint before broad layer expansion
 - [ ] All no-op stubs for this entity are replaced with real implementations
 - [ ] `{Entity}Builder.Build()` is activated and returns a valid entity

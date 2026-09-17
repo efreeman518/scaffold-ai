@@ -46,8 +46,8 @@ When the whole row navigates, make the item root a transparent `Button` with `ue
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <utu:AutoLayout Spacing="2">
-                <TextBlock Text="{Entity}s" Style="{StaticResource TitleLarge}" />
-                <TextBlock Text="Manage your {entity}s"
+                <TextBlock Text="{Entities}" Style="{StaticResource TitleLarge}" />
+                <TextBlock Text="Manage your {entities}"
                            Style="{StaticResource BodyMedium}"
                            Foreground="{ThemeResource OnSurfaceVariantBrush}" />
             </utu:AutoLayout>
@@ -136,7 +136,7 @@ When the whole row navigates, make the item root a transparent `Button` with `ue
                     Style="{StaticResource TextButtonStyle}" Padding="0,4">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <FontIcon Glyph="&#xE72B;" FontSize="12" />
-                    <TextBlock Text="Back to {Entity}s" Style="{StaticResource LabelMedium}" />
+                    <TextBlock Text="Back to {Entities}" Style="{StaticResource LabelMedium}" />
                 </StackPanel>
             </Button>
 
@@ -189,11 +189,11 @@ When the whole row navigates, make the item root a transparent `Button` with `ue
                         </Grid.ColumnDefinitions>
                         <FontIcon Glyph="&#xE8F2;" FontSize="18"
                                   Foreground="{StaticResource AccentInfoBrush}" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="1" Text="{ChildEntity}s" Style="{StaticResource TitleSmall}" />
+                        <TextBlock Grid.Column="1" Text="{ChildEntities}" Style="{StaticResource TitleSmall}" />
                     </Grid>
 
                     <!-- Child list -->
-                    <uer:FeedView Source="{Binding {ChildEntity}s}">
+                    <uer:FeedView Source="{Binding {ChildEntities}}">
                         <uer:FeedView.ValueTemplate>
                             <DataTemplate>
                                 <ListView ItemsSource="{Binding Data}" SelectionMode="None">

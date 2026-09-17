@@ -2,18 +2,15 @@
 
 | | |
 |---|---|
-| **Generates** | `tests/Test.Endpoints/Endpoints/{Entity}EndpointsTests.cs` |
-| **Requires** | [endpoint-template](endpoint-template.md), CustomApiFactory from Phase 4, DTOs from Phase 4 |
+| **Generates** | `tests/Test.Endpoints/Endpoints/{Entity}EndpointsTests.cs`, `tests/Test.Endpoints/Middleware/DefaultExceptionHandlerTests.cs`, `tests/Test.Endpoints/HealthProbeContractTests.cs` |
+| **Requires** | [endpoint-template](endpoint-template.md), [exception-handler-template](exception-handler-template.md), [health-check-template](health-check-template.md), CustomApiFactory from Phase 4, DTOs from Phase 4 |
 | **Phase** | 5b (App Core TDD) |
 | **Protocol** | Write these tests BEFORE implementing endpoints. See [../ai/tdd-protocol.md](../ai/tdd-protocol.md). |
 
-## BDD Naming Convention
+## Test Naming Convention
 
-All test methods use `Given_When_Then`:
-```csharp
-[TestMethod]
-public async Task Given_ValidPayload_When_PostEntity_Then_Returns201() { }
-```
+Owned by [../skills/testing.md](../skills/testing.md) section Test Naming Convention. `Given_When_Then` is the
+default; `<Subject>_<Condition>_<Outcome>` applies when a named member or structural fact is under test.
 
 ---
 
@@ -319,6 +316,267 @@ public class {Entity}EndpointsTests : EndpointTestBase
     }
 }
 ```
+
+---
+
+## Exception Handler Tests
+
+### File: `tests/Test.Endpoints/Middleware/DefaultExceptionHandlerTests.cs`
+
+**Generate this whenever [exception-handler-template](exception-handler-template.md) is generated - it is not optional.** The handler decides by environment whether the client receives `exception.ToString()` (full stack trace, internal type names, file paths) or `exception.Message`. That is an information-disclosure control, so both arms need a test that fails if the environment gate is inverted, widened, or dropped. The handler is a plain class, so test it directly against a `DefaultHttpContext` - no host boot, no HTTP.
+
+```csharp
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
+using {Host}.Api.Middleware;
+
+namespace Test.Endpoints.Middleware;
+
+/// <summary>
+/// Pins the environment gate on <c>ProblemDetails.Detail</c>. Development/Staging may return the full
+/// exception; Production must return only the message. Also covers the HasStarted guard, which exists so a
+/// second write cannot mask the original exception.
+/// </summary>
+[TestClass]
+[TestCategory("Endpoint")]
+public sealed class DefaultExceptionHandlerTests
+{
+    // Async test class -> declare the instance TestContext and flow TestContext.CancellationToken
+    // into every cancellable async call. See ../skills/testing.md Cancellation-Token discipline.
+    public TestContext TestContext { get; set; } = null!;
+
+    private readonly Mock<IProblemDetailsService> _problemDetailsServiceMock = new();
+    private ProblemDetails? _written;
+
+    [TestInitialize]
+    public void Setup()
+    {
+        _problemDetailsServiceMock
+            .Setup(s => s.TryWriteAsync(It.IsAny<ProblemDetailsContext>()))
+            .Callback<ProblemDetailsContext>(context => _written = context.ProblemDetails)
+            .ReturnsAsync(true);
+    }
+
+    [DataTestMethod]
+    [DataRow(Environments.Development)]
+    [DataRow(Environments.Staging)]
+    public async Task Given_NonProductionEnvironment_When_ExceptionHandled_Then_DetailCarriesStackTrace(
+        string environmentName)
+    {
+        // Arrange
+        var exception = CaptureThrownException();
+        var handler = CreateHandler(environmentName);
+
+        // Act
+        var handled = await handler.TryHandleAsync(
+            NewHttpContext(), exception, TestContext.CancellationToken);
+
+        // Assert
+        Assert.IsTrue(handled);
+        Assert.IsNotNull(_written);
+        Assert.AreEqual(exception.ToString(), _written!.Detail);
+        StringAssert.Contains(_written.Detail!, nameof(CaptureThrownException));  // a real stack frame leaked
+    }
+
+    [TestMethod]
+    public async Task Given_ProductionEnvironment_When_ExceptionHandled_Then_DetailOmitsStackTrace()
+    {
+        // Arrange
+        var exception = CaptureThrownException();
+        var handler = CreateHandler(Environments.Production);
+
+        // Act
+        var handled = await handler.TryHandleAsync(
+            NewHttpContext(), exception, TestContext.CancellationToken);
+
+        // Assert
+        Assert.IsTrue(handled);
+        Assert.IsNotNull(_written);
+        Assert.AreEqual(exception.Message, _written!.Detail);
+        Assert.IsFalse(_written.Detail!.Contains(nameof(CaptureThrownException), StringComparison.Ordinal),
+            "Production ProblemDetails must not expose stack frames");
+        Assert.IsFalse(_written.Detail.Contains(exception.GetType().FullName!, StringComparison.Ordinal),
+            "Production ProblemDetails must not expose internal type names");
+    }
+
+    [TestMethod]
+    public async Task Given_ResponseAlreadyStarted_When_ExceptionHandled_Then_NothingIsWritten()
+    {
+        // Arrange - a started response cannot take a body; writing one would throw and mask the original.
+        var context = NewHttpContext(responseHasStarted: true);
+        var handler = CreateHandler(Environments.Production);
+
+        // Act
+        var handled = await handler.TryHandleAsync(
+            context, new InvalidOperationException("boom"), TestContext.CancellationToken);
+
+        // Assert
+        Assert.IsTrue(handled);
+        _problemDetailsServiceMock.Verify(
+            s => s.TryWriteAsync(It.IsAny<ProblemDetailsContext>()), Times.Never);
+    }
+
+    private DefaultExceptionHandler CreateHandler(string environmentName) =>
+        new(NullLogger<DefaultExceptionHandler>.Instance,
+            new TestHostEnvironment { EnvironmentName = environmentName },
+            _problemDetailsServiceMock.Object);
+
+    /// <summary>Throws and catches so <c>StackTrace</c> is populated - a constructed exception has none.</summary>
+    private static Exception CaptureThrownException()
+    {
+        try
+        {
+            throw new InvalidOperationException("boom");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ex;
+        }
+    }
+
+    private static DefaultHttpContext NewHttpContext(bool responseHasStarted = false)
+    {
+        var context = new DefaultHttpContext { TraceIdentifier = "request-123" };
+        if (responseHasStarted)
+        {
+            // HasStarted is driven by the response feature, not settable on DefaultHttpContext.
+            // Swap the feature before touching Response, or the body set here is discarded with it.
+            context.Features.Set<IHttpResponseFeature>(new StartedResponseFeature());
+        }
+
+        context.Request.Method = HttpMethods.Get;
+        context.Request.Path = "/failure";
+        context.Response.Body = new MemoryStream();
+        return context;
+    }
+
+    private sealed class TestHostEnvironment : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = Environments.Production;
+        public string ApplicationName { get; set; } = nameof(Test.Endpoints);
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    private sealed class StartedResponseFeature : HttpResponseFeature
+    {
+        public override bool HasStarted => true;
+    }
+}
+```
+
+Add one `[DataTestMethod]` over the *Exception-to-Status Mapping* table in [exception-handler-template](exception-handler-template.md) as each mapping is added - one `DataRow` per exception type asserting `context.Response.StatusCode`. Keep correlation assertions (`requestId` separate from W3C `traceId`/`spanId`) in whichever test already boots a real host; they need the registered `CustomizeProblemDetails` callback, which this class replaces with a mock.
+
+---
+
+## Health Probe Contract Tests
+
+### File: `tests/Test.Endpoints/HealthProbeContractTests.cs`
+
+**Generate this whenever [health-check-template](health-check-template.md) is generated.** The liveness/readiness split only pays for itself if a failed dependency stops new traffic without making the orchestrator restart a healthy process. The load-bearing test therefore forces a readiness check to fail and asserts the two probes diverge - registering the probes is not evidence that they behave differently.
+
+```csharp
+using System.Net;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+
+namespace Test.Endpoints;
+
+/// <summary>
+/// Pins the probe contract: <c>/healthz/live</c> answers for the process alone, <c>/healthz/ready</c>
+/// answers for its tagged dependencies, and <c>/healthz</c> is the operator aggregate - never the
+/// liveness target. See [health-check-template](health-check-template.md) Rules.
+/// </summary>
+[TestClass]
+[TestCategory("Endpoint")]
+public sealed class HealthProbeContractTests
+{
+    private static CustomApiFactory _factory = null!;
+
+    public TestContext TestContext { get; set; } = null!;
+
+    [ClassInitialize]
+    public static void ClassInit(TestContext _) => _factory = new CustomApiFactory();
+
+    [ClassCleanup]
+    public static void ClassCleanup() => _factory?.Dispose();
+
+    [TestMethod]
+    public async Task Given_HealthyProcess_When_LivenessProbed_Then_ReturnsHealthy()
+    {
+        // Arrange
+        using var client = _factory.CreateClient();
+
+        // Act
+        using var response = await client.GetAsync("/healthz/live", TestContext.CancellationToken);
+
+        // Assert
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.AreEqual("Healthy",
+            await response.Content.ReadAsStringAsync(TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    public async Task Given_FailedCriticalDependency_When_BothProbesQueried_Then_ReadyUnhealthyAndLiveHealthy()
+    {
+        // Arrange - an always-failing "ready"-tagged check stands in for a down dependency, so the test
+        // needs no real outage. It is additive: the app's own readiness checks stay registered.
+        using var factory = _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services => services
+                .AddHealthChecks()
+                .AddCheck("forced-dependency-failure",
+                    () => HealthCheckResult.Unhealthy("forced for test"),
+                    tags: ["ready"])));
+        using var client = factory.CreateClient();
+
+        // Act
+        using var ready = await client.GetAsync("/healthz/ready", TestContext.CancellationToken);
+        using var live = await client.GetAsync("/healthz/live", TestContext.CancellationToken);
+
+        // Assert - the whole point of the split: traffic stops, the process is not restarted.
+        Assert.AreEqual(HttpStatusCode.ServiceUnavailable, ready.StatusCode);
+        Assert.AreEqual(HttpStatusCode.OK, live.StatusCode);
+        Assert.AreEqual("Healthy",
+            await live.Content.ReadAsStringAsync(TestContext.CancellationToken));
+    }
+
+    [TestMethod]
+    public async Task Given_ReadinessProbe_When_Get_Then_MappedAndAnonymous()
+    {
+        // Arrange
+        using var client = _factory.CreateClient();
+
+        // Act
+        using var response = await client.GetAsync("/healthz/ready", TestContext.CancellationToken);
+
+        // Assert - mapped (not 404) and anonymous (not 401); its health value is asserted above.
+        Assert.AreNotEqual(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.AreNotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Given_OperatorAggregate_When_Get_Then_MappedAndAnonymous()
+    {
+        // Arrange
+        using var client = _factory.CreateClient();
+
+        // Act
+        using var response = await client.GetAsync("/healthz", TestContext.CancellationToken);
+
+        // Assert
+        Assert.AreNotEqual(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.AreNotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+}
+```
+
+Add a `Given_RetiredAlias_When_Get_Then_NotFound` case for any probe path the app previously exposed and has since retired - two names for one probe is what the three-path contract rejects.
 
 ---
 

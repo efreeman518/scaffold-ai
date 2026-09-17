@@ -1,3 +1,9 @@
+---
+description: "Scaffold a new C#/.NET business application using the phased instruction set. Use when: new project, new solution, greenfield app, scaffold dotnet, create application, start project, Phase 1, Phase 2, Phase 3, Phase 4, Phase 5."
+argument-hint: "<target project directory> [brief description of the business domain]"
+disable-model-invocation: true
+---
+
 # Scaffold New C#/.NET Application
 
 Scaffold a new C#/.NET business application using the phased instruction set under `.instructions/`.

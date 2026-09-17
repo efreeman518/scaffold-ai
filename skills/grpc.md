@@ -88,7 +88,7 @@ package {project};
 
 service {Entity}Service {
   rpc Get{Entity} (Get{Entity}Request) returns ({Entity}Response);
-  rpc Search{Entity}s (Search{Entity}sRequest) returns (Search{Entity}sResponse);
+  rpc Search{Entities} (Search{Entities}Request) returns (Search{Entities}Response);
   rpc Create{Entity} (Create{Entity}Request) returns ({Entity}Response);
   rpc Update{Entity} (Update{Entity}Request) returns ({Entity}Response);
   rpc Delete{Entity} (Delete{Entity}Request) returns (DeleteResponse);

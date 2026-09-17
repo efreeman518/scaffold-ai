@@ -9,6 +9,8 @@
 | **Depends on** | [domain-specification-schema.md](../ai/domain-specification-schema.md), [resource-implementation-schema.md](../ai/resource-implementation-schema.md) |
 | **Referenced by** | [data-mapping-template](data-mapping-template.md), [ef-configuration-template](ef-configuration-template.md) |
 
+> **Token vs interpolation:** inside a `$"..."` string, a `{Word}` that names an in-scope C# identifier is real interpolation - leave it verbatim. In `$"Cannot transition from {Status} to {target}."`, `{Status}` and `{target}` are the entity's property and the method parameter, while `{Entity}` on the same lines is a scaffold token. Rule: [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) section Disambiguating Tokens From Logging And Interpolation.
+
 ## File: Domain/Shared/Ids/DomainIds.cs
 
 > **Centralized ID types - one file per bounded context, never scattered into individual entity files.**
@@ -79,7 +81,7 @@ public class {Entity} : EntityBase<{Entity}Id>, ITenantEntity<TenantId>  // [MUL
     public {Entity}Flags Flags { get; private set; } = {Entity}Flags.None;
 
     // ===== Navigation Properties - ICollection<T>, never List<T> =====
-    public ICollection<{ChildEntity}> {ChildEntity}s { get; private set; } = [];
+    public ICollection<{ChildEntity}> {ChildEntities} { get; private set; } = [];
 
     // ===== Update - returns DomainResult for validation =====
     public DomainResult<{Entity}> Update(string? name = null, {Entity}Flags? flags = null)
@@ -92,23 +94,23 @@ public class {Entity} : EntityBase<{Entity}Id>, ITenantEntity<TenantId>  // [MUL
     // ===== Child Collection Management =====
     public DomainResult<{ChildEntity}> Add{ChildEntity}({ChildEntity} child)
     {
-        var existing = {ChildEntity}s.FirstOrDefault(c => c.Id == child.Id);
+        var existing = {ChildEntities}.FirstOrDefault(c => c.Id == child.Id);
         if (existing != null) return DomainResult<{ChildEntity}>.Success(existing);  // Idempotent
 
-        {ChildEntity}s.Add(child);
+        {ChildEntities}.Add(child);
         return DomainResult<{ChildEntity}>.Success(child);
     }
 
     public DomainResult Remove{ChildEntity}({ChildEntity} child)
     {
-        {ChildEntity}s.Remove(child);
+        {ChildEntities}.Remove(child);
         return DomainResult.Success();  // Desired-state: always succeeds
     }
 
     public DomainResult Remove{ChildEntity}(Guid id)
     {
-        var child = {ChildEntity}s.FirstOrDefault(c => c.Id.Value == id);  // unwrap for Guid comparison
-        if (child != null) {ChildEntity}s.Remove(child);
+        var child = {ChildEntities}.FirstOrDefault(c => c.Id.Value == id);  // unwrap for Guid comparison
+        if (child != null) {ChildEntities}.Remove(child);
         return DomainResult.Success();  // Desired-state: always succeeds
     }
 
@@ -275,7 +277,7 @@ For playlist-driven content entities, model ordered blocks with:
 - block discriminator/type
 - payload invariants enforced in `Valid()`/domain rules (for example text block requires text, image block requires image URL)
 
-When the child collection property name differs from `{ChildEntity}s`, use the explicit `{Children}` token from [placeholder-tokens.md](../ai/placeholder-tokens.md).
+When the child collection property name differs from `{ChildEntities}`, use the explicit `{Children}` token from [placeholder-tokens.md](../ai/placeholder-tokens.md).
 
 ## File: Domain/Model/Entities/{Parent}{Related}.cs (Join Entity)
 
@@ -321,7 +323,7 @@ public class {Parent}{Related} : EntityBase<{Parent}{Related}Id>
 builder.HasIndex(e => new { e.{Parent}Id, e.{Related}Id }).IsUnique();
 
 builder.HasOne(e => e.{Parent})
-    .WithMany(e => e.{Parent}{Related}s)
+    .WithMany(e => e.{Children})
     .HasForeignKey(e => e.{Parent}Id)
     .OnDelete(DeleteBehavior.Cascade);
 
@@ -330,6 +332,8 @@ builder.HasOne(e => e.{Related})
     .HasForeignKey(e => e.{Related}Id)
     .OnDelete(DeleteBehavior.Restrict);
 ```
+
+`{Children}` here is the parent's collection of join entities, named as the plural of the join entity `{Parent}{Related}`: `TaskItem` + `Tag` -> `TaskItemTags`, `TaskItem` + `Category` -> `TaskItemCategories`. Pluralize per [placeholder-tokens.md](../ai/placeholder-tokens.md) Derivation Rule 5, never by appending a literal `s`.
 
 ---
 

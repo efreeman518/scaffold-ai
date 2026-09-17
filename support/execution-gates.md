@@ -101,7 +101,6 @@ Commands:
 dotnet build
 dotnet test --filter "TestCategory=Unit"
 dotnet test --filter "TestCategory=LiveAI" -m:1 # only when a live provider is intentionally available
-dotnet test tests/Test.FoundryLocal/Test.FoundryLocal.csproj --filter "TestCategory=LiveAI" -m:1 # local live lane
 ```
 
 Scaffold migration (follow the lifecycle recorded in `.scaffold/resource-implementation.yaml`; see [data-persistence-advanced.md](data-persistence-advanced.md) section Migration lifecycle and provider parity):
@@ -163,9 +162,27 @@ Gate:
 - [ ] `dotnet run --project src/Host/Aspire/AppHost` starts resources
 - [ ] Dashboard reachable (URL from console output - do not reuse prior session URLs)
 - [ ] **All registered resources reach Running with no `Error`/`Critical` log entries from project-owned categories**
-- [ ] Health probes return 200: `/healthz/live` (liveness - only checks tagged `live`), `/healthz/ready` (readiness - host-critical checks tagged `ready`), and `/healthz` (operator aggregate) on every API/host project once that host declares itself ready (Aspire-registered UIs that don't expose health probes count as healthy when their root URL renders without exception). Gate readiness on `/healthz/ready` plus Aspire `WaitForResourceHealthyAsync`, not on a resource merely reaching `Running` - `Running` precedes the host accepting requests. A critical dependency outage must fail readiness while liveness stays healthy.
+- [ ] Health probes return 200 (probe command below - not a visual dashboard read): `/healthz/live` (liveness - only checks tagged `live`), `/healthz/ready` (readiness - host-critical checks tagged `ready`), and `/healthz` (operator aggregate) on every API/host project once that host declares itself ready (Aspire-registered UIs that don't expose health probes count as healthy when their root URL renders without exception). Gate readiness on `/healthz/ready` plus Aspire `WaitForResourceHealthyAsync`, not on a resource merely reaching `Running` - `Running` precedes the host accepting requests. A critical dependency outage must fail readiness while liveness stays healthy.
 - [ ] Data-plane spot check: at least one backing store (SQL tables exist, Redis reachable, seed rows present) verified directly - not just via dashboard liveness
 - [ ] **Stub-mode external dependencies (`emulator`, `lazy-optional`, `no-op stub`, `deployment-only`) respond without throwing** - live cloud credentials are not required for this gate
+
+Probe command (second terminal, while the AppHost is running). This is the canonical HTTP assert for every gate below that says "returns 200" - a probe that answers non-200, or does not answer, throws:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+# One entry per API/server host that exposes probes. Read each base URL from THIS session's
+# dashboard or console output; never reuse a prior session's port.
+$targets = @('https://localhost:<api-port>')
+foreach ($target in $targets) {
+    foreach ($probe in '/healthz/live', '/healthz/ready', '/healthz') {
+        $response = Invoke-WebRequest -Uri "$target$probe" -Method Get -TimeoutSec 30
+        if ($response.StatusCode -ne 200) { throw "$target$probe returned HTTP $($response.StatusCode)." }
+    }
+}
+Write-Output "health probes returned 200 for: $($targets -join ', ')"
+```
+
+`Invoke-WebRequest` throws on any non-2xx status under `$ErrorActionPreference = 'Stop'`, so the gate fails on its own. Add `-SkipCertificateCheck` (PowerShell 7) only when the ASP.NET development certificate is untrusted on this machine; prefer `dotnet dev-certs https --trust` and do not carry the switch into deployed smoke scripts. Readiness is proven by `/healthz/ready` answering 200, not by a resource reaching `Running`.
 
 ### Gateway
 
@@ -189,6 +206,8 @@ Run only for enabled hosts.
 > **Scaffold vs Complete:** Mark 5c complete only when each enabled host has a validated build AND its host-specific gate result recorded below. Build-only success is recorded as `scaffolded` or `partially-validated`, never `validated` - the handoff must reflect per-host gate status.
 
 > **Why:** A successful compile proves project shape and references only; it does not prove trigger binding, platform toolchains, client generation, or host startup. Therefore build-only evidence cannot satisfy runtime validation for an enabled host.
+
+> **Fan-out (optional):** hosts are the independent leaves of this phase, so 5c is where parallel workers pay off if the harness can spawn subagents. Two or more enabled hosts: see [multi-agent.md](multi-agent.md) section Worked example: Phase 5c with three enabled hosts before starting. Each host still has to clear its own gate below, and the Aspire AppHost registration pass stays serial and orchestrator-owned. Never required - sequential is the default.
 
 Function App:
 
@@ -263,7 +282,7 @@ Blazor UI (if `includeBlazorUI: true`):
 
 - [ ] Blazor host project builds (`dotnet build src/UI/{Project}.Blazor`)
 - [ ] Gateway/OpenAPI endpoint reachable for Refit client generation
-- [ ] **Standalone clean start:** `dotnet run --project src/UI/{Project}.Blazor` reaches `Application started`, `/healthz` returns 200, the root URL renders without exceptions in console logs, and at least one entity list page loads (empty or seeded - both valid)
+- [ ] **Standalone clean start (assert block below):** `dotnet run --project src/UI/{Project}.Blazor` reaches `Application started`, `/healthz` returns 200, the root URL returns 200 with no error lines in the startup log, and at least one entity list page loads (empty or seeded - both valid)
 - [ ] **Aspire-registered clean start (when Blazor is added to AppHost):** the Blazor resource reaches Running, dashboard logs are exception-free, and a Refit call from the Blazor host through the Gateway to the API returns data (or a typed empty state) - not a console exception
 - [ ] Auth path matches `AuthMode` (scaffold principal or live provider per Phase 5e)
 
@@ -272,11 +291,46 @@ dotnet build src/UI/{Project}.Blazor
 dotnet run --project src/UI/{Project}.Blazor
 ```
 
+Standalone clean-start assert (replaces the bare `dotnet run` above when recording the gate result). It starts the host, waits for a real listening URL, and fails on a missing `Application started`, a non-200 probe, or an error in the startup log:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$log = Join-Path $env:TEMP 'blazor-start.log'
+$err = Join-Path $env:TEMP 'blazor-start.err.log'
+$app = Start-Process dotnet -ArgumentList 'run', '--project', 'src/UI/{Project}.Blazor' `
+    -RedirectStandardOutput $log -RedirectStandardError $err -PassThru -NoNewWindow
+try {
+    $base = $null
+    foreach ($attempt in 1..30) {
+        Start-Sleep -Seconds 2
+        if ($app.HasExited) { throw "Blazor host exited with code $($app.ExitCode) before listening. See $log / $err." }
+        if (-not (Test-Path $log)) { continue }
+        $match = Select-String -Path $log -Pattern 'Now listening on:\s*(\S+)' | Select-Object -First 1
+        if ($match) { $base = $match.Matches[0].Groups[1].Value.TrimEnd('/'); break }
+    }
+    if (-not $base) { throw "Blazor host never printed a listening URL. See $log / $err." }
+    if (-not (Select-String -Path $log -Pattern 'Application started' -Quiet)) { throw 'Blazor host never reached "Application started".' }
+    foreach ($route in '/healthz', '/') {
+        $response = Invoke-WebRequest -Uri "$base$route" -Method Get -TimeoutSec 30
+        if ($response.StatusCode -ne 200) { throw "$route returned HTTP $($response.StatusCode)." }
+    }
+    $errors = Select-String -Path $log, $err -Pattern 'Unhandled exception|An unhandled exception|\bfail:'
+    if ($errors) { throw "Blazor startup logs contain $($errors.Count) error line(s). See $log / $err." }
+    Write-Output "Blazor standalone clean start passed at $base"
+}
+finally {
+    # cleanup only - the host may already have exited on a failure path above
+    if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force }
+}
+```
+
+The entity-list-page criterion stays a human/browser check: it needs rendered interactive output, which the Playwright gate in Phase 5d proves (`TestCategory=PlaywrightUI`), not an HTTP status.
+
 React UI (if `includeReactUI: true`):
 
 - [ ] React project builds (`npm run build`) and lints (`npm run lint`) from `src/UI/{Project}.React`
 - [ ] Vite proxy or runtime config points UI API calls at the Gateway, not the API host directly when Gateway is enabled
-- [ ] **Standalone clean start:** `npm run dev -- --host 127.0.0.1` serves the root URL, layout renders, and one API-backed page loads against the configured Gateway/API base
+- [ ] **Standalone clean start (assert block below):** `npm run dev -- --host 127.0.0.1` serves the app shell, the configured Gateway/API base answers `/healthz/ready`, layout renders, and one API-backed page loads
 - [ ] **Aspire-registered clean start:** AppHost includes `Aspire.Hosting.JavaScript`, registers the Vite app, passes `VITE_API_BASE_URL` from the Gateway endpoint (or API endpoint when Gateway is disabled), and the React resource root URL from the Aspire dashboard renders without exception
 - [ ] Playwright React project uses an env-driven base URL (for example `{APP}_REACT_BASE_URL`) because Aspire may assign a dynamic Vite port
 
@@ -286,6 +340,22 @@ npm run lint
 npm run build
 dotnet build src/Host/Aspire/AppHost
 ```
+
+Standalone clean-start assert. Run `npm run dev -- --host 127.0.0.1` in one terminal, then this in a second. It proves the dev server serves the app shell and that the base URL the UI is configured with actually answers - the two failures that otherwise surface only as a blank page:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$ui = 'http://127.0.0.1:5173'          # port from the Vite banner; Aspire assigns its own
+$api = $env:VITE_API_BASE_URL          # same value the UI is built/served with
+if (-not $api) { throw 'VITE_API_BASE_URL is not set - the UI has no configured backend base.' }
+$root = Invoke-WebRequest -Uri "$ui/" -Method Get -TimeoutSec 30
+if ($root.StatusCode -ne 200 -or $root.Content -notmatch '<div id="root"') { throw 'Vite did not serve the app shell.' }
+$ready = Invoke-WebRequest -Uri "$api/healthz/ready" -Method Get -TimeoutSec 30
+if ($ready.StatusCode -ne 200) { throw "Configured API base $api is not ready (HTTP $($ready.StatusCode))." }
+Write-Output "React standalone clean start passed: shell from $ui, backend $api ready"
+```
+
+For the Aspire-registered arm, take `$ui` from the React resource's dashboard URL for this session and `$api` from the Gateway (or API) endpoint the AppHost passed as `VITE_API_BASE_URL`. Layout rendering and one API-backed page loading are browser-level claims; the Playwright React project proves them (`TestCategory=PlaywrightUI`), the commands above prove serve and backend reachability.
 
 Uno UI startup (post-build, in addition to the platform-target checks above):
 
@@ -386,7 +456,7 @@ If live Entra setup is not yet performed, log registration/roles/consent plus pe
 
 **Scaffold mode is the default.** AI integration is complete when AI-backed interfaces compile, resolve from DI, and tests pass with stubs or no-op implementations. Live Foundry/AI Search endpoints are deployment-only dependencies and do not block scaffold completion.
 
-Provider contract: `AiServices:Provider` is the sole activation source and defaults to `None`; raw endpoint, deployment, connection, and runtime-availability values only validate the selected provider. AppHost, runtime DI, status, and live-test eligibility use the same resolver. No-op is valid for non-live tests only. `Test.Aspire` checks explicit Azure selection and configuration before AppHost creation. `Test.FoundryLocal` exists only when the optional native provider was selected, starts the API host after its runtime preflight, and checks `/api/v1/ai/status`. Explicit false run flags are fast opt-outs, not prerequisites for absent optional providers. Classification owner: [../skills/ai-integration.md](../skills/ai-integration.md) section Optional Live-Provider Classification.
+Provider contract: `AiServices:Provider` is the sole activation source and defaults to `None`; raw endpoint, deployment, and connection values only validate the selected provider. AppHost, runtime DI, status, and live-test eligibility use the same resolver. No-op is valid for non-live tests only. `Test.Aspire` checks explicit Azure selection and configuration before AppHost creation. Explicit false run flags are fast opt-outs, not prerequisites for absent optional providers. Classification owner: [../skills/ai-integration.md](../skills/ai-integration.md) section Optional Live-Provider Classification.
 
 | Mode | Required |
 |---|---|
@@ -492,10 +562,11 @@ az bicep build --file infra/main.bicep
 
 ## Failure Handling
 
-- Code-generation failures: one focused AI fix pass, then re-run failing gate.
-- Infra/environment failures: log in `HANDOFF.md`, classify blocker, continue non-blocked scope.
+Fix-pass budget, mechanical-cascade exception, and the code-generation vs infrastructure split are owned by [OPERATIONS.md](OPERATIONS.md) section Fail-Fast Protocol. Read it before deciding whether a second pass is allowed - the budget is not a flat one pass. This file adds only the gate-side consequences:
+
+- Re-run the exact failing gate command after a fix pass; a different or narrower command does not clear the gate.
+- Log the blocker in `HANDOFF.md` (see [HANDOFF.md template](HANDOFF.md)) and continue with non-blocked work.
 - Instruction gaps: in a consumer app, append to `.scaffold/INSTRUCTION-GAPS.md`; in this instruction repository, fold the fix directly into the owning instruction file (maintainer skill `/fold-feedback`).
-- If a step fails, log the blocker in `HANDOFF.md` (see [HANDOFF.md template](HANDOFF.md)) and continue with non-blocked work.
 - Pattern reference: [../ai/SKILL.md](../ai/SKILL.md) section Non-Negotiables - pattern index for composition wiring.
 
 ---

@@ -25,7 +25,7 @@ unoProfile: starter           # starter | full
 packageStrategy: local        # feed | local | hybrid
 packagePrefix: ""             # required; e.g. "EF", "Contoso", "AcmePay"
 customNugetFeeds: []          # one or more URLs when feed/hybrid; must be [] when local
-localPackageLayers: [Domain, Domain.Contracts, Data, Data.Contracts, Common, Common.Contracts]  # >=1 required when local or hybrid; must be [] when feed; add CQRS when applicationStyle warrants. Generated under src/Packages/<Prefix>.*
+localPackageLayers: [Domain, Domain.Contracts, Data, Data.Contracts, Common, Common.Contracts]  # >=1 required when local or hybrid; must be [] when feed; add CQRS when applicationStyle warrants. Generated under src/Packages/<packagePrefix>.*
 
 applicationStyle: service     # service | cqrs | switch
 repositoryContractStyle: hybrid  # per-entity | hybrid | generic-only
@@ -74,7 +74,7 @@ Use the canonical defaults above as the complete baseline. The reference tables 
 | `packageStrategy` | `customNugetFeeds` | `localPackageLayers` | Effect |
 |---|---|---|---|
 | `feed` | one or more URLs | `[]` | Feed supplies the full base-contract set. No `src/Packages/` folder. |
-| `local` | `[]` | full layer list | All base contracts generated as packable projects in `src/Packages/<Prefix>.*`. |
+| `local` | `[]` | full layer list | All base contracts generated as packable projects in `src/Packages/<packagePrefix>.*`. |
 | `hybrid` | one or more URLs | layers the feed lacks | Feed supplies some layers; missing layers generated locally under the **same** prefix so they can later be pushed to the feed without renaming. |
 
 Canonical layer names (must match `support/ef-packages-reference.md`): `Domain`, `Domain.Contracts`, `Data`, `Data.Contracts`, `Common`, `Common.Contracts`, `CQRS`. Add others (e.g., `Messaging.Contracts`, `Secrets`) when the reference file lists them.
@@ -121,6 +121,8 @@ Before choosing resources, read `.scaffold/DESIGN-DECISIONS.md` and resolve any 
 If a resource choice changes Phase 1 language or ownership, reopen Phase 1 artifacts before finalizing `.scaffold/resource-implementation.yaml`.
 
 ## Policy Inputs (Optional)
+
+This file owns `entitlementPolicy`; `domain-specification.yaml` records only the business rule behind it as a design decision.
 
 ```yaml
 moneyCalculationPolicy:
@@ -279,7 +281,7 @@ Use this optional `aspireResources` block when the resource map includes anythin
 
 Selection rules:
 
-- Azure-managed publish target: prefer `AddAzure*` plus `RunAsEmulator`, `RunAsContainer`, `RunAsFoundryLocal`, or existing-resource APIs as documented.
+- Azure-managed publish target: prefer `AddAzure*` plus `RunAsEmulator`, `RunAsContainer`, or existing-resource APIs as documented.
 - Local-only dependency: use the service-specific non-Azure `Add*` integration.
 - Cloud-only dependency: declare `deployment-only` or `lazy-optional` plus no-op stubs so the scaffold still boots locally.
 - AI Search, Foundry Agent Service, Key Vault, platform resources, and observability sinks must not block local scaffold completion unless Phase 2 explicitly requires a live endpoint.
@@ -362,7 +364,7 @@ storageProviders: [AzureBlob, S3]
 readModelProviders: [Cosmos, PostgreSqlJsonb, MongoDb]
 auditProviders: [AzureTable, Relational]
 searchProviders: [AzureAiSearch, PgVector, Sql]
-aiProviders: [AzureInference, OpenAICompatible, FoundryLocal, None]
+aiProviders: [AzureInference, OpenAICompatible, None]
 dataProtectionPersistence: [AzureBlob, Redis, None]
 deployTargets: [ContainerApps, DockerCompose]
 ```
@@ -416,15 +418,11 @@ Define AI integration resources when `includeAiServices: true`. Maps Phase 1 `ai
 aiServices:
   # --- Microsoft Foundry ---
   foundry:
-    projectName: ""                    # Microsoft Foundry project name (only when using a project + agents)
+    projectName: ""                    # Azure AI Foundry project name (only when using a project + agents)
     lifecycle: local-or-provision      # local-or-provision | existing
-                                       #   local-or-provision: runs a model on-device in run mode (no Azure) via
-                                       #     the localRuntimeMode below, and provisions a new Azure account on publish.
+                                       #   local-or-provision: provisions a new Azure AI Foundry account on publish.
                                        #   existing: RunAsExisting/PublishAsExisting/AsExisting against an
                                        #     already-provisioned account; deployment names must already exist there.
-    localRuntimeMode: sdk-direct-api-host  # RunAsFoundryLocal (preferred, after Aspire fix) | sdk-direct-api-host (current).
-                                       #   Why + wiring + migration: skills/ai-integration.md (canonical owner). sdk-direct-api-host
-                                       #   wires no chat resource (no ConnectionStrings:chat); no effect on the Azure/publish path.
     resourceName: ""                   # existing only: Azure Foundry account name (RunAsExisting/AsExisting param)
     resourceGroup: ""                  # existing only: resource group of the existing account
     connectionName: chat               # Aspire deployment resource name; clients bind AddAzureChatCompletionsClient(<connectionName>)
@@ -432,9 +430,6 @@ aiServices:
       - name: gpt-4o
         purpose: agent-reasoning       # agent-reasoning | embedding | completion
         deploymentName: gpt-4o-deploy
-        localModel: qwen2.5-0.5b       # sdk-direct (current): Foundry Local catalog alias.
-        localWebUrl: http://127.0.0.1:52415 # sdk-direct (current): local OpenAI-compatible bind URL.
-                                       #   future RunAsFoundryLocal path uses the FoundryModel.Local.Qwen2505b constant.
       - name: text-embedding-3-small
         purpose: embedding
         deploymentName: embedding-deploy
@@ -565,6 +560,8 @@ functionDefinitions:
 
 ### Ingestion Semantics (Optional)
 
+This file owns `ingestionSemantics`; `domain-specification.yaml` carries only the business expectation behind it as a design decision. `orderingExpectation` is stated per partition because the partition, not the entity, is the unit the broker and store actually order.
+
 ```yaml
 ingestionSemantics:
   eventTimePolicy: event-time
@@ -606,7 +603,7 @@ externalDependencyModes:
   appConfiguration: lazy-optional
   aspireDashboard: emulator
   openObserve: deployment-only
-  aiServices: lazy-optional       # Explicit aiProvider selects AzureInference, OpenAICompatible, FoundryLocal, or None. None registers no-op. Raw provider config never activates an arm. AI Search stays deployment-only.
+  aiServices: lazy-optional       # Explicit aiProvider selects AzureInference, OpenAICompatible, or None. None registers no-op. Raw provider config never activates an arm. AI Search stays deployment-only.
   externalApis:
     - name: PaymentGateway
       mode: no-op stub
@@ -626,7 +623,7 @@ Work through these in order during Phase 2. **Question 1 is asked first and must
 
 1. **Package strategy & prefix** - Do you have private NuGet feed(s) for shared/base packages (e.g., entity bases, repository bases, request context, results, paged response, specifications, messaging interfaces)?
    - **Yes (`feed`)** - supply feed URL(s) and the package prefix (e.g., `EF.*`, `Contoso.*`). Then walk the layer table in [`../support/ef-packages-reference.md`](../support/ef-packages-reference.md) and confirm the feed provides every layer. If any layers are missing, the strategy is promoted to **`hybrid`** and the missing layers go into `localPackageLayers`; they will be generated under the same prefix as the feed so they can be pushed into the feed later without renaming. The feed URL(s) are written to `customNugetFeeds`.
-   - **No (`local`)** - supply only a package prefix (e.g., `Contoso`). All base-contract layers are added to `localPackageLayers` and generated in Phase 4 under `src/Packages/<Prefix>.*` as packable projects (consumed via `<ProjectReference>`). `customNugetFeeds` stays empty. The developer may publish these to a feed later without restructuring.
+   - **No (`local`)** - supply only a package prefix (e.g., `Contoso`). All base-contract layers are added to `localPackageLayers` and generated in Phase 4 under `src/Packages/<packagePrefix>.*` as packable projects (consumed via `<ProjectReference>`). `customNugetFeeds` stays empty. The developer may publish these to a feed later without restructuring.
 
    `packagePrefix` is required in every mode. `EF` is the canonical example prefix used throughout these instructions, not a default.
 2. **Scaffold mode** - full, lite, or api-only? What optional hosts are needed? For web UI, choose Blazor, Uno WASM, React/Vite SPA, or explicit siblings; do not add a second UI stack by default. **Exception - multi-head by persona:** if Phase 1 produced a persona -> UI-surface mapping that calls for a distinct admin/operator portal alongside the end-user app (see [shared-understanding-interview.md section Multi-Head UI Decision](shared-understanding-interview.md#multi-head-ui-decision)), enable the second per-stack host flag deliberately and offer explicit siblings under `src/UI/` (e.g. a React end-user app plus a Blazor Server admin head). Multi-head = two of `includeUnoUI` / `includeBlazorUI` / `includeReactUI` set true; record which persona drives which head in `DESIGN-DECISIONS.md`.
@@ -644,6 +641,7 @@ Work through these in order during Phase 2. **Question 1 is asked first and must
 
 Before moving to Phase 3 (Implementation Plan), verify all of the following:
 
+- [ ] `python {instructionsRoot}/scripts/validate-scaffold-artifacts.py --root . --phase 2` exits 0 (both `.scaffold/domain-specification.yaml` and `.scaffold/resource-implementation.yaml` validate against [`schemas/`](../schemas/)). Paste the observed output per [../support/execution-gates.md](../support/execution-gates.md) section Verification Evidence Rule. The script already enforces the `maxLength`, `precision`/`scale`, `joinEntity`, enum, and required-key items below - the remaining items are the half a schema cannot check.
 - [ ] Every Phase 1 entity has a `dataStore` assignment (`sql`, `cosmosdb`, `table`, `blob`)
 - [ ] Every `string` property has `maxLength` defined
 - [ ] Every `decimal`/`money` property has `precision` and `scale`
@@ -654,7 +652,7 @@ Before moving to Phase 3 (Implementation Plan), verify all of the following:
 - [ ] `repositoryContractStyle` is set (`per-entity`, `hybrid`, or `generic-only`); for `hybrid`/`generic-only`, each entity is classified generic-coverable vs bespoke
 - [ ] Test tiers are consistent with the selected hosts/UI: no UI -> no `Test.UI`/`Test.PlaywrightUI`/`WasmUI`/`Test.Mobile`; no UI model/presentation coverage -> no `Test.UI`; no Uno -> no `WasmUI`/`Test.Mobile`; `useAspire: false` or profile below `comprehensive` (without explicit `includeAspireTests`) -> no `Test.Aspire` mesh
 - [ ] `packageStrategy` is set (`feed`, `local`, or `hybrid`)
-- [ ] `packagePrefix` is set and non-empty (used to name packages/projects under the chosen prefix, e.g., `<Prefix>.Domain`)
+- [ ] `packagePrefix` is set and non-empty (used to name packages/projects under the chosen prefix, e.g., `<packagePrefix>.Domain`)
 - [ ] If `packageStrategy: feed` - `customNugetFeeds` has at least one entry; `localPackageLayers` is `[]`
 - [ ] If `packageStrategy: local` - `customNugetFeeds` is `[]`; `localPackageLayers` covers every layer in [`../support/ef-packages-reference.md`](../support/ef-packages-reference.md)
 - [ ] If `packageStrategy: hybrid` - `customNugetFeeds` has at least one entry **and** `localPackageLayers` lists only the layers the feed does not provide

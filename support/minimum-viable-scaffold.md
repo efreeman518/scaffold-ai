@@ -66,7 +66,7 @@ Paste the Phase 2 prompt from [prompt-catalog.md](prompt-catalog.md), then appen
 ```text
 First, resolve packageStrategy + packagePrefix (Discovery question #1):
   - feed: provide feed URL(s) + prefix (e.g., EF). Walk ef-packages-reference.md to confirm coverage; promote to hybrid if anything is missing.
-  - local: provide prefix only; the scaffold generates src/Packages/<Prefix>.* for every layer in ef-packages-reference.md.
+  - local: provide prefix only; the scaffold generates src/Packages/<packagePrefix>.* for every layer in ef-packages-reference.md.
   - hybrid: feed URL(s) + prefix + localPackageLayers for layers the feed lacks.
 Set scaffoldMode: api-only. Set testingProfile: minimal.
 Enable Aspire and SQL only. Set sql: emulator and generate the SQL container plus AppHost connection references.
@@ -164,7 +164,7 @@ MVS scope: api-only. Skip projects for Gateway, Function App, Uno/Blazor/React U
 Expected solution: Aspire AppHost, API host, Application/Domain/Infrastructure projects, Test.Support, Test.Unit, Test.Endpoints.
 ```
 
-**Done when:** `dotnet build` is green and the solution contains the AppHost, API host, Application/Domain/Infrastructure projects, the three test projects, and any `src/Packages/<Prefix>.*` projects required by `packageStrategy`. No optional hosts.
+**Done when:** `dotnet build` is green and the solution contains the AppHost, API host, Application/Domain/Infrastructure projects, the three test projects, and any `src/Packages/<packagePrefix>.*` projects required by `packageStrategy`. No optional hosts.
 
 ### Phase 5 - Implementation (5a + 5b only for MVS)
 

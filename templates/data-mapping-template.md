@@ -25,7 +25,7 @@ public record {Entity}Dto : EntityBaseDto, ITenantEntityDto
     public {Entity}Flags Flags { get; set; } = {Entity}Flags.None;
 
     // Child collections
-    public List<{ChildEntity}Dto> {ChildEntity}s { get; set; } = [];
+    public List<{ChildEntity}Dto> {ChildEntities} { get; set; } = [];
 
     // Navigation (read-only, populated by mapper)
     public {Parent}Dto? Parent { get; set; }
@@ -116,7 +116,7 @@ public static class {Entity}Mapper
             TenantId = entity.TenantId,
             Name = entity.Name,
             Flags = entity.Flags,
-            {ChildEntity}s = entity.{ChildEntity}s.Select(c => new {ChildEntity}Dto
+            {ChildEntities} = entity.{ChildEntities}.Select(c => new {ChildEntity}Dto
             {
                 Id = c.Id,
                 {Entity}Id = c.{Entity}Id,
@@ -206,14 +206,14 @@ public static class {ChildEntity}Mapper
 
 ## Child Collection Mapping
 
-> **Aggregate-root DTOs MUST carry their owned child collections, and the root `Projection`/`ToDto` MUST project them (non-negotiable).** The `{Root}Updater.UpdateFromDto` graph sync diffs `dto.{ChildEntity}s` against the loaded aggregate; if the root DTO omits the child collection or `ToDto` does not populate it, the updater has nothing to diff and child writes silently no-op. A flat parent DTO is the most common cause of "child saves are lost." Generation rule: for every `one-to-many`/`one-to-one`/`many-to-many` child in the domain spec, the root DTO declares `List<{ChildEntity}Dto>? {ChildEntity}s` and the root `Projection` includes the inline `.Select(...).ToList()` for it.
+> **Aggregate-root DTOs MUST carry their owned child collections, and the root `Projection`/`ToDto` MUST project them (non-negotiable).** The `{Root}Updater.UpdateFromDto` graph sync diffs `dto.{ChildEntities}` against the loaded aggregate; if the root DTO omits the child collection or `ToDto` does not populate it, the updater has nothing to diff and child writes silently no-op. A flat parent DTO is the most common cause of "child saves are lost." Generation rule: for every `one-to-many`/`one-to-one`/`many-to-many` child in the domain spec, the root DTO declares `List<{ChildEntity}Dto>? {ChildEntities}` and the root `Projection` includes the inline `.Select(...).ToList()` for it.
 >
 > **Null vs present contract** (mirrors the null-coalesce note in [updater-template.md](updater-template.md)): a **null** child collection on the incoming DTO means "don't touch these children"; a **present** collection (including empty) means "this is the desired full set" - items missing from it are removed when the caller passes `RelatedDeleteBehavior.RelationshipAndEntity`. Response DTOs always populate the collection (empty, never null) so clients can round-trip an edit.
 
 Child collections follow a consistent pattern across both DTOs and Mappers:
 
 ### DTO Side
-- Parent DTO declares `List<{ChildEntity}Dto> {ChildEntity}s { get; set; } = [];` -- always initialized, never null
+- Parent DTO declares `List<{ChildEntity}Dto> {ChildEntities} { get; set; } = [];` -- always initialized, never null
 - Child DTO inherits from `EntityBaseDto` and includes a nullable foreign key: `Guid? {Entity}Id`
 - Child DTO lives in the same namespace as the parent: `Application.Models.{Entity}/`
 
@@ -224,7 +224,7 @@ Child collections follow a consistent pattern across both DTOs and Mappers:
 - **`ProjectorSearch`** omits child collections for performance only when list/grid results intentionally use a lean shape
 - **`Projection`** includes child collections with inline projection (no method calls -- must remain EF-safe):
   ```csharp
-  {ChildEntity}s = entity.{ChildEntity}s.Select(c => new {ChildEntity}Dto
+  {ChildEntities} = entity.{ChildEntities}.Select(c => new {ChildEntity}Dto
   {
       Id = c.Id,
       // ... child properties mapped directly

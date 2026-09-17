@@ -6,7 +6,7 @@ Reference patterns: [../patterns/expected-output-index.md](../patterns/expected-
 
 ## Never Silently Pass (applies to every tier)
 
-A test that did not actually exercise its target must **never report green.** `Assert.Inconclusive` is reserved for a named unmet prerequisite, not a product assertion failure. For required Aspire-backed infrastructure, that means only an explicit test-lane opt-out or failed Docker-compatible runtime preflight; once Docker preflight passes, missing tools, create/build/start/readiness/browser failures, and unhealthy/exited resources fail red with diagnostics. Optional live AI providers are the explicit exception owned by [ai-integration.md](ai-integration.md) -> *Optional Live-Provider Classification*: pre-Aspire eligibility, missing runtime, and bounded local-capacity outcomes follow that matrix. Never:
+A test that did not actually exercise its target must **never report green.** `Assert.Inconclusive` is reserved for a named unmet prerequisite, not a product assertion failure. For required Aspire-backed infrastructure, that means only an explicit test-lane opt-out or failed Docker-compatible runtime preflight; once Docker preflight passes, missing tools, create/build/start/readiness/browser failures, and unhealthy/exited resources fail red with diagnostics. Optional live AI providers are the explicit exception owned by [ai-integration.md](ai-integration.md) -> *Optional Live-Provider Classification*: pre-Aspire eligibility and provider-unavailable outcomes follow that matrix. Never:
 
 - return early and let the test pass without an assertion,
 - `[Ignore]` or no-op it so it counts as passed,
@@ -27,14 +27,34 @@ Evidence rules:
 Phases 5a and 5b use test-first TDD: red -> green -> refactor. See [../ai/tdd-protocol.md](../ai/tdd-protocol.md).
 Phase 5c is tests-after for optional hosts. Phase 5d adds quality gate suites, mutation testing, and a full regression - see [testing-quality.md](testing-quality.md).
 
-## BDD Naming Convention
+## Test Naming Convention
 
-All test methods use Given_When_Then:
+Two forms, chosen by what is under test. Both are canonical; this section owns the rule.
+
+**`Given_<precondition>_When_<action>_Then_<outcome>`** - the default. Use it for a behavioral scenario with a
+meaningful precondition: domain rules, handler and service behaviour, endpoint contracts, validation outcomes.
 
 ```csharp
 [TestMethod]
 public async Task Given_ValidInput_When_EntityCreated_Then_ReturnsSuccess() { }
 ```
+
+**`<Subject>_<Condition>_<Outcome>`** - use it when a specific member or a structural fact is under test and there is
+no meaningful "Given": a named method's behaviour under a condition, a resolver's defaulting, a migration or schema
+property, a rendered-page invariant. Forcing these into Given/When/Then produces an empty `Given_` clause that reads
+as noise.
+
+```csharp
+[TestMethod]
+public void ResolveAiProvider_NonAzureLane_DefaultsToNone() { }
+
+[TestMethod]
+public async Task Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema() { }
+```
+
+Pick the form per test, not per file; both appear in the same class where the subjects differ. If a test reads
+naturally either way, prefer Given/When/Then. Method names are stable identifiers - coverage matrices and gate
+checks reference them by exact name, so renaming one is a deliberate change, not cleanup.
 
 ## Test Class Documentation Convention
 
@@ -128,15 +148,34 @@ This table is the single source of truth. Phase 2 records the selected tiers (Qu
 **For a tier the early decision generated:**
 
 - **Runs by default (Aspire + WasmUI).** Each is discoverable in Test Explorer and runs under `--filter "TestCategory!=Load"`. Its `{APP}_*_TESTS` var is a **local convenience** to silence it (treat any value other than a case-insensitive `false` as "run") - not an enable flag the developer must know to turn the tier on.
-- **Exception - `Test.Mobile` is opt-IN, default off.** Mobile needs an emulator/device, Appium + UiAutomator2, and a built platform APK - too heavy for the canonical lane. Treat `{APP}_MOBILE_TESTS_ENABLED` as an **enable** flag: only a case-insensitive `true` (or `1`/`yes`) activates the tier; unset/false makes each test self-mark `Assert.Inconclusive` with a message saying the tier is opt-in and how to enable it - **never a silent pass.** A skipped-as-passed mobile test reads as green coverage that never ran. MSTest serializes `Inconclusive` to TRX as `outcome="NotExecuted"`, so the expected healthy default-off result is **0 passed / N not-executed, each carrying an Inconclusive message** - success, not failure. Keep `[TestCategory("MobileUI")]` on every test so a lane can also exclude it by filter. This is the one tier that defaults off; Aspire and WasmUI stay default-on per the bullet above.
-- **Explicit mobile lane fails fast.** `tests/Test.Mobile/run-mobile-tests.ps1` owns Android restore/build, emulator readiness, Appium readiness, `{APP}_MOBILE_TESTS_ENABLED=true`, and TRX output. Once that runner activates the tier, missing/broken APK, emulator/device, Appium, or UiAutomator2 is red, not `Assert.Inconclusive`. Default `dotnet test` without the enable flag remains dependency-free inconclusive.
-- **Optional IDE mobile profile.** A generated `tests/{App}.runsettings` may explicitly enable mobile tests for Visual Studio/Test Explorer and set `MaxCpuCount=1`. Its assembly host may build the default Android artifact only when no app path was supplied, start only a loopback Appium endpoint, and stop only the process it owns. A configured missing artifact or non-loopback unavailable Appium endpoint fails instead of silently falling back. Selecting this run-settings file is an explicit mobile-lane activation; it does not change ordinary CLI defaults.
+- **Exception - `Test.Mobile` is opt-IN, default off.** Full rule: [Mobile Tier Opt-In](#mobile-tier-opt-in-default-off).
 - **Narrow inconclusive boundary** (see [Never Silently Pass](#never-silently-pass-applies-to-every-tier)). Required Aspire/Playwright/WasmUI infrastructure marks inconclusive only for an explicit false opt-out or a failed Docker preflight. One conditional DCP exception is allowed when all observed named resources report `FailedToStart`, none has an exit code, and no application process or log directory was created: dump state, retry one fresh host once, and mark a repeated identical pre-launch state unavailable. Comment the upstream condition and removal criterion. Any process exit, unhealthy started resource, missing Node/browser/workload after lane activation, unresolved endpoint, application exception, or assertion failure stays red with diagnostics. A generic `TimeoutException` catch is never enough to classify availability. Mobile keeps its separately documented default-off rule; optional live AI uses the canonical classification in [ai-integration.md](ai-integration.md).
 - **CI lanes may set explicit opt-outs.** Fast lanes that must not pay Docker/emulator/model cost set the generated false-only variables. Those flags are shortcuts, not mandatory configuration for absent optional AI providers. Docker-unavailable preflight may self-skip container tiers; required selected lanes do not self-skip missing tools. Explicit mobile workflow_dispatch uses the runner and fails fast.
 - The mesh preflight helper shape is in [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md) (Opt-out + preflight). Mirror it for `WasmUI`; mobile uses generated runner plus method-level default-off preflight.
 - **AppHost-backed WasmUI is real mesh UI.** If the Uno WASM app depends on API, Gateway, SQL, Redis, storage, or auth, the `WasmUI` fixture starts the Aspire AppHost in testing mode, keeps required resources live, disables only optional hosts, and resolves Gateway/UI URLs from named endpoints. Do not generate standalone browser tests against guessed local ports for that case.
-- **One startup budget, then subordinate step caps.** Start one monotonic deadline before Docker preflight or test-owned restore. Every create/build/start, named-resource wait, endpoint resolution, Gateway warm-up, and browser launch consumes the same remaining budget. A per-operation timeout may be shorter, but never resets or extends the global deadline. On failure, dump resource name/state/health/exit code/start/stop timestamps by default; include resource logs only when the diagnostic logging switch is enabled.
+- **One startup budget, then subordinate step caps.** Full rule: [One Startup Budget](#one-startup-budget).
 - **Serialize full-stack projects.** `Test.Aspire` and `Test.PlaywrightUI`/`WasmUI` are resource-heavy and may build or boot overlapping AppHost/container/UI graphs. Full-solution acceptance uses unfiltered `dotnet test <solution>.slnx --no-build -m:1`; CI keeps their steps/jobs non-overlapping and adds `-m:1` to any solution-wide test command. `[DoNotParallelize]` still protects classes inside each assembly.
+
+### One Startup Budget
+
+Canonical statement for every infrastructure-backed tier. Other sections of this file and [testing-quality.md](testing-quality.md) point here instead of restating it.
+
+Start **one** monotonic deadline before Docker preflight or test-owned restore, and spend that single budget across everything that follows: restore and build (including the WASM head build), Aspire create/build/start, named-resource health waits, endpoint and connection resolution, Gateway warm-up, UI readiness, and browser launch. A per-operation timeout may fail a step sooner but never resets or extends the global deadline. `[Timeout]` remains a coarse test-host ceiling above that budget, not a substitute for it.
+
+- **Budget source.** Read once from the tier's variable: `{APP}_ASPIRE_STARTUP_TIMEOUT_SECONDS` (default 900 s) for Aspire-backed tiers, `{APP}_WASM_STARTUP_TIMEOUT_SECONDS` for Uno WASM (default at least 1800 s for a cold first build; a lower verified budget is fine for a lighter generated app).
+- **Classification.** A failed Docker-compatible runtime preflight or an explicit false opt-out is `Assert.Inconclusive` naming the exact fix. After preflight succeeds, missing tooling, create/build/start/readiness/browser failures, unresolved named endpoints, and unhealthy or exited resources are red with diagnostics. A generic `TimeoutException` catch never classifies availability.
+- **Diagnostics.** On any host/start/wait failure, dump named resource state, health, exit code, and start/stop timestamps before rethrowing. Raw resource logs stay opt-in behind the diagnostic logging switch because they flood TRX.
+- **Elapsed time is not domain time.** The budget uses a monotonic elapsed-time source; business recurrence, expiry, retention, lease, retry, and scheduled-window assertions inject a fixed `TimeProvider`. Never use the startup deadline or the wall clock as domain time.
+
+### Mobile Tier Opt-In (default off)
+
+Canonical statement for the `Test.Mobile` / `MobileUI` tier. [testing-quality.md](testing-quality.md) points here instead of restating it.
+
+Mobile needs an emulator/device, Appium + UiAutomator2, and a built platform APK - too heavy for the canonical lane, so it is the one generated tier that defaults off while Aspire and WasmUI stay default-on.
+
+- **`{APP}_MOBILE_TESTS_ENABLED` is an enable flag, not an opt-out.** Only a case-insensitive `true` (or `1`/`yes`) activates the tier. Unset or false makes each test self-mark `Assert.Inconclusive` with a message saying the tier is opt-in and how to enable it - **never a silent pass.** A skipped-as-passed mobile test reads as green coverage that never ran. MSTest serializes `Inconclusive` to TRX as `outcome="NotExecuted"`, so the healthy default-off result is **0 passed / N not-executed, each carrying an Inconclusive message** - success, not failure. Keep `[TestCategory("MobileUI")]` on every test so a lane can also exclude it by filter.
+- **Explicit mobile lane fails fast.** `tests/Test.Mobile/run-mobile-tests.ps1` owns Android restore/build, emulator readiness, Appium readiness, setting `{APP}_MOBILE_TESTS_ENABLED=true`, and TRX output. Once that runner activates the tier, a missing or broken APK, emulator/device, Appium, or UiAutomator2 is red, not `Assert.Inconclusive`. Default `dotnet test` without the enable flag remains dependency-free inconclusive.
+- **Optional IDE mobile profile.** A generated `tests/{App}.runsettings` may explicitly enable mobile tests for Visual Studio/Test Explorer and set `MaxCpuCount=1`. Its assembly host may build the default Android artifact only when no app path was supplied, start only a loopback Appium endpoint, and stop only the process it owns. A configured missing artifact or an unavailable non-loopback Appium endpoint fails instead of silently falling back. Selecting this run-settings file is an explicit mobile-lane activation; it does not change ordinary CLI defaults.
 
 ### Container Runtime (Docker) for Mesh / Component Tiers
 
@@ -159,7 +198,6 @@ tests/
   Test.Integration/      # component: one class vs one real store (standalone Testcontainers)
   Test.Integration.{Project}.FlowEngine/ # optional workflow-definition validation
   Test.Aspire/           # mesh: full AppHost graph over HTTP (lazy-started)
-  Test.FoundryLocal/     # only when an explicitly selected native local-AI provider requires RID-bound proof
   Test.Endpoints/
   Test.E2E/
   Test.Architecture/
@@ -194,9 +232,7 @@ Rule: PlaywrightUI is a different harness. Never merge it with WAF tests.
 
 Real-SQL tiers are the only tiers that prove EF translation. Use them for predicates over value-converted properties (`TenantId`, nullable typed FKs, `Email`, `Locale`), projections, `Contains` / `LIKE`, and owned-type filters. Unit, endpoint, and model-validation tests can all stay green while SQL translation would throw at runtime.
 
-**AI live-local smoke is a separate RID-bound tier.** When `includeAiServices: true` and the Foundry Local provider is in scope, its live smoke runs in a dedicated RID-bound `Test.FoundryLocal` project - the RID-free mesh (`Test.Aspire`) and in-memory WAF base physically cannot load the native `Microsoft.AI.Foundry.Local` SDK. Every other API-booting tier forces no-op via `AiServices:DisableFoundryLocal` (set on both the WAF base and the AppHost testing branch). Owner: [ai-integration.md](ai-integration.md) section Deciding the Live Lane Without Probing the CLI.
-
-`Test.Aspire` AI smoke is Azure Foundry only; it sets `AiServices:DisableFoundryLocal=true`, checks Azure eligibility before AppHost creation, and never attempts Foundry Local. `Test.FoundryLocal` starts the API host directly after its runtime preflight, sets `AiServices:RequireFoundryLocal=true`, and checks `/api/v1/ai/status`. Exact inconclusive-versus-red outcomes belong only to [ai-integration.md](ai-integration.md) section Optional Live-Provider Classification.
+**Live AI smoke is Azure AI Foundry only, in the mesh tier.** When `includeAiServices: true`, the model-backed smoke runs in `Test.Aspire`: it checks Azure eligibility before AppHost creation and reads the active provider from `GET /api/v1/ai/status`. There is no separate local-model test project. Exact inconclusive-versus-red outcomes belong only to [ai-integration.md](ai-integration.md) section Optional Live-Provider Classification.
 
 **Tier ladder - pick the cheapest tier that catches the failure mode you're testing.**
 
@@ -215,7 +251,7 @@ Phase 4 generates the WAF base in `Test.Support`, the `CustomApiFactory` / `SqlA
 
 ### Heavy Aspire Mesh Graph Rule
 
-`Test.Aspire` owns one assembly-scoped `DistributedApplicationTestingBuilder`/AppHost graph per mesh run - the lazy `AspireTestHost` graph (see [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md)). Do not stand up a second AppHost graph, in a separate class or fixture, to prove optional provider wiring, UI smokes, or feature-specific branches. Prove AppHost opt-in branches with a cheap topology guard instead: set the opt-in env/config flag before builder creation, inspect the resulting resource/provider shape or status setting, then stop. Put live-provider behavior in dedicated lighter lanes such as `Test.FoundryLocal`, a direct API-host smoke, or externally hosted Playwright, so mesh coverage never duplicates infrastructure graphs.
+`Test.Aspire` owns one assembly-scoped `DistributedApplicationTestingBuilder`/AppHost graph per mesh run - the lazy `AspireTestHost` graph (see [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md)). Do not stand up a second AppHost graph, in a separate class or fixture, to prove optional provider wiring, UI smokes, or feature-specific branches. Prove AppHost opt-in branches with a cheap topology guard instead: set the opt-in env/config flag before builder creation, inspect the resulting resource/provider shape or status setting, then stop. Put live-provider behavior in dedicated lighter lanes such as a direct API-host smoke or externally hosted Playwright, so mesh coverage never duplicates infrastructure graphs.
 
 This is the canonical statement of the rule; the Aspire template and the testing-quality checklist point here rather than restating it.
 
@@ -259,14 +295,14 @@ Prefer specific MSTest asserts over generic `Assert.IsTrue`.
 
 ## Categories and Command Split
 
-Use these categories: `Unit`, `UI`, `Presentation`, `Endpoint`, `Integration`, `Aspire`, `E2E`, `PlaywrightUI`, `WasmUI`, `MobileUI`, `Architecture`, `Load`, `Benchmark`, `Mutation`. When AI is scaffolded, the live model smoke lane adds `LiveAI` (plus `FoundryLocal` / `AzureFoundry` to scope a smoke to a single provider).
+Use these categories: `Unit`, `UI`, `Presentation`, `Endpoint`, `Integration`, `Aspire`, `E2E`, `PlaywrightUI`, `WasmUI`, `MobileUI`, `Architecture`, `Load`, `Benchmark`, `Mutation`. When AI is scaffolded, the live model smoke lane adds `LiveAI` (plus `AzureFoundry` to scope a smoke to Azure AI Foundry specifics).
 
 Category boundaries that matter:
 
 - **`UI` / `Presentation`** fast headless UI tier (`Test.UI`) for UI services, theme/catalog logic, presentation models, MVUX state/feed tests. Never tag these `Unit`, and never reference a Uno.Sdk app head.
 - **`Aspire`** is the mesh tier (`Test.Aspire`), distinct from **`Integration`** (component, `Test.Integration`). Never tag mesh tests `Integration` - that would boot the full graph on a `--filter TestCategory=Integration` run.
 - **`PlaywrightUI`** is DOM-based browser UI (MudBlazor/React/managed-DOM Uno). **`WasmUI`** is the Skia-canvas Uno bridge tier. **`MobileUI`** is Appium. None of these is `E2E` (`E2E` is WAF + Testcontainers SQL).
-- **`LiveAI`** marks model-backed smoke tests. RID-free `Test.Aspire` owns Azure Foundry; RID-bound `Test.FoundryLocal` owns the local provider. Fast AI coverage (provider selection, contract, parse guard, no-write, write, no-op fallback) uses a fake `IChatClient` in `Test.Unit` / `Test.Endpoints` and carries no AI category. `AzureFoundry` is for Azure-specific selection/provisioning only, not a second copy of a provider-neutral contract. Classification and doctrine: [ai-integration.md](ai-integration.md) -> Provider Test Tiers.
+- **`LiveAI`** marks model-backed smoke tests; `Test.Aspire` owns them, against Azure AI Foundry. Fast AI coverage (provider selection, contract, parse guard, no-write, write, no-op fallback) uses a fake `IChatClient` in `Test.Unit` / `Test.Endpoints` and carries no AI category. `AzureFoundry` is for Azure-specific selection/provisioning only, not a second copy of a provider-neutral contract. Classification and doctrine: [ai-integration.md](ai-integration.md) -> Provider Test Tiers.
 
 ```powershell
 # Canonical "all normal tests" - excludes Load (NBomber). Use explicit false opt-outs for heavy
@@ -379,7 +415,9 @@ public void Projection_And_ToDto_Agree()
 }
 ```
 
-**Tenant-admin bypass.** When `enableMultiTenant: true`, pin both paths: `X-{App}-Admin: true` flips `DbContext.BypassTenantFilter` end-to-end (admin sees cross-tenant rows); non-admin cross-tenant access returns 404. The negative path must be a separate test so a regression in either direction surfaces independently.
+**Tenant-admin bypass.** When `enableMultiTenant: true`, pin both paths against the role-claim path owned by [multi-tenant.md](multi-tenant.md): a principal carrying `AppConstants.ROLE_GLOBAL_ADMIN` on `ClaimTypes.Role` passes `EnsureGlobalAdmin(...)` and reads cross-tenant rows on the explicitly authorized admin path; a non-admin cross-tenant access returns 404. The negative path must be a separate test so a regression in either direction surfaces independently. Assert the claim type itself - a bare `"roles"` claim leaves roles empty and the bypass never fires ([identity-management.md](identity-management.md) section Claim-type contract), which reads as a passing negative test for the wrong reason.
+
+Do **not** introduce a request header (`X-{App}-Admin` or similar) that flips tenant filtering. An ambient header bypass is reachable in Production by anyone who can set a header, and it proves nothing about the boundary validator that actually enforces isolation. If a test-only header affordance is genuinely unavoidable, it falls under the rule above: permitted only behind an explicit Testing guard, with a negative test proving Production rejects it.
 
 ### Uno MVUX Presentation UI Tests
 
@@ -432,7 +470,7 @@ The Aspire mesh host lives in `Test.Aspire` - see [../templates/test-templates-a
 2. **Set scoped flags (e.g., `TASKFLOW_ASPIRE_TESTING`, `TASKFLOW_INCLUDE_FUNCTIONS`) before `CreateAsync`** - only for things AppHost reads via `Environment.GetEnvironmentVariable`. **Save and restore originals** in cleanup for hermeticity.
 3. **Pass parameters via `configureBuilder`, not env-var mutation.** AppHost binds `Parameters:*` through `IConfiguration` - write them into `hostSettings.Configuration` so test isolation stays clean.
 4. **Conditional Functions inclusion.** Detect `func.exe` once before startup and set the include flag there. If a selected Functions test lacks the tool, fail with its install step; only an explicit `{APP}_RUN_FUNCTIONS_TESTS=false` opt-out is inconclusive.
-5. **One startup budget mandatory.** `[Timeout]` remains a coarse test-host ceiling. `AspireTestHostContext` reads `{APP}_ASPIRE_STARTUP_TIMEOUT_SECONDS` once (default 900 s) and spends it across Docker preflight, create/build/start, named health waits, endpoint/connection resolution, and browser launch.
+5. **One startup budget mandatory.** `AspireTestHostContext` is where the single deadline lives for this tier - see [One Startup Budget](#one-startup-budget).
 6. **`local.settings.json` override trap.** Hardcoded DB connection strings in Functions `local.settings.json` beat Aspire injection. Remove them (keep safe Azurite-style values only).
 7. **Keep `using Aspire.Hosting.Testing;`** in every file calling `CreateHttpClient()` or `GetConnectionStringAsync()` (they are extension methods).
 
@@ -452,7 +490,7 @@ await Wait.Until(
     timeout: TimeSpan.FromSeconds(180));
 ```
 
-**Why.** Aspire's Service Bus emulator under `DistributedApplicationTestingBuilder` does not always propagate topic->subscription routing within bounded test windows; queue trigger plumbing on Functions is similarly best-effort under emulator-mode. Verifying via the downstream artifact is robust against this class of tooling gap *and* exercises more of the production path (the message handler actually ran end-to-end). When the downstream effect is genuinely unavailable (no consumer wired in this test scope), `[Ignore]` the test with a reason rather than asserting against the bus and accepting flakes.
+**Why.** Aspire's Service Bus emulator under `DistributedApplicationTestingBuilder` does not always propagate topic->subscription routing within bounded test windows; queue trigger plumbing on Functions is similarly best-effort under emulator-mode. Verifying via the downstream artifact is robust against this class of tooling gap *and* exercises more of the production path (the message handler actually ran end-to-end). When the downstream effect is genuinely unavailable (no consumer wired in this test scope), `Assert.Inconclusive` naming the unmet prerequisite - which consumer is missing and how to wire it - rather than asserting against the bus and accepting flakes. Never `[Ignore]` it (see [Never Silently Pass](#never-silently-pass-applies-to-every-tier)): `Inconclusive` serializes to TRX as `outcome="NotExecuted"` so the gap stays counted, and the standing deferral is recorded in `HANDOFF.md` section Deferred External Dependencies.
 
 ### Lazy Aspire Fixture Startup (canonical for `Test.Aspire`)
 
@@ -509,11 +547,11 @@ For React/Vite, use the same pattern around `AddViteApp(...)` and pass the Gatew
 
 ### Async call discipline
 
-- **Run every startup operation through one `AspireTestHostContext`.** It computes remaining time from a monotonic deadline, passes a linked token, and applies `WaitAsync(remaining, ct)`. A shorter per-step cap is allowed but cannot extend the global budget.
+- **Run every startup operation through one `AspireTestHostContext`.** It computes remaining time from the single monotonic deadline ([One Startup Budget](#one-startup-budget)), passes a linked token, and applies `WaitAsync(remaining, ct)`.
 - **Gate on health, not status.** Aspire reports `Running` before SQL accepts connections / Azurite serves first request / Functions warms up. Call `WaitForResourceHealthyAsync(name, ct)` before talking to a resource.
 - **Connection/endpoint lookup consumes remaining time.** Convert a `ValueTask` to `Task` only when the shared runner requires it; never grant a fresh timeout.
 - **Bound shutdown and disposal together.** `[AssemblyCleanup(TestContext)]` calls `StopAndDisposeAsync(testContext.CancellationToken)`; one cleanup deadline covers both operations, and environment restoration remains in `finally`.
-- **Freeze business time separately.** Startup budgets use a monotonic elapsed-time source; business recurrence/expiry assertions inject a fixed `TimeProvider`. Do not use the startup deadline or wall clock as domain time.
+- **Freeze business time separately.** See [One Startup Budget](#one-startup-budget) - elapsed time is not domain time.
 
 ### Fixture skeleton
 
@@ -547,20 +585,20 @@ The Docker/deadline/wait/diagnostic/cleanup mechanics live in [../templates/test
 - [ ] Categories match intended command filters.
 - [ ] Mutation tests use `TestCategory=Mutation` and the Stryker config uses the same test-case filter.
 - [ ] Search tests always set `PageSize` and `PageIndex`.
-- [ ] Rate limiter is disabled in test factory when API enables rate limiting.
+- [ ] Rate limiter is disabled in the test factory only behind an explicit Testing guard, with a negative test proving Production retains the limiter - and the same guard-plus-negative-test rule holds for every other test-only bypass.
 - [ ] No FluentAssertions NuGet reference exists; no `<package pattern="FluentAssertions" />` in `nuget.config`.
 - [ ] Every test field assigned in `[TestInitialize]` is declared with `= null!`.
 - [ ] `[AssemblyInitialize]` does not hide infrastructure failures; preflight-confirmed Docker unavailability is `Inconclusive`, while container/AppHost startup failures after successful preflight remain red with diagnostics.
 - [ ] `Test.Integration` (component) references no `AppHost`/`Aspire.Hosting.Testing`; tests instantiate one class vs one standalone Testcontainer and distinguish failed Docker preflight from a real container startup failure.
 - [ ] `Test.Aspire` (mesh) starts the graph lazily via `EnsureStartedAsync` (`[ClassInitialize]`); `AspireMeshLifecycle.[AssemblyCleanup]` calls shared bounded stop/dispose cleanup once.
-- [ ] Mesh tests carry `[TestCategory("Aspire")]` (not `Integration`); startup deadline reads `{APP}_ASPIRE_STARTUP_TIMEOUT_SECONDS`.
-- [ ] Aspire/WasmUI tiers are default-on with false-only opt-out; `Test.Mobile` is opt-IN (`{APP}_MOBILE_TESTS_ENABLED=true` activates; default off self-marks `Inconclusive` per test, never a silent pass; TRX shows 0 passed / N not-executed). Explicit mobile runner and selected IDE run-settings profile fail fast when APK, emulator/device, Appium, or UiAutomator2 is missing/broken.
+- [ ] Mesh tests carry `[TestCategory("Aspire")]` (not `Integration`).
+- [ ] Aspire/WasmUI tiers are default-on with false-only opt-out; `Test.Mobile` follows [Mobile Tier Opt-In](#mobile-tier-opt-in-default-off).
 - [ ] `dotnet test --filter "TestCategory!=Load"` is documented as the canonical local "all normal tests" run.
-- [ ] (AI scaffolded) Fast AI coverage (provider selection, contract, parse guard, no-write, write, no-op fallback) uses a fake `IChatClient` in `Test.Unit`/`Test.Endpoints`; live model tests are smoke-only (`LiveAI`) and follow [ai-integration.md](ai-integration.md) section Optional Live-Provider Classification. Determine an active provider via `GET /api/v1/ai/status`, not a `foundry` CLI probe or connection-string sniff. Require fresh CLI reproduction before changing deterministic tests; no duplicate provider-neutral contracts.
+- [ ] (AI scaffolded) Fast AI coverage (provider selection, contract, parse guard, no-write, write, no-op fallback) uses a fake `IChatClient` in `Test.Unit`/`Test.Endpoints`; live model tests are smoke-only (`LiveAI`, Azure AI Foundry, in `Test.Aspire`) and follow [ai-integration.md](ai-integration.md) section Optional Live-Provider Classification. Determine an active provider via `GET /api/v1/ai/status`, not a CLI probe or connection-string sniff; no duplicate provider-neutral contracts.
 - [ ] Mesh tests are `[DoNotParallelize]`; no endpoint-contract tests in either integration project.
 - [ ] Every test class has a class-level `<summary>` (scope / tier + why / quirks).
 - [ ] Aspire host passes `Parameters:*` via `configureBuilder.hostSettings.Configuration`, not env vars.
-- [ ] One shared startup deadline begins before Docker preflight/test-owned build and bounds Aspire create/build/start, named health waits, endpoint resolution, warm-up, and browser launch; subordinate caps cannot reset it.
+- [ ] Startup follows [One Startup Budget](#one-startup-budget): one monotonic deadline begun before Docker preflight/test-owned build, read from the tier's `*_STARTUP_TIMEOUT_SECONDS` variable, with subordinate caps that cannot reset it and the stated inconclusive-versus-red classification and failure diagnostics.
 - [ ] Recurrence, expiry, retention, lease, retry, and scheduled-window assertions inject a fixed `TimeProvider`; no expected count depends on `TimeProvider.System`.
 - [ ] Env vars set for AppHost are scoped/restored (e.g., via `EnvironmentVariableScope`).
 - [ ] Aspire-tier fixture is named for what it wraps (`AspireTestHost`, not `DatabaseFixture`).

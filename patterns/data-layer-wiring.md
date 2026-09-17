@@ -22,13 +22,17 @@ Declare all DbSets in the **abstract base context**, not in the concrete Trxn/Qu
 public abstract class {App}DbContextBase(DbContextOptions options)
     : DbContextBase<string, Guid?>(options)
 {
-    public DbSet<{Entity}> {Entity}s { get; set; } = null!;
-    public DbSet<{ChildEntity}> {ChildEntity}s { get; set; } = null!;
+    public DbSet<{Entity}> {Entities} { get; set; } = null!;
+    public DbSet<{ChildEntity}> {ChildEntities} { get; set; } = null!;
     // ... all entity DbSets here
 }
 ```
 
+`{Entities}` / `{ChildEntities}` are the English plurals of the entity names (`Category` -> `Categories`, `TaskItem` -> `TaskItems`), never the singular token plus a literal `s` - that yields `Categorys`. See [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) section Derivation Rules. Phase 4 emits the identical shape in its DbContext shells - [../ai/contract-scaffolding.md](../ai/contract-scaffolding.md).
+
 > **Do NOT** use the expression-body `=> Set<T>()` pattern - it creates a new `DbSet` instance on every access and defeats EF's internal caching.
+>
+> **One exception: a vendor interface-composition DbContext.** When `includeFlowEngine: true`, `{App}FlowEngineDbContext` composes the `EF.FlowEngine` interfaces (`IFlowEngineStateDbContext` + `IFlowEngineOutboxDbContext` + `IFlowEngineCircuitBreakerDbContext`) and satisfies their `DbSet` members with the expression body `=> Set<T>()`. That is the vendor's contract shape, and it is correct there. It applies only to the dedicated FlowEngine context and its vendor row types - never to `{App}DbContextBase` or any application entity DbSet.
 
 ### Registration
 
@@ -303,24 +307,18 @@ public class SeedDataTask(
 
 ## Scaffold Migration Strategy
 
-> **Greenfield only (GR-13):** This remove/recreate strategy applies to a fresh `/scaffold` build. `/scaffold-adopt` and `/vertical-slice` run against an established app and MUST preserve existing migration history - add an additive migration (`dotnet ef migrations add <Change>`) instead of removing. Do not run `migrations remove --force` in those flows.
+> **Greenfield only (GR-13):** This single-baseline strategy applies to a fresh `/scaffold` build. `/scaffold-adopt` and `/vertical-slice` run against an established app and MUST preserve existing migration history - add an additive migration (`dotnet ef migrations add <Change>`) instead. Do not run `migrations remove --force` in those flows.
 
-During a greenfield scaffold, the database schema is evolving rapidly. Use a single clean `InitialCreate` migration - do not accumulate incremental migrations.
-
-**Rule (greenfield):** Before creating a migration, remove any existing migrations first:
+**Rule (greenfield):** the schema is still evolving, so keep one clean `InitialCreate` baseline rather than accumulating incremental migrations:
 
 ```powershell
-# Remove all existing migrations
-dotnet ef migrations remove --force `
-  --project src/Infrastructure/{Project}.Infrastructure.Data `
-  --startup-project src/Host/{Host}.Api
-
-# Create a fresh baseline
 dotnet ef migrations add InitialCreate `
   --project src/Infrastructure/{Project}.Infrastructure.Data `
   --startup-project src/Host/{Host}.Api `
   --context {App}DbContextTrxn
 ```
+
+> **Removing an existing baseline is gated, not routine.** `dotnet ef migrations remove --force` is destructive and is owned by [../support/execution-gates.md](../support/execution-gates.md) section 5a (Lifecycle guard, GR-13): run it **only** when `.scaffold/resource-implementation.yaml` declares `migrationLifecycle: unreleased-resettable` **and** every affected environment has passed the reset/backup guard. The canonical default is `preserved-append-only`, under which shared migrations are never removed - re-baselining a default greenfield scaffold means adding an additive migration instead. Take the command and its per-provider repetition rule from `execution-gates.md`; do not re-derive it here.
 
 > **`--startup-project` must reference `Microsoft.EntityFrameworkCore.Design`.** The commands above point `--startup-project` at the API host - that only works if the API references the Design package. If the scaffold keeps the Design reference and a `DesignTimeDbContextFactory` in the **Data project only**, use the Data project as **both** `--project` and `--startup-project`:
 >

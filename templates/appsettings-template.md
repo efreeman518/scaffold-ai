@@ -103,17 +103,6 @@ This is a complete reference of all configuration sections used across the solut
 }
 ```
 
-When and only when the resource plan includes `FoundryLocal`, merge these properties into the API's `AiServices` section. Do not emit this native-runtime surface for `None`, `AzureInference`, or `OpenAICompatible`:
-
-```json
-{
-  "DisableFoundryLocal": false,
-  "RequireFoundryLocal": false,
-  "LocalModel": "qwen2.5-0.5b",
-  "LocalWebUrl": "http://127.0.0.1:52415"
-}
-```
-
 ## Gateway appsettings.json
 
 ```json
@@ -206,5 +195,5 @@ When and only when the resource plan includes `FoundryLocal`, merge these proper
 - Phase 2 maps `hostingLaneDefaults.<active>.dataProtectionPersistence` to runtime `DataProtection:Persistence`; `TASKFLOW_DATAPROTECTION_PERSISTENCE` is the environment override. `AzureBlob` requires either `DataProtectionKeysFileUrl` or the `BlobStorage1` endpoint/connection used to derive it; `Redis` requires `Redis1`; `None` is limited to isolated development/test hosts. Key Vault encryption is independent and optional. Tests that select a persistence arm must inject that arm's required input. See [security.md](../skills/security.md#data-protection). Supply credentials through managed identity, never URL query strings.
 - `ServiceAuth` section in Gateway maps cluster IDs to OAuth2 client credential configs
 - `AuthMode` belongs on each auth-owning host and must be one validated value (`Scaffold`, `Local`, or `Entra`); production hosts use the same intended mode across the chain
-- `AiServices:Provider` is the sole activation source. Endpoint, deployment, and connection values validate the selected provider but never activate it. Default to `None`. `OpenAICompatible` additionally requires `AiServices:ApiKey`, supplied only through user secrets or an environment/secret store. Select `FoundryLocal` only when the optional native runtime was explicitly requested; that arm emits its conditional settings with `DisableFoundryLocal=false`. `Test.FoundryLocal` also sets `RequireFoundryLocal=true`.
+- `AiServices:Provider` is the sole activation source. Endpoint, deployment, and connection values validate the selected provider but never activate it. Default to `None`. `OpenAICompatible` additionally requires `AiServices:ApiKey`, supplied only through user secrets or an environment/secret store.
 - For production/Azure: use Key Vault references or App Configuration for secrets

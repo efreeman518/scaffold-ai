@@ -40,11 +40,11 @@ See `.instructions/ai/adopt-codebase.md` section Gate. Required checks: `domain-
 
 ## Constraints
 
-- DO NOT modify any source code, project files, or solution files. This skill produces docs only.
-- DO NOT generate stubs for absent features. Record absences as deferred `D-###` decisions with `inferred-from: absence`.
-- DO NOT recommend refactors. Surface violations of canonical patterns as design decisions; leave code untouched.
-- DO NOT modify files under `.instructions/` - only write to `.scaffold/` and `HANDOFF.md` at project root.
-- DO NOT proceed if the solution does not build - fix or branch from a known-good commit first.
+- **Do not modify any source code**, project files, or solution files. This skill produces docs only.
+- Do not generate stubs for absent features. Record absences as deferred `D-###` decisions with `inferred-from: absence`.
+- Do not recommend refactors. Surface violations of canonical patterns as design decisions; leave code untouched.
+- Do not modify files under `.instructions/` - only write to `.scaffold/` and `HANDOFF.md` at project root.
+- Do not proceed if the solution does not build - fix or branch from a known-good commit first.
 - Follow existing public type/property names exactly when building the language file (preserve casing).
 
 ## Output

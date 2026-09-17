@@ -1,7 +1,6 @@
 ---
 name: fold-feedback
-description: "Fold external feedback or a target app's .scaffold/INSTRUCTION-GAPS.md into the correct owner instruction file in this source repo, validate, then reinstall to affected apps. Source-repo maintainer skill. Trigger: /fold-feedback."
-trigger: /fold-feedback
+description: "Fold external feedback or a target app's .scaffold/INSTRUCTION-GAPS.md into the correct owner instruction file in this source repo, validate, then reinstall to affected apps. Source-repo maintainer skill. Trigger: /fold-feedback. Use when: fold feedback, instruction gaps, INSTRUCTION-GAPS.md, consumer app reported a gap, apply scaffolding feedback, update the instruction set from a target app."
 ---
 
 # /fold-feedback
@@ -17,7 +16,7 @@ Maintainer skill for the **source repo only**. Intake new guidance - a coding ag
 
 1. **Read the input.** The feedback text, or a target's `.scaffold/INSTRUCTION-GAPS.md`. Also sweep the target's `docs/scaffolding-feedback-*.md` - feedback sometimes lands there instead of the gap file. Restate the input as concrete rules before touching any file.
    Once folded, feedback is consumed: clear the folded entries from `INSTRUCTION-GAPS.md` and delete the folded `docs/scaffolding-feedback-*.md` files. The baseline carries no provenance - the instructions state the pattern as canon, and the target repo keeps no record of what prompted it.
-2. **Find the canonical owner.** Authority hierarchy (GR-12): `START-AI.md` -> `support/execution-gates.md` -> `ai/SKILL.md` -> `skills/*` -> `templates/*`. Volatile facts and shared rules live once in the owner; every other file carries a one-line pointer, never a restatement (SSOT principles in `maintenance/INSTRUCTION-SET-MAINTENANCE.md`).
+2. **Find the canonical owner.** Authority is domain-scoped (GR-12): routing/loading/session boundaries -> `START-AI.md`; validation commands and gates -> `support/execution-gates.md`; implementation -> `ai/SKILL.md` over `skills/*` over `templates/*`. Volatile facts and shared rules live once in the owner; every other file carries a one-line pointer, never a restatement (SSOT principles in `maintenance/INSTRUCTION-SET-MAINTENANCE.md`).
 3. **Edit source instruction files only.** Never edit a target app's installed `.instructions/` (GR-07). Match the house voice: compressed, no em dash / emoji, `->` for arrows, no version numbers in baseline docs. Apply [Selective rationale](../../../maintenance/README.md#selective-rationale).
 4. **Validate.** `py -3 scripts/validate-instructions.py`; re-run the canary check; if you consolidated a topic, add a canary in `maintenance/INSTRUCTION-SET-MAINTENANCE.md`.
 5. **Reinstall.** For each affected consumer app: `py -3 scripts/install-to-project.py --target "<app>" --verify` (content-aware: unchanged files skipped, changed files overwritten and listed; see `/install-instructions`). Never install into `scaffold-proof` - the reference app is the payload-free proof, not a consumer.

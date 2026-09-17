@@ -74,11 +74,23 @@ Walk these branches in order. Revisit earlier branches when a later answer chang
 | Interfaces | API, UI, background hosts, integrations, AI capabilities | actors, workflows, resources |
 | Delivery constraints | scaffold mode, test profile, regions, cost, team constraints | all prior branches |
 
-> **Heads-up - Phase 2 will open with packaging strategy.** The very first Phase 2 question asks whether the project has a private NuGet feed for shared base contracts (e.g., `EF.*`) or whether the scaffold should generate equivalent packable projects under `src/Packages/<Prefix>.*`. Flag any constraints here (corporate feed policy, prefix conventions) so Phase 2 doesn't re-discover them. Full details: [resource-implementation-schema.md section Discovery Conversation Pattern](resource-implementation-schema.md#discovery-conversation-pattern).
+> **Heads-up - Phase 2 will open with packaging strategy.** The very first Phase 2 question asks whether the project has a private NuGet feed for shared base contracts (e.g., `EF.*`) or whether the scaffold should generate equivalent packable projects under `src/Packages/<packagePrefix>.*`. Flag any constraints here (corporate feed policy, prefix conventions) so Phase 2 doesn't re-discover them. Full details: [resource-implementation-schema.md section Discovery Conversation Pattern](resource-implementation-schema.md#discovery-conversation-pattern).
 
 > **Heads-up - the Sensitive-Data Trigger fires in the Security branch.** A property holding PII, a secret, or regulated data raises a column-level-encryption decision. See [Sensitive-Data Trigger](#sensitive-data-trigger) below.
 
 > **Heads-up - the Ubiquitous-language branch asks one enterprise-model question.** If this domain must line up with a shared glossary, an upstream ontology, or an analytics ontology, the spec gains an opt-in `ontology:` block and Phase 1 generates a projection from it. Ask once; default is no. See [Enterprise Model Alignment Decision](#enterprise-model-alignment-decision) below.
+
+### Scale the Interview to the Scaffold
+
+The table is a **coverage contract, not a script**. Every branch must end `confirmed`, `defaulted`, or `deferred` - but not every branch needs its own round-trip. Thirteen separate recaps on a one-entity API is over-asking, and over-asking is a defect: it burns the developer's attention before the branches that actually shape generated code.
+
+- **Size the pass to the scaffold first.** For a small scaffold (one or two entities, `scaffoldMode: api-only` or `lite`, no optional hosts, no UI, no async workflows), open by naming the branches that plainly do not apply, and batch them into **one** confirmation: list each with its canonical default and a one-line reason, then ask a single "correct anything in this list before I continue?" Everything the developer does not correct is recorded `defaulted` in `.scaffold/DESIGN-DECISIONS.md` exactly like any individually-confirmed branch.
+- **A branch may only be batched** when a canonical default covers it in [resource-implementation-schema.md](resource-implementation-schema.md) section Canonical Defaults, or the honest answer for this domain is "none" (no workflows, no external systems, one actor, one tenant). Anything else keeps its own question.
+- **Five branches never batch**, because their answers become code: Purpose, Ubiquitous language, Entities and aggregates, Relationships, Rules and policies. These always get their own recap and confirm.
+- **Batching is provisional.** A batched branch reopens the moment a later answer touches it - the same rule as any other branch (Revisit earlier branches when a later answer changes them).
+- **Scale up as well as down.** More entities, more personas, multi-lane hosting, or compliance scope means more rounds, not fewer.
+
+Minimum-viable path and its prompt: [../support/minimum-viable-scaffold.md](../support/minimum-viable-scaffold.md). Worked pacing: [../support/phase-1-worked-example.md](../support/phase-1-worked-example.md) section What This Example Is Not.
 
 > **Heads-up - the Interfaces branch decides UI topology.** When the Actors-and-roles branch found more than one persona (e.g. a distinct admin/operator role vs the primary end user), the Interfaces branch must decide whether a **separate admin portal** is needed - not just which single UI stack to use. Resolve this before Phase 2 sets the host flags; a second head retrofitted after Phase 4 is expensive. See [Multi-Head UI Decision](#multi-head-ui-decision) below.
 

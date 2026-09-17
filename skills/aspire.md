@@ -1,5 +1,8 @@
 # Aspire Orchestration
 
+> **When to read:** Phase 5b/5c, when choosing an Aspire hosting integration, writing the publish-mode branch, wiring Gateway destinations or emulators, or diagnosing an AppHost/substrate failure.
+> **Skip if:** the solution has no AppHost; the task is the canonical run-mode resource graph itself (owned by `../patterns/infrastructure-wiring.md`); pure domain, application, or UI work.
+
 Use Aspire AppHost for local orchestration and keep it consistent with IaC outputs.
 
 Reference patterns: [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) (Aspire Resource Wiring).
@@ -18,7 +21,7 @@ The integration catalog is the source of truth for the AppHost API, required hos
 When a Phase 2 resource requirement names a service in the Aspire left menu:
 
 1. Prefer the official Aspire hosting integration when it exists.
-2. For Azure services, prefer unified `AddAzure*` resources when `deployTarget` needs Azure infrastructure. Add `RunAsEmulator`, `RunAsContainer`, or `RunAsFoundryLocal` only for run mode.
+2. For Azure services, prefer unified `AddAzure*` resources when `deployTarget` needs Azure infrastructure. Add `RunAsEmulator` or `RunAsContainer` only for run mode.
 3. If the Azure overview does not list a local emulator/container path for that service, treat local execution as `lazy-optional`, `no-op stub`, or `deployment-only` unless the service-specific page documents a current `RunAs*` path.
 4. For non-Azure services in the catalog, use the service-specific `Add*` hosting integration and its documented container/local behavior.
 5. Add the matching client integration in the consuming host only when app code needs a typed client. AppHost resources alone do not register application services.
@@ -32,8 +35,7 @@ Use this matrix as the default for Azure left-menu services. Re-check the servic
 | --- | --- | --- |
 | Azure emulators | App Configuration, Cosmos DB, Event Hubs, Service Bus, SignalR Service, Storage Blob/Queue/Table via Azure Storage | Use `AddAzure*().RunAsEmulator(...)` in run mode, real Azure on publish. Storage uses Azurite; Cosmos can use the preview emulator/Data Explorer where appropriate. |
 | Azure local containers | Azure Cache for Redis, Azure PostgreSQL Flexible Server, Azure SQL Database/Server | Use `AddAzure*().RunAsContainer(...)` in run mode, real Azure on publish (Redis: `AddAzureManagedRedis` - see Aspire API Facts). Prefer this over plain `AddRedis`, `AddPostgres`, or `AddSqlServer` when the published target must be Azure-managed. |
-| Azure AI local path | Microsoft Foundry (model inference) | Only explicit `AiServices:Provider=FoundryLocal` activates the conditional SDK-direct API-host workaround; `None` never probes it. The preferred `AddFoundry(...).RunAsFoundryLocal()` is temporarily broken (dotnet/aspire#12750, see *Azure AI Foundry* -> Known issue). Explicit `AzureInference` uses Azure Foundry; an existing account uses `RunAsExisting`/`PublishAsExisting`/`AsExisting`. |
-| Azure AI cloud-only by default | Azure AI Inference, Azure AI Search, Azure OpenAI, Foundry projects + server-hosted agents (`AddProject`/`AddPromptAgent`) | Use live Azure only when explicitly selected and configured; use no-op stubs locally otherwise unless the current service page documents a local `RunAs*` path. Azure AI Search has no local emulator in this scaffold. Foundry prompt agents always deploy to Azure even under `aspire run` (no offline path), so keep them opt-in. |
+| Azure AI cloud-only | Microsoft Foundry (model inference), Azure AI Inference, Azure AI Search, Azure OpenAI, Foundry projects + server-hosted agents (`AddProject`/`AddPromptAgent`) | Use live Azure only when `AiServices:Provider` explicitly selects it and its settings validate; otherwise no-op stubs locally. There is no on-device model lane - `None` is the offline answer. An existing account uses `RunAsExisting`/`PublishAsExisting`/`AsExisting`. Azure AI Search has no local emulator in this scaffold. Foundry prompt agents always deploy to Azure even under `aspire run` (no offline path), so keep them opt-in. |
 | Azure app/platform resources | App Service, Container Registry, AKS, Container App Jobs, Front Door, Virtual Network, Log Analytics, Application Insights, Data Explorer, Data Lake Storage, Web PubSub, Key Vault, User-assigned managed identity, role assignments | Model for publish or existing-resource wiring. Do not assume a local emulator. Use `RunAsExisting`, `PublishAsExisting`, `AsExisting`, or app-level no-op/lazy wiring as appropriate. |
 
 ### Non-Azure Local Integration Families
@@ -42,7 +44,7 @@ The Aspire catalog also lists local/container integrations outside Azure. Use th
 
 | Category | Left-menu services | Scaffold stance |
 | --- | --- | --- |
-| Artificial Intelligence | GitHub Models, Ollama, OpenAI | Only add when `includeAiServices: true`. Prefer local Ollama or Foundry Local for offline demos when explicitly selected; otherwise keep no-op AI services so the app boots. |
+| Artificial Intelligence | GitHub Models, Ollama, OpenAI | Only add when `includeAiServices: true`. The scaffold's supported provider set is Azure, OpenAI-compatible, or none - see [ai-integration.md](ai-integration.md) -> *Provider Activation Contract*. Keep no-op AI services so the app boots offline. |
 | Caching and state | Redis, Redis Distributed Cache, Redis Output Cache, Valkey, Garnet | Use the documented hosting integration for local state. The scaffold default remains FusionCache plus Redis unless Phase 2 selects another cache. |
 | Data and databases | ClickHouse, Elasticsearch, EF Core integrations, KurrentDB, Meilisearch, Milvus, MongoDB, MySQL, Oracle, PostgreSQL, Qdrant, RavenDB, SQL Server, SQLite, SurrealDB | Pick by domain need. SQL remains default for relational aggregates. Vector/search stores are optional projection stores, not source of truth, unless Phase 2 records that decision. |
 | Messaging and eventing | Apache Kafka, LavinMQ, NATS, RabbitMQ | Use when the domain eventing requirement fits better than Azure Service Bus. Record delivery semantics, local container support, and publish/deployment story. |
@@ -114,55 +116,30 @@ This is why the Gateway belongs in the default test graph: the AppHost is the on
 
 ## Publish-Mode Branch (deployTarget: ContainerApps)
 
-Key the deployable graph on `builder.ExecutionContext.IsPublishMode` so the SAME model runs locally (run mode) and provisions Azure resources on publish. Swap the local-only resource types for the unified `AddAzure*` types and guard every emulator/run-only affordance behind the execution context.
+Key the deployable graph on `builder.ExecutionContext.IsPublishMode` so the SAME model runs locally (run mode) and provisions Azure resources on publish. Start from the run-mode graph in [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) (Aspire Resource Wiring); this branch only swaps the local-only resource types for the unified `AddAzure*` types and guards every emulator/run-only affordance behind the execution context.
 
 ```csharp
-var builder = DistributedApplication.CreateBuilder(args);
-
 // ACA environment + dashboard exist only in the published graph.
 if (builder.ExecutionContext.IsPublishMode)
-{
     builder.AddAzureContainerAppEnvironment("cae").WithDashboard();
-}
 
-// SQL: unified Azure type. RunAsContainer for local; provisions Azure SQL on publish.
+// Unified Azure types: local affordance in run mode, provisioned Azure resource on publish.
 var sql = builder.AddAzureSqlServer("sql");
-if (!builder.ExecutionContext.IsPublishMode)
-{
-    // Keep the fixed local port + password parameter OUT of the publish manifest:
-    // create the parameter inside the run-mode branch so azd never prompts for it.
-    var sqlPassword = builder.AddParameter("sql-password", LocalSqlSettings.SharedSaPassword, secret: true);
-    sql = sql.RunAsContainer(c =>
-    {
-        c.WithHostPort(38433)            // first-class on SqlServerServerResource
-         .WithPassword(sqlPassword)
-         .WithImageTag("<resolved-reviewed-sql-tag>")
-         .WithImageSHA256("<resolved-sql-manifest-sha256>");
-        // Persistent lifetime + named volume are a local `dotnet run` convenience. Under test
-        // (IsAspireTesting()) leave the container ephemeral so DisposeAsync owns teardown - see Rules below.
-        if (!IsAspireTesting())
-            c.WithLifetime(ContainerLifetime.Persistent)
-             .WithDataVolume("{project}-sql-data");
-    });
-}
-var projectDb = sql.AddDatabase("{project}db");
-
-// Storage / Service Bus: unified Azure type, emulator guarded to run mode.
 var storage = builder.AddAzureStorage("storage");
-if (!builder.ExecutionContext.IsPublishMode) storage.RunAsEmulator();
-
 var serviceBus = builder.AddAzureServiceBus("servicebus");
-if (!builder.ExecutionContext.IsPublishMode) serviceBus.RunAsEmulator();
-
-// Cosmos: preview emulator guarded to run mode; account created on publish.
 var cosmos = builder.AddAzureCosmosDB("cosmos");
+
 if (!builder.ExecutionContext.IsPublishMode)
 {
+    // Create the sql-password parameter INSIDE this branch (see Run-Mode Parameter Placement) so
+    // azd never prompts for it. Container/port/lifetime details: infrastructure-wiring.md.
+    var sqlPassword = builder.AddParameter("sql-password", LocalSqlSettings.SharedSaPassword, secret: true);
+    sql = sql.RunAsContainer(c => c.WithHostPort(38433).WithPassword(sqlPassword) /* tag + SHA256 */);
+    storage.RunAsEmulator();
+    serviceBus.RunAsEmulator();
     cosmos.RunAsPreviewEmulator(e => e.WithGatewayPort(8081).WithDataExplorer(1234));
 }
-
-var api = builder.AddProject<Projects.{Host}_Api>("{host}api")
-    .WithReference(projectDb, connectionName: "{Project}DbContextTrxn");
+var projectDb = sql.AddDatabase("{project}db");
 
 // Ingress: WithExternalHttpEndpoints ONLY on services that must be public.
 var gateway = builder.AddProject<Projects.{Gateway}_Gateway>("{gateway}")
@@ -194,24 +171,13 @@ The fixed local SQL port and the `sql-password` parameter live INSIDE the `RunAs
 
 Use `Aspire.Hosting.Foundry` to model a chat model that provisions Azure on publish. The package is preview-only - pin it with an inline reason in `Directory.Packages.props`. The deployment resource name is the connection name consumers bind to.
 
-> **Local path note (canonical owner: [ai-integration.md](ai-integration.md), "SDK-direct API-host bootstrap").** `RunAsFoundryLocal()` is broken against GA Foundry Local (dotnet/aspire#12750); the conditional local path uses the SDK-direct API-host workaround with no `chat` resource. Only explicit `AiServices:Provider=FoundryLocal` enters it; a testing AppHost selects `None` and keeps `AiServices:DisableFoundryLocal=true`. Diagnosis, API-host bootstrap, future-restored branch, and migration live there.
+**Provider doctrine, the lifecycle x consumption axes, the lifecycle table, and the model-selection rule are owned by [ai-integration.md](ai-integration.md)** (*Provider Activation Contract*, *Aspire Integration*). The AppHost wiring snippet is owned by [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) (its Azure AI Foundry wiring), loaded in the same Phase 5b session. Do not restate either here.
 
-Two independent axes - **lifecycle** (where the resource comes from) x **consumption** (raw inference vs. project + server-hosted agents). The lifecycle modes (`FoundryResource : AzureProvisioningResource`, so the general existing-resource APIs apply):
+The AppHost-side facts this file owns:
 
-| Mode | AppHost condition | Result |
-|---|---|---|
-| Foundry Local (conditional: `sdk-direct-api-host`) | `AiServices:Provider=FoundryLocal` and `AiServices:DisableFoundryLocal=false` | Temporary workaround: no `chat` resource; the API host starts `Microsoft.AI.Foundry.Local`. Startup failure is red after optional-runtime preflight. Preferred `RunAsFoundryLocal()` is broken (see Known issue). No Azure subscription needed. Inference only. |
-| Provision new Azure Foundry | `AiServices:Provider=AzureInference`, publish/provision lifecycle | Bicep provisions the account + deploys the model after required settings validate. |
-| Connect to existing | `AiServices:Provider=AzureInference`, existing-account lifecycle, plus `FoundryResourceName`/`FoundryResourceGroup` | `RunAsExisting(nameParam, rgParam)` / `PublishAsExisting(...)` / `AsExisting(...)` point at an already-provisioned account; the deployment name must match a model already there. |
-| Disabled | `AiServices:Provider=None` | No `chat` resource is wired; app registers no-op AI services. Raw endpoint/deployment settings do not activate a provider. |
-
-The AppHost wiring snippet (Azure branch + local var-forward + existing-account) is owned by [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) (its Azure AI Foundry wiring), loaded in the same Phase 5b session - do not restate it here.
-
-- If code-hosted agents or workflow agent nodes call tools, select a local model whose Foundry Local task list includes `tools`. `qwen2.5-0.5b` is a small pragmatic default; `phi-4` is chat-only.
-- Foundry Local is explicit, never availability-driven. Select `FoundryLocal` only when the optional native runtime is required; startup failure is red after optional-runtime preflight. `AiServices:DisableFoundryLocal=true` remains a defense-in-depth guard for offline and RID-free tiers.
-- `Test.Aspire` is RID-free, selects `None`, and keeps `AiServices:DisableFoundryLocal=true`; Azure live smoke runs there only for explicit `AzureInference`. Foundry Local live proof belongs in `Test.FoundryLocal`, which sets `Provider=FoundryLocal`, `DisableFoundryLocal=false`, and `RequireFoundryLocal=true`, starts the API host directly, and requires `/api/v1/ai/status provider=local`.
-- Fully local run: set `AiServices:Provider=FoundryLocal` and `AiServices:DisableFoundryLocal=false`, then run the AppHost. Real Azure run: select `AiServices:Provider=AzureInference` and supply its required endpoint/deployment settings. Raw configuration presence and publish mode do not override the selected provider.
-- Projects + server-hosted agents are an Axis-2 escalation (Azure-only): see [ai-integration.md](ai-integration.md) (Foundry Projects and Server-Hosted Agents).
+- `FoundryResource : AzureProvisioningResource`, so the general existing-resource APIs apply: `RunAsExisting(nameParam, rgParam)` / `PublishAsExisting(...)` / `AsExisting(...)` point at an already-provisioned account, and the deployment name must match a model already deployed there.
+- `AiServices:Provider` is the only activation source in the graph. `AzureInference` wires the Foundry account + `chat` deployment; `OpenAICompatible` and `None` wire no `chat` resource. Raw endpoint/deployment settings and publish mode never override the selected provider.
+- **The testing AppHost bakes its provider in at graph construction.** `Test.Aspire` selects `AiServices:Provider=None` by default. Its optional Azure live smoke does not re-flip that on the shared graph - AppHost environment variables are read once when the graph is built, so a lazily-started shared graph cannot change provider per test. The live lane constructs its **own** graph with `AzureInference` selected before creation. See [ai-integration.md](ai-integration.md) -> *Deciding the Live Lane*.
 
 ---
 
@@ -446,7 +412,7 @@ Aspire resolves `AddParameter` values in this priority order (highest wins):
 - **Never put `Parameters:sql-password` (or any credential parameter) in any AppHost `appsettings` file.** It overrides everything silently. Keep those files as `{}` or omit the `Parameters` key entirely.
 - **Define passwords as a single shared constant** (e.g., `LocalSqlSettings.SharedSaPassword`). Use that constant as the `AddParameter` default and in test fixture setup. Change in one place only.
 - **Persistent SQL volumes lock in the SA password at volume creation time.** If you change the password constant, you must delete the named volume (e.g., `taskflow-sql-data`) before the next run - the container will re-initialize with the new password.
-- **Gate persistent lifetime + data volume on `!IsAspireTesting()`.** Apply `.WithLifetime(ContainerLifetime.Persistent)` and `.WithDataVolume(...)` only in local `dotnet run` (see the canonical example above). Under `IsAspireTesting()` the container must stay **ephemeral** so that `DistributedApplication.DisposeAsync()` in the mesh fixture's teardown removes exactly the containers that run started - no machine-wide cleanup, no leaked SQL/Redis container holding a port, and no risk to another project's or session's containers. This is what lets the test tier avoid any `docker rm` sweep entirely. The `IsAspireTesting()` helper already exists (the same one that gates opt-in resources - see [../skills/testing.md](../skills/testing.md), Opt-In Graph Scope).
+- **Gate persistent lifetime + data volume on `!IsAspireTesting()`.** Apply `.WithLifetime(ContainerLifetime.Persistent)` and `.WithDataVolume(...)` only in local `dotnet run` (canonical graph: [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section Aspire Resource Wiring). Under `IsAspireTesting()` the container must stay **ephemeral** so that `DistributedApplication.DisposeAsync()` in the mesh fixture's teardown removes exactly the containers that run started - no machine-wide cleanup, no leaked SQL/Redis container holding a port, and no risk to another project's or session's containers. This is what lets the test tier avoid any `docker rm` sweep entirely. The `IsAspireTesting()` helper already exists (the same one that gates opt-in resources - see [testing.md](testing.md), Opt-In Graph Scope).
 - **Killing the AppHost process does not stop Docker/Podman containers.** Persistent containers are intentional - clean them up **deliberately, by this project's resource name/volume**, never by a generic Aspire label:
   ```bash
   docker rm -f {project}-sql {project}-redis     # by name (RunAsContainer resource names)
@@ -464,7 +430,7 @@ public static class LocalSqlSettings
     public const string SharedSaPassword = "YourStr0ngP@ssword!";
 }
 
-// AppHost/Program.cs
+// AppHost/AppHost.cs
 var sqlPassword = builder.AddParameter("sql-password", LocalSqlSettings.SharedSaPassword, secret: true);
 var sqlServer = builder.AddSqlServer("sql", sqlPassword)
     .WithLifetime(ContainerLifetime.Persistent)
@@ -601,15 +567,7 @@ Before running `dotnet run --project src/Host/Aspire/AppHost`, confirm the subst
    Without this, the SQL container starts but cannot authenticate. Not needed when the parameter is created with an inline value (the canonical AppHost passes `LocalSqlSettings.SharedSaPassword`) or when `AddAzureSqlServer(...).RunAsContainer()` runs bare - see Aspire API Facts.
 5. **Ports available:** No stale containers holding SQL/Redis ports. Run `docker ps` / `podman ps` to check.
 6. **NuGet restore clean:** `dotnet restore` on the AppHost project succeeds (catches `packageSourceMapping` issues before launch).
-7. **Foundry Local (only if running AI demos on-device):** the current SDK-direct API-host workaround needs **no** Foundry CLI/runtime on `PATH` - `Microsoft.AI.Foundry.Local` is self-contained and downloads its providers + model on first run. The `winget`/`foundry` install below applies only to the **future** `RunAsFoundryLocal()` path (after the Aspire fix, see *Azure AI Foundry*):
-   ```powershell
-   winget install Microsoft.FoundryLocal
-   foundry --version
-   foundry service status
-   foundry model info qwen2.5-0.5b
-   foundry model download qwen2.5-0.5b
-   ```
-   Use a model with `tools` support for agent demos. `foundry model list` can log catalog-processing errors on some CLI versions even when explicit `model info` and `model download` work, so use explicit model checks during setup. Skip this if you only use a real Azure Foundry endpoint or run with AI disabled (no-op `IChatClient`).
+7. **AI provider (only when `includeAiServices: true`):** the default `AiServices:Provider=None` needs nothing installed - the app boots with a no-op `IChatClient`. A live run needs the selected provider's configuration present before launch (Azure endpoint/deployment, or OpenAI-compatible endpoint/model/secret key); see [ai-integration.md](ai-integration.md) -> *Local Run Preflight*. There is no on-device model runtime to install.
 8. **Functions Core Tools (only if running Azure Functions locally):**
    ```powershell
    npm i -g azure-functions-core-tools@4 --unsafe-perm true

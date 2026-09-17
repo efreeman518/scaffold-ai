@@ -233,7 +233,7 @@ public class AiSettings
 Create only the fields you query. Add vector search configuration only when the document includes vector fields.
 
 ```csharp
-var index = new SearchIndex("{entity}-index")
+var index = new SearchIndex("{SearchIndex}")
 {
     Fields = new FieldBuilder().Build(typeof({Entity}SearchDocument)),
     SemanticSearch = new()
@@ -252,4 +252,9 @@ var index = new SearchIndex("{entity}-index")
 await indexClient.CreateOrUpdateIndexAsync(index);
 ```
 
-When index naming is provided by resource mapping, use `{SearchIndex}` as the index name token.
+`{SearchIndex}` is the **only** index-name token - use it everywhere the index is named (creation above, the `SearchIndexName` setting, and every `SearchClient`), so one value cannot drift into two spellings. It resolves in one of two ways:
+
+1. The search index name supplied by resource mapping, when there is one.
+2. Otherwise the default derivation `{entity}-index` (`TodoItem` -> `todoitem-index`).
+
+Do not write `{entity}-index` literally; resolve `{SearchIndex}` once and emit the resolved value.

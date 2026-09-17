@@ -54,7 +54,6 @@ C#-specific operator content:
 - [`support/final-scaffold-checklist.md`](../support/final-scaffold-checklist.md) - solution-level acceptance.
 - [`support/taskflow-proof-map.md`](../support/taskflow-proof-map.md) - pointer to the TaskFlow reference app (Aspire + dual DbContext + YARP + Uno + Blazor + React).
 - [`support/scalability-and-hosting.md`](../support/scalability-and-hosting.md) - conditional scale, provider-switch, multi-lane, runtime, health, and proof rules.
-- [`support/scaffold-proof-scale-audit-2026-09-04-to-2026-09-09.md`](../support/scaffold-proof-scale-audit-2026-09-04-to-2026-09-09.md) - dated evidence and promotion decisions from the TaskFlow scale refactor.
 - [`support/reference-app.md`](../support/reference-app.md) - consultation rules for TaskFlow.
 - [`support/OPERATIONS.md`](../support/OPERATIONS.md) - fail-fast, git checkpoint, missing-inputs, rollback, mixed-store gate. C#-bound through its examples; the operational concepts are reusable.
 - [`support/phase-1-worked-example.md`](../support/phase-1-worked-example.md) - transcript from the TaskFlow Phase 1 interview. Phase 1 itself is universal, but this example is a C#-bound illustration.
@@ -82,7 +81,7 @@ These files are stack-agnostic and should stay so. A second profile would consum
 
 - [`ai/shared-understanding-interview.md`](../ai/shared-understanding-interview.md) - Phase 1 interview (entities, events, roles, workflows, business rules in pure business language).
 - [`ai/domain-specification-schema.md`](../ai/domain-specification-schema.md) - Phase 1 output schema. **Known leak:** carries one C#-specific section warning against entity names that collide with C# framework types (`Task`, `Thread`, `Type`, `File`, `Path`, etc.). Left in place. If a second profile ships, extract this warning into the profile and replace it with a generic "consult the active profile for stack-specific naming rules" pointer.
-- [`ai/shared-understanding-interview.md`](../ai/shared-understanding-interview.md) - Phase 1 interview. **Known leak:** a "Heads-up - Phase 2 will open with packaging strategy" callout mentions private NuGet feeds, `EF.*` packages, and `src/Packages/<Prefix>.*` (Phase-2/C# concepts). Left in place. Same extraction path as the schema leak above if a second profile ships.
+- [`ai/shared-understanding-interview.md`](../ai/shared-understanding-interview.md) - Phase 1 interview. **Known leak:** a "Heads-up - Phase 2 will open with packaging strategy" callout mentions private NuGet feeds, `EF.*` packages, and `src/Packages/<packagePrefix>.*` (Phase-2/C# concepts). Left in place. Same extraction path as the schema leak above if a second profile ships.
 - [`templates/ubiquitous-language-template.md`](../templates/ubiquitous-language-template.md) - domain vocabulary template.
 - [`templates/design-decisions-template.md`](../templates/design-decisions-template.md) - design-decision log template.
 - `schemas/domain-specification.schema.json` - JSON Schema for the Phase 1 output.

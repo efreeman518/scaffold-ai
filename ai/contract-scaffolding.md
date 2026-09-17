@@ -43,7 +43,7 @@ Follow `solution-structure.md` exactly:
 - Production project folders under `src/`; test project folders under sibling `tests/`
 - All `.csproj` files per the canonical layout
 - Project references wired per the dependency direction contract
-- Test projects per `testingProfile` + capability flags (the generation table in [../skills/testing.md](../skills/testing.md) Capability-Gated Test Tiers is authoritative): always `Test.Support`, `Test.Unit`, `Test.Endpoints`; `balanced`+ adds `Test.Integration` (component) + `Test.Architecture` (+ `Test.UI` when UI model/presentation coverage exists); `Test.Aspire` (mesh) and `Test.E2E` only under `comprehensive` or their explicit flags (`includeAspireTests` / `includeE2ETests`); `Test.FoundryLocal` when `includeAiServices: true` and Foundry Local provider is in scope; `comprehensive` adds `Test.PlaywrightUI`, `Test.Load`, `Test.Benchmarks`, `Test.Mutation`
+- Test projects per `testingProfile` + capability flags (the generation table in [../skills/testing.md](../skills/testing.md) Capability-Gated Test Tiers is authoritative): always `Test.Support`, `Test.Unit`, `Test.Endpoints`; `balanced`+ adds `Test.Integration` (component) + `Test.Architecture` (+ `Test.UI` when UI model/presentation coverage exists); `Test.Aspire` (mesh) and `Test.E2E` only under `comprehensive` or their explicit flags (`includeAspireTests` / `includeE2ETests`); `comprehensive` adds `Test.PlaywrightUI`, `Test.Load`, `Test.Benchmarks`, `Test.Mutation`
 
 ### 2. Contracts (Per Entity)
 
@@ -96,7 +96,7 @@ public interface I{Entity}Service
 // Application.Contracts/Repositories/I{Entity}RepositoryQuery.cs (bespoke reads only)
 public interface I{Entity}RepositoryQuery : IRepositoryQuery<{Entity}, {Entity}Id>   // hybrid / generic-only: extend the generic pair
 {
-    Task<PagedResponse<{Entity}Dto>> Search{Entity}sAsync(SearchRequest<{Entity}SearchFilter> request, CancellationToken ct = default);
+    Task<PagedResponse<{Entity}Dto>> Search{Entities}Async(SearchRequest<{Entity}SearchFilter> request, CancellationToken ct = default);
 }
 ```
 
@@ -176,8 +176,9 @@ public class {Entity} : EntityBase<{Entity}Id>, ITenantEntity<TenantId>
 - `Utility.cs` - config builder + random string helper
 - `TestConstants.cs` - `DefaultTenantId`, `SystemUserId`
 - `JsonTestOptions.cs` - shared `JsonSerializerOptions` mirroring the API host's `ConfigureHttpJsonOptions` (case-insensitive + `JsonStringEnumConverter`). Required so endpoint / E2E tests deserialize string enums consistently. See [test-templates-endpoint.md](../templates/test-templates-endpoint.md) section Shared JSON Options.
-- `LocalSqlSettings.cs` - exposes a single `SharedSaPassword` constant used by the Aspire test host fixture to drive `Parameters:sql-password` (matches the AppHost parameter name). Keep this in `Test.Support` so both `Test.E2E` and `Test.Integration` consume the same value.
 - `WebApplicationFactoryBase.cs` - thin app adapter deriving `EF.IntegrationTesting.AspNetCore.EfWebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>` (the package owns the pooled-EF + interceptor + scoped-factory swap-out). Constrained to `DbContextBase<string, Guid?>` (the EF.Packages canonical audit/tenant shape). Both `tests/Test.Endpoints/CustomApiFactory` and `tests/Test.E2E/SqlApiFactory` derive from it - see [test-templates-endpoint.md](../templates/test-templates-endpoint.md) section Shared WebApplicationFactoryBase for the adapter shape.
+
+> **`LocalSqlSettings.cs` belongs to the AppHost, not `Test.Support`.** Generate it at `src/Host/Aspire/AppHost/LocalSqlSettings.cs`. It exposes one `SharedSaPassword` constant that the AppHost passes as the default for `builder.AddParameter("sql-password", ...)`, and `tests/Test.Aspire` imports the same symbol to set `Parameters:sql-password` on its test host. The AppHost produces the parameter, so it owns the constant. Placing it in `Test.Support` would force the AppHost to reference a test project, inverting the dependency direction and breaking the build. `Test.Endpoints`, `Test.E2E`, and `Test.Integration` do not use it - they run their own in-memory or Testcontainers stores, not the AppHost SQL container.
 
 **Test Data Builders (per entity):**
 ```csharp
@@ -219,7 +220,6 @@ The shared base is the **single source of truth** for swapping the production Db
 - `tests/Test.Integration/Infrastructure/SqlContainerFixture.cs` + `AzuriteContainerFixture.cs` (+ `RedisContainerFixture.cs` when Redis is used) - standalone per-store Testcontainers fixtures for the **component** tier; `SqlContainerFixture` builds `{App}DbContextTrxn` / `{App}DbContextQuery` against its own container. No Aspire. Full file shapes: [test-templates-integration.md](../templates/test-templates-integration.md).
 - `tests/Test.Integration/Infrastructure/IntegrationTestSetup.cs` - `[AssemblyInitialize]` starts the store fixtures in parallel (each capturing `StartupError`); `[AssemblyCleanup]` disposes them.
 - `tests/Test.Aspire/AspireTestHost.cs` - lazy assembly-scoped fixture that starts the full Aspire AppHost graph (API + Functions + SQL + Azurite) via `EnsureStartedAsync`, plus `tests/Test.Aspire/AspireMeshLifecycle.cs` (`[AssemblyCleanup]`). Full file shapes: [test-templates-aspire.md](../templates/test-templates-aspire.md).
-- `tests/Test.FoundryLocal/FoundryLocalLiveSmokeTests.cs` - RID-bound live local AI lane when `includeAiServices: true` and Foundry Local provider is in scope. Applies the canonical optional-runtime classification, then starts the API host directly, sets `AiServices:RequireFoundryLocal=true`, and checks `/api/v1/ai/status`; provider/status failures after runtime discovery stay red. Canonical owner: [ai-integration.md](../skills/ai-integration.md).
 - `tests/Test.Mobile/run-mobile-tests.ps1` - generated when `Test.Mobile` exists; owns Android restore/build, emulator/Appium readiness, `{APP}_MOBILE_TESTS_ENABLED=true`, `dotnet test`, and TRX output. Explicit runner lane fails fast on broken mobile prerequisites.
 - `EndpointTestBase` (optional) - HTTP client helper used by endpoint test classes.
 
@@ -228,7 +228,6 @@ The shared base is the **single source of truth** for swapping the production Db
 - `tests/Test.UI/` - generated only when UI model/presentation coverage exists; references `{Project}.Uno.Core` and `{Project}.Uno.Presentation`, never `{Project}.Uno`; Phase 5c adds headless UI services, theme/catalog logic, presentation model, and MVUX state/feed tests
 - `tests/Test.Integration/` (component) - project file with MSTest + `Testcontainers.MsSql` + `Testcontainers.Azurite` + `Azure.Data.Tables` + `EF.IntegrationTesting`; references `Test.Support` and the Application/Infrastructure projects the tests use - **no `AppHost`, no `Aspire.Hosting.Testing`**. Contains the `Infrastructure/*ContainerFixture` + `IntegrationTestSetup` shells from above. Phase 5a populates `{Entity}RepositoryIntegrationTests`; Phase 5b populates `DomainEventPipelineTests`, `AuditLogRepositoryAzuriteTests`. See [test-templates-integration.md](../templates/test-templates-integration.md).
 - `tests/Test.Aspire/` (mesh) - project file with MSTest + `Aspire.Hosting.Testing` + `Aspire.Hosting.Azure.Storage` + `Azure.Data.Tables` + `EF.IntegrationTesting`; references `AppHost`, the API host, `Test.Support`, and the Application contracts/models the HTTP payloads need. Contains the `AspireTestHost` + `AspireMeshLifecycle` shells. Phase 5b populates `ApiAuditPipelineTests`, `FunctionAuditPipelineTests`. See [test-templates-aspire.md](../templates/test-templates-aspire.md).
-- `tests/Test.FoundryLocal/` (live AI) - RID-bound project file with MSTest + direct `Microsoft.AI.Foundry.Local` package reference; references the API host and `Test.Support`, never `AppHost`. Generate only when `includeAiServices: true` and Foundry Local provider is in scope.
 - `tests/Test.Endpoints/` - project file with MSTest + `Microsoft.AspNetCore.Mvc.Testing`, derived `CustomApiFactory`, no test classes yet (Phase 5b adds endpoint contract tests via WAF)
 - `tests/Test.E2E/` - project file with MSTest + `Microsoft.AspNetCore.Mvc.Testing` + Testcontainers, derived `SqlApiFactory`, no test classes yet (Phase 5b adds multi-endpoint workflow tests against Testcontainers SQL - see [test-templates-e2e.md](../templates/test-templates-e2e.md))
 - `tests/Test.Mutation/` - comprehensive profile project file with MSTest, references to focused target projects, and `stryker-config.json`; no test classes yet (Phase 5d adds focused mutation samples via Stryker.NET - see [test-templates-quality.md](../templates/test-templates-quality.md))
@@ -283,7 +282,7 @@ services.AddScoped<I{Entity}Service, NoOp{Entity}Service>();
 // Infrastructure.Data/{App}DbContextBase.cs
 public abstract class {App}DbContextBase(DbContextOptions options) : DbContextBase<string, Guid?>(options)
 {
-    public DbSet<{Entity}> {Entities} => Set<{Entity}>();
+    public DbSet<{Entity}> {Entities} { get; set; } = null!;
     // ... per entity
     // SHELL: OnModelCreating with empty configuration (Phase 5a adds EF configs)
 }
@@ -297,6 +296,8 @@ public class {App}DbContextQuery(DbContextOptions<{App}DbContextQuery> options) 
     // read-only context configuration (Phase 5a finalizes)
 }
 ```
+
+Use the auto-property form with the `null!` initializer, never the expression body `=> Set<{Entity}>()` - that returns a new `DbSet` on every access and defeats EF's internal caching. `{Entities}` is the English plural of the entity name (`Category` -> `Categories`), not `{Entity}` plus `s`. Canonical rule and the one documented exception: [data-layer-wiring.md](../patterns/data-layer-wiring.md) section DbSet Declarations.
 
 Trxn and Query are siblings over the shared `{App}DbContextBase`; the entity model lives once in the base, derived contexts only choose tracking and connection behavior (see [data-layer-wiring.md](../patterns/data-layer-wiring.md) section DbContext OnModelCreating Order).
 
@@ -355,7 +356,6 @@ Developer reviews the scaffolded shape against the verification checklist below.
 - [ ] `tests/Test.Support/` contains `WebApplicationFactoryBase` (thin adapter over `EfWebApplicationFactoryBase`), `JsonTestOptions`, `InMemoryDbBuilder`, `TestConstants`, and `Builders/{Entity}Builder` shells; `LocalSqlSettings` lives in the AppHost project; unit tests are flat classes (no shared unit-test base)
 - [ ] `tests/Test.Endpoints/CustomApiFactory.cs` and `tests/Test.E2E/SqlApiFactory.cs` derive from `WebApplicationFactoryBase<Program, {App}DbContextTrxn, {App}DbContextQuery>` (do not duplicate the swap-out logic)
 - [ ] `tests/Test.Integration/Infrastructure/SqlContainerFixture.cs` + `AzuriteContainerFixture.cs` + `IntegrationTestSetup.cs` (component) and `tests/Test.Aspire/AspireTestHost.cs` + `AspireMeshLifecycle.cs` (mesh) exist (even when no tests reference them yet - Phase 5 fills them)
-- [ ] If `includeAiServices: true` and Foundry Local provider is in scope, `Test.FoundryLocal` exists, is registered in `.slnx`, is RID-bound, and does not reference `AppHost`.
 - [ ] Test data `{Entity}DtoBuilder` returns valid DTOs
 - [ ] `RegisterServices.cs` wires all no-op stubs
 - [ ] No domain logic in entity shells (only `throw new NotImplementedException`)

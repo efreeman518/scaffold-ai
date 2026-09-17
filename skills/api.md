@@ -121,6 +121,19 @@ await client.PostAsJsonAsync("/api/task-items", new DefaultRequest<TaskItemDto> 
 
 Centralize on `JsonTestOptions.Default`; do **not** construct ad-hoc `JsonSerializerOptions` per test - drift between tests masks contract regressions.
 
+### Request / Response Envelope Contract
+
+**This is the wire contract every client binds to.** The API owns it; the Blazor, Uno, and React clients and the endpoint tests all consume this section rather than restating it.
+
+- **Create / Update** (`POST`, `PUT`) expect `{"item": {dto}}`. Clients wrap: `new DefaultRequest<T> { Item = dto }`. A bare DTO deserializes `Item` as `null` and the handler faults.
+- **Get / Create / Update** return `{"item": {dto}}`. Clients unwrap `response.Item`. Reading the bare DTO yields all-default properties, silently.
+- **Search** is different: it accepts `SearchRequest<TFilter>` **directly** (not wrapped) and returns `PagedResponse<T>` with a `data` array and a `total` count - not `DefaultResponse`.
+- **Reuse the shared types from `EF.Common.Contracts`** - `DefaultRequest<T>`, `DefaultResponse<T>`, `SearchRequest<TFilter>`, `PagedResponse<T>` - on both sides. Clients reference them through the `{Project}.Application.Models` project that already pulls them in. Re-deriving a client-side envelope is the root cause of the paging bugs below: a hand-rolled copy drifts on the wire field name (`pageIndex` vs `pageNumber`) and on the index base, and each drift fails silently.
+- **The page-index base (0- or 1-based) is a property of the running API, not a constant.** Verify it empirically - request page 0 and page 1 against a seeded list with `PageSize = 1` and see which returns the first row - then send that base consistently. Do **no** offset conversion in the response parser: the server echoes back the base it used, so a `+1`/`-1` in a setter desyncs the page counter.
+- **Routes, validation limits, and enum wire strings live in one shared source** consumed by the server validator, every client, and test mocks. They drift independently otherwise, and an `/api/{**catch-all}` fallback turns route drift into a silent 404 rather than a loud failure; hand-pinned route strings in strict test mocks then validate the stale contract.
+
+Client-side symptoms of a drifted envelope (inspect the raw request/response JSON before changing code): "always returns the same page" means a wrong wire field name or a mismatched base; "the pager total is right but the current page is one off" means a response-side setter is adding an offset.
+
 ### ProblemDetails Correlation Contract
 
 Configure correlation once through `AddProblemDetails` so typed endpoint errors and the global exception handler expose the same fields. `requestId` is `HttpContext.TraceIdentifier`; `traceId` and `spanId` are the W3C identifiers from `Activity.Current`. Never label the request identifier as `traceId`, and remove the ambiguous `activityId` field. The exception handler must write through `IProblemDetailsService`, not serialize its own body and bypass the customizer. Pin both a typed 400/412 response and an unhandled-exception response, including concurrent requests with distinct IDs. Canonical registration: [exception-handler-template.md](../templates/exception-handler-template.md).
@@ -429,6 +442,7 @@ group.MapGet("/{id:guid}", GetById)
 - [ ] Every handler uses `Result.Match<IResult>()` - no `IsSuccess`/`else` guards anywhere
 - [ ] Typed `Result<T>` handlers have all three branches (success, errors, none); non-generic `Result` handlers have two (success, errors)
 - [ ] `global using EF.AspNetCore;` present in `GlobalUsings.cs`
+- [ ] CRUD routes use the `DefaultRequest<T>` / `DefaultResponse<T>` envelope and search uses `SearchRequest<TFilter>` / `PagedResponse<T>`, both from `EF.Common.Contracts` - no locally redefined envelope on either side of the wire
 - [ ] Validation and business errors return `ProblemDetails`/`ValidationProblem`
 - [ ] Typed and exception errors expose separate `requestId`, W3C `traceId`, and `spanId` through one customizer
 - [ ] Swagger/Scalar is gated by `OpenApiSettings:Enable`

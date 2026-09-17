@@ -38,8 +38,8 @@ Quick lookup: "I need to scaffold X" -> load these files.
 | Repository tests (in-memory unit) | `test-templates-repository.md` | 5a | `skills/testing.md` |
 | Integration (component): one class vs one store (standalone Testcontainers) | `test-templates-integration.md` | 5a / 5b | `skills/testing.md` |
 | Aspire (mesh): full AppHost graph over HTTP (lazy-started) | `test-templates-aspire.md` | 5b | `skills/testing.md` |
-| Service + mapper tests | `test-templates-service.md` | 5b | `skills/testing.md` |
-| Endpoint contract tests + WAF base | `test-templates-endpoint.md` | 5b (base in 4) | `skills/testing.md` |
+| Service + mapper + message-handler tests | `test-templates-service.md` | 5b | `skills/testing.md` |
+| Endpoint contract tests + exception-handler + health-probe tests + WAF base | `test-templates-endpoint.md` | 5b (base in 4) | `skills/testing.md` |
 | Multi-endpoint workflow E2E (Testcontainers SQL) | `test-templates-e2e.md` | 5b | `skills/testing.md` |
 | MVUX presentation model tests | `test-templates-presentation.md` | 5c | `skills/testing.md` + `skills/ui-uno-mvux.md` |
 | Architecture / Load / Benchmarks / Playwright / Mutation | `test-templates-quality.md` | 5d | `skills/testing-quality.md` |
@@ -135,7 +135,7 @@ Generate when any of `Test.Aspire`, the `WasmUI` bridge tier, or `Test.Mobile` i
 
 | Phase | Templates to Load |
 |---|---|
-| **4 - Contracts** | Solution structure + contracts (see `ai/contract-scaffolding.md`) - also emits `tests/Test.Support/WebApplicationFactoryBase`, `tests/Test.Endpoints/CustomApiFactory`, `tests/Test.E2E/SqlApiFactory`, `tests/Test.Integration/Infrastructure/*ContainerFixture` + `IntegrationTestSetup` (component), `tests/Test.Aspire/AspireTestHost` + `AspireMeshLifecycle` (mesh) shells, and `tests/Test.FoundryLocal` when AI/Foundry Local is in scope - profile-gated tiers (`Test.E2E`, `Test.Aspire`) only when generated per the `skills/testing.md` Capability-Gated table |
+| **4 - Contracts** | Solution structure + contracts (see `ai/contract-scaffolding.md`) - also emits `tests/Test.Support/WebApplicationFactoryBase`, `tests/Test.Endpoints/CustomApiFactory`, `tests/Test.E2E/SqlApiFactory`, `tests/Test.Integration/Infrastructure/*ContainerFixture` + `IntegrationTestSetup` (component), `tests/Test.Aspire/AspireTestHost` + `AspireMeshLifecycle` (mesh) shells - profile-gated tiers (`Test.E2E`, `Test.Aspire`) only when generated per the `skills/testing.md` Capability-Gated table |
 | **5a - Foundation (TDD)** | `entity-template`, `ef-configuration-template`, `repository-template`, `domain-rules-template`, `appsettings-template`, **`updater-template` (required when entity has child collections)**, **`test-templates-domain`**, **`test-templates-repository`**, **`test-templates-integration`** (balanced+) |
 | **5b - App Core + Runtime (TDD for app/API, tests-after for runtime)** | `data-mapping-template`, `service-template`, `endpoint-template`, `structure-validator-template`, `exception-handler-template`, `message-handler-template` (if events), `health-check-template`, **`test-templates-service`**, **`test-templates-endpoint`**, **`test-templates-e2e`** (balanced+), `test-templates-integration` (audit-repo + projection pipeline tests), `test-templates-aspire` (mesh API/Function audit pipelines, comprehensive); `cqrs-handler-template`, `cqrs-endpoint-template`, `cqrs-validation-template`, `test-templates-cqrs` (when `applicationStyle: cqrs` or `switch`) |
 | **5c - Optional Hosts** | `uno-ui-client-layer`, `uno-mvux-model-template`, `uno-xaml-page-template`, `test-templates-presentation` (Uno); `skills/ui-react.md` (React); host-specific templates per enabled host; **`flowengine-trigger-template`** (when `includeFlowEngine: true` and Functions or Scheduler enabled) |

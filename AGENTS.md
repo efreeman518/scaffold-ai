@@ -13,6 +13,8 @@ review, docs, and maintenance use regular project context.
 
 ### Scaffold workflows
 
+**Path rule:** in an installed app the payload lives under `.instructions/`, so the paths below resolve as written. In this maintenance repo there is no `.instructions/` directory - the same paths are root-relative (`START-AI.md`, `support/vertical-slice-checklist.md`, `ai/adopt-codebase.md`). If `.instructions/` is absent, you are in the maintenance repo: resolve root-relative and do not scaffold here.
+
 - Add an entity/feature slice to an existing scaffolded app: load `.instructions/support/vertical-slice-checklist.md` (Claude Code: `/vertical-slice`).
 - Full scaffold, brownfield adopt, or resuming an in-progress scaffold phase: load `.instructions/START-AI.md` and follow the phase router and one-phase-per-session rule (Claude Code: `/scaffold` / `/scaffold-adopt`; scoped commands live in `.claude/commands/`). Brownfield adoption loads `.instructions/ai/adopt-codebase.md` in place of Phase 1.
 - Treat installed `.instructions/` files as read-only during scaffold work; record gaps in `.scaffold/INSTRUCTION-GAPS.md` (create `.scaffold/` at project root if absent).

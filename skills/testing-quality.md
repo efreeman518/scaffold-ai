@@ -126,7 +126,7 @@ test.describe("EntityCrud", () => {
 });
 ```
 
-Set one `{APP}_WASM_STARTUP_TIMEOUT_SECONDS` wall-clock budget before test-owned restore. Restore, build, AppHost create/build/start, named resource health, endpoint resolution, Gateway warm-up, and browser launch all consume its remaining time. Per-operation caps may fail a step sooner but must never reset the global deadline. Default at least 1800 s for a cold first build; choose a lower verified budget when the generated app is lighter.
+Set one `{APP}_WASM_STARTUP_TIMEOUT_SECONDS` budget per [testing.md - One Startup Budget](testing.md#one-startup-budget).
 
 `test.use({ viewport })` does not apply to `beforeAll`-owned contexts. Pass viewport to `browser.newContext({ viewport })`.
 
@@ -252,7 +252,7 @@ When the WASM app needs API, Gateway, SQL, Redis, storage, auth, or other Aspire
 
 Build the WASM assets before browser navigation with `TargetFrameworkOverride=<tfm>-browserwasm` and `EnableUnoWasm=true`, then pass the dynamic Gateway endpoint to the browser through a test-only query parameter such as `{app}TestGatewayBaseUrl`. Without that override, a scaffolded app can accidentally call a fixed dev gateway port while Aspire assigned a dynamic port.
 
-Start one monotonic `{APP}_WASM_STARTUP_TIMEOUT_SECONDS` deadline before Docker preflight or test-owned restore. Docker preflight, host lock, WASM restore/build, AppHost create/build/start, named health waits, Gateway warm-up, UI readiness, and browser launch consume the same remaining budget. Step caps may fail sooner but never reset or extend the deadline. Missing Docker marks `Assert.Inconclusive` with the exact fix; after preflight, tooling and startup failures are red with diagnostics.
+The `WasmUI` harness runs under the single `{APP}_WASM_STARTUP_TIMEOUT_SECONDS` deadline defined in [testing.md - One Startup Budget](testing.md#one-startup-budget); the host lock and WASM restore/build consume it like every other step.
 
 Generated `WasmUI` assemblies must include `[assembly: DoNotParallelize]`. AppHost-backed browser classes fight over containers, ports, WASM output, and cold-start state when MSTest runs them in parallel.
 
@@ -297,10 +297,9 @@ Increase late-lifecycle assertions to `60000` when page loads occur after severa
 
 - Use Playwright mobile viewports against Uno WASM for fast responsive checks on Windows.
 - Use Android emulator UI smoke tests only for native startup, native surface, first-viewport accessibility, and one reliable text-entry smoke. Do not drive deep CRUD, search persistence, child collections, or long-scroll Skia forms with Appium/UiAutomator2; cover those in API, integration, unit, and Playwright lanes.
-- When the repo uses MSTest, scaffold mobile native smoke tests as MSTest + Appium (`Test.Mobile`) instead of introducing NUnit. Keep default `dotnet test` dependency-free: unset `{APP}_MOBILE_TESTS_ENABLED` makes methods `Assert.Inconclusive` without starting Appium, emulator, or building APKs.
-- Generate `tests/Test.Mobile/run-mobile-tests.ps1`. The runner owns Android restore/build with `-p:BuildAllUnoTargets=true`, emulator readiness, Appium readiness, `{APP}_MOBILE_TESTS_ENABLED=true`, `dotnet test`, and TRX output. Explicit enabled mobile runs fail fast red if APK, emulator/device, Appium, or UiAutomator2 is missing/broken.
+- When the repo uses MSTest, scaffold mobile native smoke tests as MSTest + Appium (`Test.Mobile`) instead of introducing NUnit. The enable flag, default-off behavior, fail-fast runner, and IDE run-settings profile are canonical in [testing.md - Mobile Tier Opt-In](testing.md#mobile-tier-opt-in-default-off).
+- Generate `tests/Test.Mobile/run-mobile-tests.ps1`; its Android restore/build uses `-p:BuildAllUnoTargets=true`.
 - Test methods must not start Appium, start an Android Emulator, or build APKs. They connect to the prepared device/server, use method-level `[Timeout]`, and capture a screenshot on failure.
-- A selected `tests/{App}.runsettings` IDE profile may use assembly initialization outside test methods to build the default APK and own an unavailable loopback Appium process. It must not start or choose an emulator/device, use an explicit remote server, or run during ordinary CLI acceptance.
 - Set each method, assembly, and lane timeout above the maximum inner startup budget plus assertion and cleanup time. An Appium startup allowance of 240 seconds cannot sit inside a 180-second test timeout.
 - Use `MobileBy.AccessibilityId` for exact `AutomationProperties.Name` lookups. Avoid broad XPath except fallback probing after diagnostics show no accessibility id is exposed.
 - In runner setup, verify `appium`, `uiautomator2`, `adb`, `emulator`, `ANDROID_HOME`, and `JAVA_HOME` with `appium driver doctor uiautomator2` before blaming app code.
@@ -350,7 +349,7 @@ All test projects must be registered in the `.slnx` so both Test Explorers disco
 
 - **Start the stack once per session.** When the scaffold has Aspire/WASM tiers, run `eng/test/start-local-test-stack.ps1` ([../templates/local-test-stack-template.md](../templates/local-test-stack-template.md)) before those tests. For mobile, run `tests/Test.Mobile/run-mobile-tests.ps1`; it owns Android build, emulator/Appium readiness, enable flag, `dotnet test`, and TRX output.
 - **Filter by category in Test Explorer:** among the tiers present, plus exclude `Load`. The canonical local run is `dotnet test --filter "TestCategory!=Load"`.
-- **Opt out with false-only env vars** for the default-on heavy tiers when you do not want one locally - only the vars for present tiers exist: `{APP}_RUN_ASPIRE_TESTS=false` (if Aspire), `{APP}_WASM_TESTS_ENABLED=false` (if Uno WASM). Default (unset) runs required infrastructure; only failed Docker preflight self-marks `Inconclusive`. Missing selected-lane tooling and post-preflight failures are red. Optional LiveAI uses [ai-integration.md](ai-integration.md) section Optional Live-Provider Classification. **`Test.Mobile` is the exception: opt-IN.** It defaults off (emulator/Appium/APK are too heavy for the canonical lane) - unset/false self-marks `Assert.Inconclusive` per test. The generated mobile runner sets `{APP}_MOBILE_TESTS_ENABLED=true`; after that, broken mobile prerequisites are red.
+- **Opt out with false-only env vars** for the default-on heavy tiers when you do not want one locally - only the vars for present tiers exist: `{APP}_RUN_ASPIRE_TESTS=false` (if Aspire), `{APP}_WASM_TESTS_ENABLED=false` (if Uno WASM). Default (unset) runs required infrastructure; only failed Docker preflight self-marks `Inconclusive`. Missing selected-lane tooling and post-preflight failures are red. Optional LiveAI uses [ai-integration.md](ai-integration.md) section Optional Live-Provider Classification. **`Test.Mobile` is the exception: opt-IN** - see [testing.md - Mobile Tier Opt-In](testing.md#mobile-tier-opt-in-default-off).
 - **Generate `.vscode/tasks.json`** with tasks for the present tiers only (start stack, build WASM, install Playwright Chromium, build Android APK, run all non-load, run Aspire/WASM/Mobile). Task definitions are in the [local test stack template](../templates/local-test-stack-template.md).
 
 ## Verification Checklist
@@ -371,5 +370,5 @@ All test projects must be registered in the `.slnx` so both Test Explorers disco
 - [ ] Published Release Uno WASM cold-start smoke begins with empty browser site data and reaches first render without `BrowserRenderer.requestRender` startup failure.
 - [ ] Selector strategy is stable for the target UI tech.
 - [ ] UI assertions are structural, not seed/count-dependent.
-- [ ] Uno WASM uses one startup budget, default at least 1800 s for cold restore/build plus AppHost and browser launch; step caps never extend it.
+- [ ] Uno WASM startup follows [testing.md - One Startup Budget](testing.md#one-startup-budget), with `{APP}_WASM_STARTUP_TIMEOUT_SECONDS` defaulting to at least 1800 s for a cold restore/build.
 - [ ] Test output folder is inside the test project.

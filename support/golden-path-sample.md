@@ -349,7 +349,7 @@ aspireResources:
   - name: foundry
     service: Microsoft Foundry
     appHostApi: AddFoundry
-    localMode: sdk-direct-api-host    # temporary workaround; preferred RunAsFoundryLocal() broken (dotnet/aspire#12750)
+    localMode: lazy-optional
     publishMode: provision
     connectionNames: [chat]
     docs: https://aspire.dev/integrations/azureai/
@@ -363,14 +363,11 @@ aspireResources:
 aiServices:
   foundry:
     projectName: workboard-ai
-    lifecycle: local-or-provision
-    localRuntimeMode: sdk-direct-api-host   # current local path; RunAsFoundryLocal is preferred-after-fix
     connectionName: chat
     models:
       - name: gpt-4o
         purpose: agent-reasoning
         deploymentName: gpt-4o
-        localModel: Qwen2505b
       - name: text-embedding-3-small
         purpose: embedding
         deploymentName: embeddings

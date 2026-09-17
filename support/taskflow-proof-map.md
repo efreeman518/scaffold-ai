@@ -6,8 +6,6 @@ Use this file when you need to prove that an instruction, pattern, or scaffolded
 
 Load this file on demand. Keep it out of the default phase context.
 
-Recent maintenance evidence and promotion decisions are recorded in [scaffold-proof-maintenance-audit-2026-09-15-to-2026-09-16.md](scaffold-proof-maintenance-audit-2026-09-15-to-2026-09-16.md).
-
 > **TaskFlow is a multi-tenant application.** It demonstrates tenant boundary validation, tenant query filters, tenant-scoped services, and global-admin bypass. When scaffolding a single-tenant app, the multi-tenant patterns shown in TaskFlow do not apply - see `// [MULTI-TENANT]` markers in the service template.
 
 ---

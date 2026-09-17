@@ -36,15 +36,15 @@ internal static class {Entity}Updater
             name: dto.Name,
             description: dto.Description)
         .Bind(updatedEntity => DomainResult.Combine(
-            // Sync {ChildEntity}s collection (owned, 1:N). The create/remove callbacks route through
+            // Sync {ChildEntities} collection (owned, 1:N). The create/remove callbacks route through
             // the aggregate root's own Add{ChildEntity} / Remove{ChildEntity} methods - never raw
             // collection .Add() / .Remove() - so the root stays the single owner of its invariants
             // (GR-15). New children added to the tracked parent are inferred as Added on save because
             // the key is ValueGeneratedNever (see "New children and EF Added state" note below); removeFunc
             // calls db.Delete() so EF detaches the orphaned row from the change tracker.
             CollectionUtility.SyncCollectionWithResult<{ChildEntity}, {ChildEntity}Dto, Guid>(
-                updatedEntity.{ChildEntity}s,
-                dto.{ChildEntity}s ?? [],
+                updatedEntity.{ChildEntities},
+                dto.{ChildEntities} ?? [],
                 e => e.Id,
                 i => i.Id,
                 incomingDto =>
@@ -266,7 +266,7 @@ if (syncResult.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(sy
 - Uses railway `.Bind()` flow: `entity.Update(...).Bind(updatedEntity => DomainResult.Combine(...).Map(updatedEntity))` - parent update errors short-circuit child syncs
 - `RelatedDeleteBehavior` gates whether `removeFunc` actually deletes: `None` = no-op, `RelationshipOnly` / `RelationshipAndEntity` = `db.Delete(toRemove)` + collection remove
 - **CRITICAL:** Must call `db.Delete(toRemove)` in removeFunc, not just `collection.Remove()` - without explicit EF delete, orphaned children remain in DB when relationship isn't cascade-delete
-- `dto.{ChildEntity}s ?? []` - null-coalesce to empty array so `SyncCollectionWithResult` gets a valid collection (null DTO collection = no changes, empty = remove all)
+- `dto.{ChildEntities} ?? []` - null-coalesce to empty array so `SyncCollectionWithResult` gets a valid collection (null DTO collection = no changes, empty = remove all)
 - `CollectionUtility.SyncCollectionWithResult` handles error aggregation internally via `DomainResult.Combine()`
 - All callbacks return `DomainResult` (not void) - even remove must return `DomainResult.Success()`
 - `DomainResult<T>` inherits from `DomainResult` - domain factory methods (`Create`, `Update`) return `DomainResult<T>` which satisfies the `Func<TDto, DomainResult>` parameter

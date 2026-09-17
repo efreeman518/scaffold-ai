@@ -37,11 +37,15 @@ See `.instructions/support/execution-gates.md` section Core Loop. Scope test fil
 
 ## Constraints
 
-- DO NOT modify the solution structure or shared infrastructure - only add entity-specific files.
-- DO NOT skip DI registration or endpoint mapping steps.
-- DO NOT modify files under `.instructions/` - generate/edit production files in `src/`, test files in sibling `tests/`, and required solution/config files at project root.
-- DO NOT create new projects unless the entity requires a workload not yet in the solution.
+- Do not modify the solution structure or shared infrastructure - only add entity-specific files.
+- Do not skip DI registration or endpoint mapping steps.
+- Do not modify files under `.instructions/` - generate/edit production files in `src/`, test files in sibling `tests/`, and required solution/config files at project root.
+- Do not create new projects unless the entity requires a workload not yet in the solution.
 - Follow existing code patterns in the project for consistency.
+
+## Instruction Gaps
+
+If any instruction behavior turned out missing, ambiguous, or wrong this session - a checklist step that did not cover the case, a template token with no definition, a gate that misfired - append a one-line entry to `.scaffold/INSTRUCTION-GAPS.md` (create `.scaffold/` at project root if absent) before reporting done. Treat files under `.instructions/` as read-only.
 
 ## Output
 

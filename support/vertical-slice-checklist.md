@@ -70,6 +70,39 @@ Use this when adding a new entity to an **already-scaffolded** solution. Skip fu
 - [ ] **[Multi-tenant only]** `ITenantBoundaryValidator` registered (once, not per entity)
 - [ ] Aspire AppHost updated (only if new project added to solution)
 
+#### Wiring proof (run it - `dotnet build` does not cover this)
+
+A missing `services.AddScoped<I{Entity}Service, {Entity}Service>()` or a missing `Map{Entity}Endpoints()` call **compiles clean**. The first surfaces as a runtime `InvalidOperationException: Unable to resolve service for type ...` on the first request; the second as a 404 on a route that looks mapped in source. Neither is caught by the build, so the slice is not wired until both of these have run:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+# 1. Fast presence check - catches the omission before a test run is worth starting.
+#    Scans by directory, not by fixed file path: RegisterServices is commonly split into
+#    partial files under Registration/, and DbSet<> may be declared on a shared context base.
+$entity = '{Entity}'
+$checks = @(
+    @{ Label = 'service DI registration'; Path = 'src/Host';           Pattern = "Add(Scoped|Transient|Singleton)<I${entity}Service\s*," }
+    @{ Label = 'endpoint mapping call';   Path = 'src/Host';           Pattern = "Map${entity}Endpoints\s*\(" }
+    @{ Label = 'DbSet declaration';       Path = 'src/Infrastructure'; Pattern = "DbSet<$entity>" }
+)
+foreach ($check in $checks) {
+    $found = Get-ChildItem $check.Path -Recurse -Filter *.cs |
+        Where-Object { $_.FullName -notmatch '[\\/](bin|obj|Migrations)[\\/]' } |
+        Select-String -Pattern $check.Pattern
+    if (-not $found) { throw "$($check.Label): nothing under $($check.Path) matches /$($check.Pattern)/." }
+    Write-Output "$($check.Label): $(($found | Select-Object -First 1).Path)"
+}
+```
+
+```powershell
+# 2. The real gate. Test.Endpoints builds the host's actual DI container through
+#    CustomApiFactory/WebApplicationFactory and issues real requests, so an unregistered
+#    service or an unmapped route fails HERE rather than at first runtime request.
+dotnet test tests/Test.Endpoints/Test.Endpoints.csproj --filter "FullyQualifiedName~{Entity}"
+```
+
+Step 2 is what closes the DI/routing gap; step 1 only makes the failure cheaper to read. When `applicationStyle` is `cqrs` or `switch`, add the CQRS registration to step 1 (`Select-String` the catalog file for `{Entity}CqrsRegistrations`) and run the endpoint filter under both modes per the criterion below.
+
 ### Validation
 
 Gate commands: [execution-gates.md](execution-gates.md) section Core Loop. Scope test filter to the new entity (`FullyQualifiedName~{Entity}`). For recurring test failures, see [troubleshooting.md](troubleshooting.md). After the gate passes, run the advisory drift scan `python {instructionsRoot}/scripts/check-artifact-drift.py --root .` - the new entity must appear in the Phase-1 artifacts, not just in code (GR-01). If `.scaffold/ontology/` exists, regenerate it so the new entity reaches the projection: `python {instructionsRoot}/scripts/generate-ontology.py --root .` (never edit the folder by hand).
@@ -224,25 +257,34 @@ Optional but recommended for non-trivial slices: run an independent review in a 
 
 ### DI and Routing
 
+Registration and routing are proven by the Wiring proof in the Fast Path section above - run both of its steps here rather than re-reading the files. The endpoint run is the one that matters: an unregistered service or an unmapped route compiles clean and fails only on a real request.
+
+- [ ] Wiring proof step 1 (presence scan) and step 2 (`dotnet test tests/Test.Endpoints/Test.Endpoints.csproj --filter "FullyQualifiedName~{Entity}"`) both pass
 - [ ] Repository wiring matches `repositoryContractStyle`: a generic-coverable entity resolves the open-generic `IRepositoryTrxn<{Entity}, {Entity}Id>` / `IRepositoryQuery<{Entity}, {Entity}Id>` (registered once - no per-entity registration); a bespoke entity has `I{Entity}Repository* -> {Entity}Repository*` registered (`per-entity` style: both registered for every entity)
-- [ ] `I{Entity}Service` -> `{Entity}Service` registered
-- [ ] `Map{Entity}Endpoints()` wired in API builder extensions
 - [ ] If `applicationStyle` is `cqrs` or `switch`: request/handler/registration files are colocated under `Application.Cqrs/Features/{Entity}`
-- [ ] If `applicationStyle` is `switch`: service and CQRS endpoint contract tests pass under both `Service` and `Cqrs`
-- [ ] **[Multi-tenant only]** `ITenantBoundaryValidator` -> `TenantBoundaryValidator` registered (once for all entities)
+- [ ] If `applicationStyle` is `switch`: the endpoint filter above passes under both `Application:Style=Service` and `Application:Style=Cqrs`
+- [ ] **[Multi-tenant only]** `ITenantBoundaryValidator` -> `TenantBoundaryValidator` registered (once for all entities): `Get-ChildItem src/Host -Recurse -Filter *.cs | Select-String 'Add(Scoped|Transient|Singleton)<ITenantBoundaryValidator\s*,'`
 
 ### Data Access
 
-- [ ] `DbSet<{Entity}>` in both Trxn and Query contexts
+- [ ] `DbSet<{Entity}>` reachable from both Trxn and Query contexts (Wiring proof step 1 covers the declaration)
 - [ ] `{Entity}Configuration` applies expected relationships/indexes
-- [ ] migration generated and applied (direct `dotnet ef` or a migrator-host run - never runtime startup)
+- [ ] migration generated and applied (direct `dotnet ef` or a migrator-host run - never runtime startup). No model drift remains, for every configured provider/DbContext: `dotnet ef migrations has-pending-model-changes --project src/Infrastructure/{Project}.Infrastructure.Data --startup-project src/Host/{Host}.Api --context {App}DbContextTrxn`
 
 ### Build and Tests
 
 - [ ] `dotnet build` passes
-- [ ] `dotnet test` passes
+- [ ] `dotnet test --filter "FullyQualifiedName~{Entity}"` passes, then the profile's full gate per [execution-gates.md](execution-gates.md) section Core Loop
 - [ ] One vertical tracer behavior for the slice is covered through a public service contract, endpoint, UI action, or workflow boundary
-- [ ] endpoint slice reachable in OpenAPI/Scalar when enabled
+- [ ] Endpoint slice reachable in OpenAPI/Scalar when enabled. With the API host running, assert the route is actually published rather than assuming the mapping took effect:
+
+  ```powershell
+  $ErrorActionPreference = 'Stop'
+  $api = 'https://localhost:<api-port>'   # from this session's console output
+  $doc = Invoke-RestMethod -Uri "$api/openapi/v1.json" -TimeoutSec 30
+  if (-not ($doc.paths.PSObject.Properties.Name -match '{entity-route}')) { throw '{Entity} routes are absent from the OpenAPI document.' }
+  Write-Output '{Entity} routes published.'
+  ```
 
 ### Domain Rules / Policy
 

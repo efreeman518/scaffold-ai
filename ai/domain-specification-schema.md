@@ -288,28 +288,9 @@ workflows:
 
 Skip workflows when CRUD + state transitions suffice. Add workflows when multiple entities must coordinate in sequence, steps may fail and need compensation, or async waits/escalations are involved.
 
-### Ingestion Semantics (Optional)
+### Ingestion Semantics and Entitlement Policy - Phase 2
 
-For event/time-series workflows, capture business-level ordering and lateness expectations.
-
-```yaml
-ingestionSemantics:
-  eventTimePolicy: event-time
-  orderingExpectation: per-entity-ordered
-  allowedLateness: "PT10M"
-  outOfOrderHandling: reconcile-window
-```
-
-### Entitlement Policy (Optional)
-
-Use when multiple grant sources (tier/purchase/promo) must be combined deterministically.
-
-```yaml
-entitlementPolicy:
-  sourcePriority: [Tier, Purchase, Promo]
-  conflictResolution: highest-priority-wins
-  revokeBehavior: source-scoped-revocation
-```
+`ingestionSemantics` (ordering, lateness, watermark, out-of-order handling) and `entitlementPolicy` (grant-source priority, conflict resolution, revoke behavior) are **Phase 2 blocks**, not Phase 1 ones. They describe partition and provider behavior, so they belong next to the store and messaging choices that realize them. Record the business expectation in `.scaffold/DESIGN-DECISIONS.md` here, then write the block itself in `.scaffold/resource-implementation.yaml`. Owner and field list for both: [resource-implementation-schema.md](resource-implementation-schema.md) section Ingestion Semantics, plus its Policy Inputs section for `entitlementPolicy`. Do not write either block into `domain-specification.yaml`.
 
 ### Content Lifecycle Policy (Optional)
 
@@ -469,7 +450,8 @@ After each branch, recap the current understanding, confirmed language, design d
 
 Before moving to Phase 2 (Resource Definition), verify all of the following:
 
-- [ ] Every entity has `name`, at least one `property`, and `isTenantEntity` set
+- [ ] `python {instructionsRoot}/scripts/validate-scaffold-artifacts.py --root . --phase 1` exits 0 (`.scaffold/domain-specification.yaml` validates against [`schemas/domain-specification.schema.json`](../schemas/domain-specification.schema.json)). Paste the observed output per [../support/execution-gates.md](../support/execution-gates.md) section Verification Evidence Rule. This is the mechanical half of the gate; the reviewed items below are the half a schema cannot check.
+- [ ] Every entity has `name` and at least one `property`. `isTenantEntity` defaults to `true` - declare it only to override that; a multi-tenant spec with a genuinely tenant-independent entity must say so explicitly
 - [ ] Every relationship references an entity defined in this file
 - [ ] Each entity is classified aggregate **root** or **owned child** (derived from `children`/`navigation`, or pinned via `aggregateRole`); any non-default `aggregateRole` override is recorded in `.scaffold/DESIGN-DECISIONS.md` (drives GR-15 write-surface generation)
 - [ ] Every `kind: value_object` property references a `valueObjects[].name`; each value object has fields, rules if any, and `usedBy` references existing entity properties

@@ -6,7 +6,7 @@ This template is self-contained. Do not load `service-template.md` just to confi
 
 ## Code-Hosted vs Server-Hosted Agents
 
-- **Code-hosted (`ChatClientAgent`) - default.** The agent runs in your process over the injected `IChatClient`. Works with every Foundry lifecycle mode (Local / provision-new / existing) and boots offline as a no-op. This template builds this shape.
+- **Code-hosted (`ChatClientAgent`) - default.** The agent runs in your process over the injected `IChatClient`. Works with every Foundry lifecycle mode (provision-new / existing) and boots offline as a no-op. This template builds this shape.
 - **Server-hosted Foundry agent - escalation, Azure-only.** Either modeled in the AppHost (`project.AddPromptAgent(...)`, always deploys to Azure even under `aspire run`) or created in the portal/IaC and consumed by the client SDK. The application-facing `I{Agent}Agent` contract is identical because both produce a `Microsoft.Agents.AI.AIAgent`; only construction differs:
 
 ```csharp
@@ -118,8 +118,14 @@ session,
 new ChatClientAgentRunOptions(new ChatOptions
 {
 ToolMode = request.UseTools ? ChatToolMode.Auto : ChatToolMode.None,
+// Temperature is best-effort: reasoning-capable models may ignore or reject it.
+// Determinism comes from schema-constrained output and a stable prompt prefix.
 Temperature = 0,
-MaxOutputTokens = 512
+// A FLOOR, not a brevity cap. Reasoning tokens are spent before the first visible token
+// and count against this budget, so a cap sized for the expected answer returns an empty
+// completion. Size it above the largest expected response plus the reasoning budget.
+// See skills/ai-integration.md section Agent Tests.
+MaxOutputTokens = 4096   // starting floor; raise if responses truncate
 }),
 cancellationToken: ct);
 
@@ -146,8 +152,8 @@ If the agent must ground answers in indexed data, add one search tool that deleg
 AIFunctionFactory.Create(
     async ([Description("The search query")] string query, CancellationToken ct) =>
         await searchService.SearchAsync(query, SearchMode.Semantic, ct),
-    "Search{Entity}s",
-    "Search for {entity}s by natural language query")
+    "Search{Entities}",
+    "Search for {entities} by natural language query")
 ```
 
 Keep the first pass narrow. Do not register tools that bypass application services or duplicate domain logic.
@@ -161,8 +167,8 @@ using System.ComponentModel;
 
 internal static class {Agent}Tools
 {
-    [Description("Search for {entity}s matching a natural language query")]
-    public static async Task<object> Search{Entity}s(
+    [Description("Search for {entities} matching a natural language query")]
+    public static async Task<object> Search{Entities}(
         [Description("The search query")] string query,
         I{Project}SearchService searchService,
         CancellationToken ct)

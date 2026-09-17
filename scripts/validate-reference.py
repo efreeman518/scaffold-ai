@@ -78,11 +78,6 @@ CONDITIONAL_EVIDENCE: tuple[
         (),
     ),
     (
-        ({"includeAiServices": True, "aiProvidersContainsFoundryLocal": True},),
-        (),
-        ("tests/Test.FoundryLocal/Test.FoundryLocal.csproj",),
-    ),
-    (
         ({"includeArchitectureTests": True},),
         (),
         ("tests/Test.Architecture/Test.Architecture.csproj",),
@@ -288,9 +283,6 @@ def _condition_matches(actual: object, expected: object) -> bool:
 
 
 def _condition_value(resource: dict, key: str) -> object:
-    if key == "aiProvidersContainsFoundryLocal":
-        providers = resource.get("aiProviders")
-        return isinstance(providers, list) and "FoundryLocal" in providers
     return resource.get(key)
 
 

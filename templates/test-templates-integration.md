@@ -8,6 +8,8 @@
 | **Protocol** | Tests-after for this tier - TDD lives in `Test.Unit` and `Test.Endpoints`. Integration verifies wiring against real infrastructure (SQL/Azurite/Redis), so write the tests once the unit + endpoint tests pin behavior. |
 | **Mesh tier** | The full-AppHost-graph mesh tests (`AspireTestHost`, API/Function audit pipelines, Blazor-mesh smoke) live in a **separate `Test.Aspire` project** - see [test-templates-aspire.md](test-templates-aspire.md). |
 
+> **Token vs interpolation:** the migration test builds an assertion message with `$"Expected >= {ExpectedTableCount} tables in {app} schema, found {tableCount}"`. `{ExpectedTableCount}` and `{app}` are scaffold tokens; `{tableCount}` is the in-scope local and stays verbatim. Rule: [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) section Disambiguating Tokens From Logging And Interpolation.
+
 ## Why this tier exists
 
 `Test.Endpoints` runs against in-memory EF, which silently masks tenant query filters, owned-type flattening, paging plans, raw SQL projections, M:N bridge tables, polymorphic indexes, and audit interceptor wiring. `Test.E2E` runs the full HTTP path but only against a single SQL container.
@@ -20,6 +22,25 @@
 - Domain-event projection (`SQL -> projection service -> view document`) with an in-memory view store.
 
 > **Component vs mesh.** A test belongs here when it instantiates one class against one store. It belongs in [test-templates-aspire.md](test-templates-aspire.md) (the `Test.Aspire` project) when it needs the production AppHost graph over HTTP - `CreateHttpClient(...)`, multiple Aspire resources, `WaitForResourceHealthyAsync`, `DistributedApplicationTestingBuilder`. The split keeps the fast component tier off the ~60-90 s Aspire boot. `Test.Integration` must **not** reference `AppHost` or `Aspire.Hosting.Testing`.
+
+## Naming Convention
+
+Owned by [../skills/testing.md](../skills/testing.md) section Test Naming Convention. Both canonical forms appear in
+this tier, and the choice is per test:
+
+```csharp
+// Behavioral scenario with a real precondition.
+[TestMethod]
+public async Task Given_AuditEntry_When_AppendAsyncToAzurite_Then_TableEntityPersistedWithExpectedKeys() { }
+
+// Structural fact about infrastructure - the subject is the schema, so there is no meaningful "Given".
+[TestMethod]
+public async Task Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema() { }
+```
+
+Method names here are referenced by exact name from the coverage matrix below and from gate checks, so treat a rename
+as a deliberate change.
+
 
 ## Fixture model
 
@@ -534,11 +555,11 @@ public class {Entity}RepositoryIntegrationTests
 
 | Scenario | Generate when |
 |---|---|
-| `Migrations_ApplyCleanly_ToSqlContainer` | Always - once per schema, not per entity. |
+| `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` | Always - once per schema, not per entity. |
 | `Search_WithDuplicateSortKeys_HasStablePageMembership` | Every repository with paging. Seed more than one page with the same business sort key and assert exact IDs, no omissions, and no duplicates. |
 | `{Entity}_CrudOperations_WorkAgainstRealSql` | Every entity with mutations. |
 | `{Entity}_WithChildren_PersistsCorrectly` | Entity has owned/dependent child collections (1:N). Persistence + includes only - seeds children via `db.{ChildEntities}.Add(...)`, so it does NOT exercise the updater/navigation-add path (see next row). |
-| `{Entity}_UpdateFromDto_AddsChildToReloadedParent_AgainstRealSql` | Entity has owned/dependent child collections (1:N) **and** an `{Entity}Updater`. Required regression guard for the `ValueGeneratedNever` key baseline (GR-16) - the only test that adds a NEW child through `repo.UpdateFromDto` against real SQL. A green `WithChildren_PersistsCorrectly` does not substitute for it. |
+| `{Entity}_UpdateFromDto_AddsChildToReloadedParent_AgainstRealSql` | Entity has owned/dependent child collections (1:N) **and** an `{Entity}Updater`. Required regression guard for the `ValueGeneratedNever` key baseline (GR-16) - the only test that adds a NEW child through `repo.UpdateFromDto` against real SQL. A green `{Entity}_WithChildren_PersistsCorrectly` does not substitute for it. |
 | `{Entity}Tag_ManyToMany_WorksCorrectly` | Entity participates in M:N via a junction. |
 | `TenantQueryFilter_RestrictsResults_WhenTenantIdSet` | `enableMultiTenant: true`. |
 | `Polymorphic_Index_Exists` | Entity uses a polymorphic ownership pattern (e.g., `Attachment.OwnerType` + `OwnerId`). |
@@ -806,7 +827,7 @@ Skip this template when the project does not have a projection service / read-mo
 - [ ] One `IntegrationTestSetup` owns bounded Docker preflight plus the sole `[AssemblyInitialize]`/`[AssemblyCleanup]`, then starts fixtures in parallel only after preflight succeeds.
 - [ ] Every test marks failed Docker preflight `Inconclusive`; a captured store startup failure after successful preflight fails with the full exception.
 - [ ] Component tests instantiate the class under test directly against a fixture connection string - no `CreateHttpClient`, no `WaitForResourceHealthyAsync`, no `DistributedApplicationTestingBuilder`.
-- [ ] `Migrations_ApplyCleanly_ToSqlContainer` exists exactly once per assembly (not per entity).
+- [ ] `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` exists exactly once per assembly (not per entity).
 - [ ] Tenant query filter test exists when `enableMultiTenant: true`; M:N test exists when entity uses a junction.
 - [ ] Every test class has a class-level `<summary>` declaring tier (component) + store.
 - [ ] Running `Test.Integration` boots **no** Aspire graph (no `DistributedApplicationTestingBuilder` log lines).

@@ -1,7 +1,6 @@
 ---
 name: install-instructions
-description: "Install or update this repo's instruction payload into a target C#/.NET app, or verify an existing install. Source-repo maintainer skill - run from the scaffold-ai clone, never from a scaffolded app. Trigger: /install-instructions."
-trigger: /install-instructions
+description: "Install or update this repo's instruction payload into a target C#/.NET app, or verify an existing install. Source-repo maintainer skill - run from the scaffold-ai clone, never from a scaffolded app. Trigger: /install-instructions. Use when: install the instruction set, update a consumer app's .instructions/, reinstall payload, verify an existing install, onboard an app to the scaffold."
 ---
 
 # /install-instructions

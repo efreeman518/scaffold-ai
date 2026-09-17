@@ -519,24 +519,6 @@ class ReferenceValidatorTests(unittest.TestCase):
         )
         self.assertTrue(any("notification entries" in error for error in errors))
 
-    def test_local_ai_evidence_requires_provider_to_be_in_scope(self):
-        self._make_always_evidence()
-        azure_only = {
-            "includeAiServices": True,
-            "aiProviders": ["AzureInference", "OpenAICompatible", "None"],
-        }
-        self.assertEqual(reference_validator.check_declared_evidence(self.tmp, azure_only), [])
-
-        with_local = {
-            **azure_only,
-            "aiProviders": ["AzureInference", "OpenAICompatible", "FoundryLocal", "None"],
-        }
-        errors = reference_validator.check_declared_evidence(self.tmp, with_local)
-        self.assertTrue(any("tests/Test.FoundryLocal/Test.FoundryLocal.csproj" in error for error in errors))
-
-        self._make_conditional_evidence("aiProvidersContainsFoundryLocal")
-        self.assertEqual(reference_validator.check_declared_evidence(self.tmp, with_local), [])
-
     def test_strict_lane_contract_validates_defaults_targets_and_tamper_sentinels(self):
         self._make_always_evidence()
         self._make_conditional_evidence("hostingLanes")

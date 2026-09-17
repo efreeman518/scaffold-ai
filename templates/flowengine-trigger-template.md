@@ -2,6 +2,8 @@
 
 Generated when `includeFlowEngine: true`. Pick one or more triggers based on `.scaffold/resource-implementation.yaml` flags. See [../skills/flowengine.md](../skills/flowengine.md) for the surrounding FE setup.
 
+> **Token vs log placeholder:** `{WorkflowId}`, `{InstanceId}`, and `{TaskId}` inside the `LogInformation` message templates below are **log property names** bound to the trailing arguments, not scaffold tokens - leave them verbatim. Rule: [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) section Disambiguating Tokens From Logging And Interpolation.
+
 ## App-Level Facade - `IWorkflowTrigger`
 
 `IFlowEngine` is the engine's full API (start, signal, resume, terminate). Wrap it in a thin app-level facade so trigger sites stay testable and small. Service Bus, inline, and scheduler adapters may launch the same workflow; keeping business logic in workflow nodes gives every source one versioned, tested behavior. Generate this in `{Project}.Application.Services`.
