@@ -365,10 +365,10 @@ aiServices:
     projectName: workboard-ai
     connectionName: chat
     models:
-      - name: gpt-4o
+      - name: <latest-stable>
         purpose: agent-reasoning
-        deploymentName: gpt-4o
-      - name: text-embedding-3-small
+        deploymentName: chat
+      - name: <latest-stable>
         purpose: embedding
         deploymentName: embeddings
     agentHosting: code-hosted
@@ -377,7 +377,7 @@ aiServices:
     indexes:
       - name: workitems-index
         sourceEntity: WorkItem
-    embeddingModel: text-embedding-3-small
+    embeddingModel: <latest-stable>
     embeddingDimensions: 1536
     vectorizationStrategy: on-write
   agents:
@@ -385,7 +385,7 @@ aiServices:
     agents:
       - name: WorkItemTriageAgent
         type: ChatClientAgent
-        model: gpt-4o
+        model: <latest-stable>
         systemPrompt: WorkItemTriageAgent.system-prompt.txt
         tools: [SearchWorkItems]
         groundingSource: workitems-index

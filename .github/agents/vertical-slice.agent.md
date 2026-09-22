@@ -1,6 +1,6 @@
 ---
 description: "Add a new entity vertical slice to an existing C#/.NET solution. Use when: add entity, new entity, vertical slice, add feature, add resource, add endpoint, extend application, new table, new API endpoint."
-tools: [read, edit, search, execute, todo]
+tools: [read, edit, search, execute, todo, agent]
 argument-hint: "Entity name and target project directory (e.g., 'Product in C:\\Projects\\MyApp')"
 ---
 
@@ -34,6 +34,8 @@ Follow the canonical Slice Execution Order in `.instructions/support/vertical-sl
 ## Validation Gate
 
 See `.instructions/support/execution-gates.md` section Core Loop. Scope test filter to the new entity (`FullyQualifiedName~{Entity}`).
+
+After the gate passes, optionally dispatch the read-only `scaffold-reviewer` agent over the slice's files and resolve its `blocker`/`major` findings before reporting.
 
 ## Constraints
 

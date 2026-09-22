@@ -8,6 +8,7 @@ Copies (unless --instructions-only):
     <repo>/CLAUDE.md                         -> <target>/CLAUDE.md            (merge)
     <repo>/.github/copilot-instructions.md   -> <target>/.github/copilot-instructions.md (merge)
     <repo>/.claude/commands/                 -> <target>/.claude/commands/    (dir)
+    <repo>/.claude/agents/                   -> <target>/.claude/agents/      (dir)
     <repo>/.github/agents/                   -> <target>/.github/agents/      (dir)
 
 "merge" writes source content inside sentinel markers. Existing target files are preserved
@@ -81,6 +82,7 @@ AGENT_COPIES = [
     ("CLAUDE.md", "CLAUDE.md", "merge"),
     (".github/copilot-instructions.md", ".github/copilot-instructions.md", "merge"),
     (".claude/commands", ".claude/commands", "dir"),
+    (".claude/agents", ".claude/agents", "dir"),
     (".github/agents", ".github/agents", "dir"),
 ]
 
@@ -455,9 +457,11 @@ SMOKE_CHECK_HARNESS_ENTRYPOINTS = [
     ".claude/commands/scaffold.md",
     ".claude/commands/vertical-slice.md",
     ".claude/commands/scaffold-adopt.md",
+    ".claude/agents/scaffold-reviewer.md",
     ".github/agents/dotnet-scaffold.agent.md",
     ".github/agents/vertical-slice.agent.md",
     ".github/agents/scaffold-adopt.agent.md",
+    ".github/agents/scaffold-reviewer.agent.md",
 ]
 
 
