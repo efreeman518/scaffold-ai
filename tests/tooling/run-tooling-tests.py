@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -1109,9 +1110,9 @@ class ModelNamePatternTests(unittest.TestCase):
 
     def test_pattern_matches_names_not_placeholders(self):
         pattern = validator.CONCRETE_MODEL_PATTERN
-        for name in ("gpt-4o", "text-embedding-3-small", "o4-mini", "claude-sonnet-4", "gemini-2.5-pro"):
+        for name in ("gpt-4o", "text-embedding-3-small", "o4-mini", "o3", "o1-preview", "claude-sonnet-4", "gemini-2.5-pro"):
             self.assertIsNotNone(pattern.search(f"model: {name}"), name)
-        for text in ("model: <latest-stable>", "FoundryModel.OpenAI.<latest-stable>", "embeddingDimensions: 1536"):
+        for text in ("model: <latest-stable>", "FoundryModel.OpenAI.<latest-stable>", "embeddingDimensions: 1536", "O3 isotope", "cost O(1)"):
             self.assertIsNone(pattern.search(text), text)
 
 
@@ -1139,6 +1140,12 @@ class CleanTmpTests(unittest.TestCase):
             self._git(worktrees / slug, "commit", "-m", slug)
         self._git(root, "merge", "--ff-only", "feature/merged")
         (worktrees / "dirty" / "scratch.txt").write_text("x", encoding="utf-8")
+        stale_session = root / ".tmp" / "sessions" / "old"
+        stale_session.mkdir(parents=True)
+        (stale_session / "log.txt").write_text("x", encoding="utf-8")
+        stale_time = time.time() - 30 * 86400
+        os.utime(stale_session / "log.txt", (stale_time, stale_time))
+        os.utime(stale_session, (stale_time, stale_time))
         runs = root / ".tmp" / "golden-path-runs"
         for name in ("20260101-000000", "20260102-000000", "20260103-000000"):
             (runs / name).mkdir(parents=True)
@@ -1162,6 +1169,11 @@ class CleanTmpTests(unittest.TestCase):
         self.assertEqual([p.name for p in runs.iterdir()], ["20260103-000000"])
         self.assertTrue(shared.exists(), "workspace still referenced by a kept run must survive")
         self.assertFalse(old.exists())
+        self.assertTrue(stale_session.exists(), "sessions stay while dirty/unmerged worktrees remain")
+
+    def test_rejects_negative_retention(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            clean_tmp.main(["--session-days", "-1"])
 
 
 WORKBOARD_SPEC_HEADING = "### `.scaffold/domain-specification.yaml`"

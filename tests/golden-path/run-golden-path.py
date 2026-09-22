@@ -555,6 +555,15 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def require_own_repository(target: Path) -> None:
+    """Agent sessions and the baseline commit must never write into an enclosing repository."""
+    toplevel = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(target),
+                              capture_output=True, text=True)
+    if toplevel.returncode != 0 or Path(toplevel.stdout.strip()).resolve() != target.resolve():
+        fail(f"{target} is not the root of its own git repository "
+             f"(toplevel: {toplevel.stdout.strip() or toplevel.stderr.strip()}); use a fresh --target")
+
+
 def preflight(args: argparse.Namespace) -> str | None:
     """Returns the resolved feed URL (feed mode) or None (local mode)."""
     for tool, probe in [(args.agent, ["--version"]), ("dotnet", ["--version"]), ("git", ["--version"])]:
@@ -641,15 +650,14 @@ def main() -> int:
             dest.write_text(content + "\n", encoding="utf-8")
         (target / "HANDOFF.md").write_text(HANDOFF_FIXTURE, encoding="utf-8")
         init = subprocess.run(["git", "init"], cwd=str(target), capture_output=True, text=True)
-        toplevel = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(target),
-                                  capture_output=True, text=True)
-        # A failed init would let the add/commit below write into an enclosing repository.
-        if init.returncode != 0 or Path(toplevel.stdout.strip()).resolve() != target.resolve():
-            fail(f"git init did not create a repository rooted at {target}:\n{init.stderr}{toplevel.stderr}")
+        if init.returncode != 0:
+            fail(f"git init failed in {target}:\n{init.stderr}")
+        require_own_repository(target)
         for cmd in (["git", "add", "."], ["git", "commit", "-m", "golden-path fixture baseline"]):
             subprocess.run(cmd, cwd=str(target), capture_output=True)
     else:
         log(f"resuming existing workspace: {target}")
+        require_own_repository(target)
 
     report_dir.mkdir(parents=True, exist_ok=True)
     report_lines = [f"# Golden-path regression run {timestamp}",

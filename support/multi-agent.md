@@ -89,7 +89,7 @@ Route by tier, never by model name: names and availability change, so pick from 
 
 ## Agent Scratch
 
-All agent and subagent scratch lives under the repo-root `.tmp/`, which the app `.gitignore` excludes (see [../skills/solution-structure.md](../skills/solution-structure.md)). Nothing goes in sibling directories of the repo, the system temp folder, or the repo root.
+All agent and subagent scratch lives under the repo-root `.tmp/`, which the app `.gitignore` excludes (see [../skills/solution-structure.md](../skills/solution-structure.md)). Scratch never goes in sibling directories of the repo, the system temp folder, or the repo root. The one exception is a throwaway *app workspace* that must not inherit this repo's instruction files (the maintainer golden-path run): it lives in the system temp folder, its report under `.tmp/` records the path, and cleanup deletes both together.
 
 | What | Where |
 |---|---|

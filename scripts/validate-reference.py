@@ -20,7 +20,7 @@ SHA_REF_RE = re.compile(r"^[0-9a-f]{40}$")
 PROOF_ROOTS = (".scaffold/", ".github/", "deploy/", "src/", "tests/", "infra/")
 # Keep in sync with validate-instructions.py CONCRETE_MODEL_PATTERN.
 CONCRETE_MODEL_PATTERN = re.compile(
-    r"\b(?:gpt-\d[\w.-]*|o\d-(?:mini|pro)\b|text-embedding-[\w-]+|claude-(?:opus|sonnet|haiku)[\w.-]*|gemini-\d[\w.-]*)",
+    r"\b(?:gpt-\d[\w.-]*|(?-i:o[1-9](?:-[a-z][\w.-]*)?)\b|text-embedding-[\w-]+|claude-(?:opus|sonnet|haiku)[\w.-]*|gemini-\d[\w.-]*)",
     re.IGNORECASE,
 )
 

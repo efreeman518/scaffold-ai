@@ -9,9 +9,11 @@ Applies the rules in support/multi-agent.md section Agent Scratch:
   or `gh` reports a merged PR whose head commit is HEAD (squash merges). Never forces.
   Locked worktrees and unregistered directories are reported, not touched.
 - `git worktree prune` for registrations whose directory is already gone.
-- `.tmp/sessions/*`: removed when nothing inside changed for --session-days days.
+- `.tmp/sessions/*`: removed when nothing inside changed for --session-days days, and only
+  once no worktree remains under `.tmp/worktrees/` (open work may still need its logs).
 - `.tmp/golden-path-runs/*` (maintainer repo): keep the newest --keep-runs reports and
-  delete each pruned run's recorded `workboard-gp-*` workspace with it.
+  delete each pruned run's recorded `workboard-gp-*` workspace with it, only when that
+  workspace sits inside the system temp folder or `.tmp/` and no kept run references it.
 
 Dry run by default; pass --apply to act. Run it after the merge is verified, not while
 workers are still running.
@@ -32,6 +34,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -114,9 +117,11 @@ def merged_reason(root: Path, head: str, branch: str | None, base: str, use_gh: 
     return None
 
 
-def clean_worktrees(root: Path, base: str, apply: bool, use_gh: bool) -> int:
+def clean_worktrees(root: Path, base: str, apply: bool, use_gh: bool) -> tuple[int, int]:
+    """Returns (failures, worktrees still present under .tmp/worktrees)."""
     scratch = root / ".tmp" / "worktrees"
     failures = 0
+    remaining = 0
     registered: set[str] = set()
     for entry in list_worktrees(root):
         path = Path(entry["worktree"])
@@ -127,6 +132,7 @@ def clean_worktrees(root: Path, base: str, apply: bool, use_gh: bool) -> int:
         if "prunable" in entry:
             print(f"  [prune] {rel} (directory missing)")
             continue
+        remaining += 1
         if "locked" in entry:
             print(f"  [keep]  {rel} (locked)")
             continue
@@ -150,17 +156,19 @@ def clean_worktrees(root: Path, base: str, apply: bool, use_gh: bool) -> int:
             print(f"  [fail]  {rel}: {removed.stderr.strip()}")
             failures += 1
         else:
+            remaining -= 1
             print(f"  [removed] {rel} ({reason})")
     if scratch.is_dir():
         for child in sorted(scratch.iterdir()):
             if child.is_dir() and os.path.normcase(str(child.resolve())) not in registered:
+                remaining += 1
                 print(f"  [keep]  {child.relative_to(root).as_posix()} (not a registered worktree; inspect and delete by hand)")
     if apply:
         pruned = git(root, "worktree", "prune")
         if pruned.returncode != 0:
             print(f"  [fail]  git worktree prune: {pruned.stderr.strip()}")
             failures += 1
-    return failures
+    return failures, remaining
 
 
 def _make_writable_and_retry(func, path, _exc) -> None:
@@ -180,9 +188,13 @@ def newest_mtime(path: Path) -> float:
     return max((p.stat().st_mtime for p in path.rglob("*")), default=path.stat().st_mtime)
 
 
-def clean_sessions(root: Path, days: int, apply: bool) -> int:
+def clean_sessions(root: Path, days: int, apply: bool, open_worktrees: int) -> int:
     base = root / ".tmp" / "sessions"
     if not base.is_dir():
+        return 0
+    if open_worktrees:
+        # Sessions are not linked to worktrees, so any open worktree may still need its logs and handoff.
+        print(f"  [keep]  all sessions ({open_worktrees} worktree(s) still present under .tmp/worktrees)")
         return 0
     cutoff = time.time() - days * 86400
     failures = 0
@@ -203,7 +215,8 @@ def clean_sessions(root: Path, days: int, apply: bool) -> int:
     return failures
 
 
-def recorded_workspace(run_dir: Path) -> Path | None:
+def recorded_workspace(run_dir: Path, root: Path) -> Path | None:
+    """The run's workspace, only when it is a `workboard-gp-*` dir inside the system temp folder or .tmp/."""
     report = run_dir / "report.md"
     if not report.is_file():
         return None
@@ -211,7 +224,10 @@ def recorded_workspace(run_dir: Path) -> Path | None:
     if not match:
         return None
     workspace = Path(match.group(1).strip())
-    return workspace if workspace.name.startswith(GOLDEN_WORKSPACE_PREFIX) and workspace.is_dir() else None
+    if not (workspace.name.startswith(GOLDEN_WORKSPACE_PREFIX) and workspace.is_dir()):
+        return None
+    allowed = (Path(tempfile.gettempdir()), root / ".tmp")
+    return workspace if any(is_under(workspace, parent) for parent in allowed) else None
 
 
 def clean_golden_path_runs(root: Path, keep: int, apply: bool) -> int:
@@ -221,12 +237,12 @@ def clean_golden_path_runs(root: Path, keep: int, apply: bool) -> int:
     runs = sorted((p for p in base.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)
     failures = 0
     # Resumed runs share a workspace; one still referenced by a kept run must survive.
-    handled = {os.path.normcase(str(w.resolve())) for w in map(recorded_workspace, runs[:keep]) if w}
+    handled = {os.path.normcase(str(w.resolve())) for w in (recorded_workspace(r, root) for r in runs[:keep]) if w}
     for run in runs[:keep]:
         print(f"  [keep]  {run.relative_to(root).as_posix()} (newest {keep})")
     for run in runs[keep:]:
         targets = [run]
-        workspace = recorded_workspace(run)
+        workspace = recorded_workspace(run, root)
         if workspace and os.path.normcase(str(workspace.resolve())) not in handled:
             handled.add(os.path.normcase(str(workspace.resolve())))
             targets.append(workspace)
@@ -244,25 +260,31 @@ def clean_golden_path_runs(root: Path, keep: int, apply: bool) -> int:
     return failures
 
 
+def non_negative(value: str) -> int:
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"must be >= 0, got {number}")
+    return number
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Clean agent scratch under the repo-root .tmp/ (dry run by default).")
     p.add_argument("--apply", action="store_true", help="act; without it only report")
     p.add_argument("--root", type=Path, default=Path.cwd(), help="any path inside the repo; default cwd")
     p.add_argument("--base", default=None, help="merge base ref; default origin/HEAD")
     p.add_argument("--no-gh", action="store_true", help="skip the gh merged-PR check (squash merges then stay)")
-    p.add_argument("--session-days", type=int, default=7)
-    p.add_argument("--keep-runs", type=int, default=5)
+    p.add_argument("--session-days", type=non_negative, default=7)
+    p.add_argument("--keep-runs", type=non_negative, default=5)
     args = p.parse_args(argv)
 
     root = main_checkout(args.root)
     base = resolve_base(root, args.base)
     mode = "apply" if args.apply else "dry run"
     print(f"== clean-tmp ({mode}) root={root} base={base} ==")
-    failures = 0
     print("worktrees:")
-    failures += clean_worktrees(root, base, args.apply, use_gh=not args.no_gh)
+    failures, open_worktrees = clean_worktrees(root, base, args.apply, use_gh=not args.no_gh)
     print("sessions:")
-    failures += clean_sessions(root, args.session_days, args.apply)
+    failures += clean_sessions(root, args.session_days, args.apply, open_worktrees)
     print("golden-path runs:")
     failures += clean_golden_path_runs(root, args.keep_runs, args.apply)
     if failures:
