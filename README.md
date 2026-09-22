@@ -33,7 +33,7 @@ Use `install-to-project.py` from a local clone of this repo. It copies only the 
 
 Do not install this payload into the TaskFlow reference app (`scaffold-proof`) during normal maintenance. TaskFlow is the proof/reference implementation that these instructions point to; it should not carry its own `.instructions/` copy unless you are deliberately testing installer behavior.
 
-`--target` is the **app repo root** (not the `.instructions/` folder). The script creates `<target>/.instructions/` if it does not exist, and writes harness entrypoints (`AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.claude/commands/`, `.github/agents/`) at the target root so CLI agents, Claude, and Copilot discover the scoped scaffold instructions. Root-level `AGENTS.md`/`CLAUDE.md`/`copilot-instructions.md` scaffold content is written inside sentinel markers (`<!-- ai-scaffold: start --> ... <!-- ai-scaffold: end -->`) so re-running the installer is idempotent; existing user content outside the markers is preserved. Each install regenerates `.instructions/.scaffold-install-manifest.json` with the managed paths, SHA-256 content hashes, and source repository plus commit when Git can resolve them. This is ownership and diagnostic evidence, not an instruction-set or dependency version constraint.
+`--target` is the **app repo root** (not the `.instructions/` folder). The script creates `<target>/.instructions/` if it does not exist, and writes harness entrypoints (`AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.claude/commands/`, `.claude/agents/`, `.github/agents/`) at the target root so CLI agents, Claude, and Copilot discover the scoped scaffold instructions. Root-level `AGENTS.md`/`CLAUDE.md`/`copilot-instructions.md` scaffold content is written inside sentinel markers (`<!-- ai-scaffold: start --> ... <!-- ai-scaffold: end -->`) so re-running the installer is idempotent; existing user content outside the markers is preserved. Each install regenerates `.instructions/.scaffold-install-manifest.json` with the managed paths, SHA-256 content hashes, and source repository plus commit when Git can resolve them. This is ownership and diagnostic evidence, not an instruction-set or dependency version constraint.
 
 ```bash
 # from a clone of this repo
@@ -61,7 +61,8 @@ What it places:
 | `CLAUDE.md` | `<app>/CLAUDE.md` (Claude Code project memory) | merge |
 | `.github/copilot-instructions.md` | `<app>/.github/copilot-instructions.md` (Copilot global guidance) | merge |
 | `.claude/commands/` | `<app>/.claude/commands/` (Claude slash commands) | dir |
-| `.github/agents/` | `<app>/.github/agents/` (Copilot scoped agents) | dir |
+| `.claude/agents/` | `<app>/.claude/agents/` (Claude subagents: `scaffold-reviewer`) | dir |
+| `.github/agents/` | `<app>/.github/agents/` (Copilot scoped agents, including `scaffold-reviewer`) | dir |
 
 **Merge mode** writes the durable harness block inside `<!-- ai-scaffold: start --> ... <!-- ai-scaffold: end -->` markers. Existing user content outside the markers is preserved (including the app-specific summary authored at scaffold completion), and an older unmarked scaffold-only copy is converted into a single marked block.
 
@@ -71,7 +72,7 @@ Flags:
 |---|---|
 | `--dry-run` | Print planned copies without writing anything. |
 | `--update` | Deprecated no-op, kept for compatibility. Installs are always content-aware: identical target files are skipped (`[unchanged]`), differing ones are overwritten and listed (installed `.instructions/` is read-only per GR-07, so the source is SSOT). `HANDOFF.md` is always left untouched. |
-| `--instructions-only` | Copy only `<app>/.instructions/`; skip `AGENTS.md`, `.claude/commands/`, and `.github/agents/` placement (useful if you manage those separately). |
+| `--instructions-only` | Copy only `<app>/.instructions/`; skip `AGENTS.md`, `.claude/commands/`, `.claude/agents/`, and `.github/agents/` placement (useful if you manage those separately). |
 | `--verify` | After install, verify every manifest-managed file and marker block against its SHA-256 hash. Missing or changed managed content fails; unmanifested files warn and remain untouched. |
 | `--verify-only` | Skip install entirely; run the same manifest integrity check against an existing target. Verification scope follows the manifest's recorded scope (`full` or `instructions-only`). Useful in CI or to confirm an unfamiliar repo is correctly wired. |
 
@@ -86,7 +87,7 @@ After install:
 
 ### Manual copy (alternative)
 
-If you prefer to copy by hand: harness discovery files (`AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.github/agents/`, `.claude/commands/`) live at the **app repo root**, not inside `.instructions/`. Everything else goes under `.instructions/`. Do not copy scaffold routing into a developer's global assistant instruction files - the per-app placement is what keeps scope correct. The install script above does this automatically and handles the merge into existing root-level files.
+If you prefer to copy by hand: harness discovery files (`AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.github/agents/`, `.claude/commands/`, `.claude/agents/`) live at the **app repo root**, not inside `.instructions/`. Everything else goes under `.instructions/`. Do not copy scaffold routing into a developer's global assistant instruction files - the per-app placement is what keeps scope correct. The install script above does this automatically and handles the merge into existing root-level files.
 
 ---
 
@@ -411,7 +412,7 @@ These references are for **maintaining and developing the instruction set itself
 - [support/final-scaffold-checklist.md](support/final-scaffold-checklist.md) - final generated-app scaffold acceptance checklist
 - [support/troubleshooting.md](support/troubleshooting.md) - failure triage and recurring issue guidance
 - [support/taskflow-proof-map.md](support/taskflow-proof-map.md) - fast reference-app proof map from instruction concern to TaskFlow area
-- [support/multi-agent.md](support/multi-agent.md) - optional, harness-gated guidance for fanning out independent work-items within a phase (orchestrator + workers + independent reviewer)
+- [support/multi-agent.md](support/multi-agent.md) - optional, harness-gated guidance for fanning out independent work-items within a phase (orchestrator + workers + `scaffold-reviewer`), model routing by tier, and `.tmp/` scratch/worktree cleanup
 
 Useful script entrypoints:
 
@@ -419,4 +420,5 @@ Useful script entrypoints:
 - `scripts/configure-ef-packages-feed.py` - create/update target-app `nuget.config` for any private NuGet feed without writing PATs. Pass `--prefix <packagePrefix>` to map the appropriate `<packagePrefix>.*` pattern; the canonical EF.* example is the default. Only run for `packageStrategy: feed` or `hybrid`.
 - `scripts/validate-instructions.py` - author-side sanity check: relative-link integrity, phase-label canonical set, harness command-file shape, payload shape vs installer declaration, and golden-path YAML vs `schemas/*.schema.json` (full jsonschema validation when `pyyaml` + `jsonschema` are installed; stdlib structural checks otherwise). Run before committing edits to instruction files; CI runs it on every push via `.github/workflows/validate.yml`.
 - `scripts/validate-reference.py --reference-root <path>` - validate TaskFlow contracts against current schemas, tracked Markdown links, proof-map paths, explicit feature flags, high-value feature sentinels, and immutable workflow action refs. TaskFlow CI checks out the scaffold's current `main` branch and records the exact commit used as diagnostic evidence.
-- `tests/golden-path/run-golden-path.py` - author-side end-to-end regression: drives headless agent sessions (Claude Code subscription login or Codex CLI - no API key) through Phases 3-5b against the WorkBoard golden-path fixture in a throwaway workspace, gating each phase with `dotnet build`/`dotnet test`. Start with `--dry-run`. Not part of the installed payload; reports land under `.tmp/golden-path-runs/`.
+- `tests/golden-path/run-golden-path.py` - author-side end-to-end regression: drives headless agent sessions (Claude Code subscription login or Codex CLI - no API key) through Phases 3-5b against the WorkBoard golden-path fixture in a throwaway workspace, gating each phase with `dotnet build`/`dotnet test`. Start with `--dry-run`. Not part of the installed payload; reports land under `.tmp/golden-path-runs/`, workspaces in the system temp folder.
+- `scripts/clean-tmp.py` - dry-run-first cleanup of agent scratch under the repo-root `.tmp/`: removes clean, merged worktrees under `.tmp/worktrees/`, stale `.tmp/sessions/`, and old golden-path runs. Rules: [support/multi-agent.md](support/multi-agent.md) section Agent Scratch.

@@ -19,6 +19,10 @@ review, docs, and maintenance use regular project context.
 - Full scaffold, brownfield adopt, or resuming an in-progress scaffold phase: load `.instructions/START-AI.md` and follow the phase router and one-phase-per-session rule (Claude Code: `/scaffold` / `/scaffold-adopt`; scoped commands live in `.claude/commands/`). Brownfield adoption loads `.instructions/ai/adopt-codebase.md` in place of Phase 1.
 - Treat installed `.instructions/` files as read-only during scaffold work; record gaps in `.scaffold/INSTRUCTION-GAPS.md` (create `.scaffold/` at project root if absent).
 
+### Agent scratch
+
+Worktrees, session logs, and reports from agents and subagents live under the gitignored repo-root `.tmp/`: worktrees in `.tmp/worktrees/<slug>`, logs and handoffs in `.tmp/sessions/<id>/`, tool-specific reports in their own `.tmp/<tool>/` folder. After the merge is verified, clean up with `.instructions/scripts/clean-tmp.py --apply`. Rules: `.instructions/support/multi-agent.md` section Agent Scratch.
+
 ### Context graph (graphify)
 
 Conditional - active only when `graphify-out/graph.json` exists, inert otherwise.

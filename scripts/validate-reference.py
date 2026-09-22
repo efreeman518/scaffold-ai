@@ -18,6 +18,11 @@ CODE_SPAN_RE = re.compile(r"`([^`]+)`")
 ACTION_REF_RE = re.compile(r"\buses:\s*([^\s@]+)@([^\s#]+)")
 SHA_REF_RE = re.compile(r"^[0-9a-f]{40}$")
 PROOF_ROOTS = (".scaffold/", ".github/", "deploy/", "src/", "tests/", "infra/")
+# Keep in sync with validate-instructions.py CONCRETE_MODEL_PATTERN.
+CONCRETE_MODEL_PATTERN = re.compile(
+    r"\b(?:gpt-\d[\w.-]*|(?-i:o[1-9](?:-[a-z][\w.-]*)?)\b|text-embedding-[\w-]+|claude-(?:\d|opus|sonnet|haiku)[\w.-]*|gemini-(?:\d|embedding|pro|flash|ultra|nano)[\w.-]*)",
+    re.IGNORECASE,
+)
 
 # Evidence is conditional on what the reference app itself declares in
 # .scaffold/resource-implementation.yaml: schema validation owns shape and
@@ -446,6 +451,18 @@ def check_dependabot(reference_root: Path) -> list[str]:
     return errors
 
 
+def check_scaffold_model_names(reference_root: Path) -> list[str]:
+    """Phase 1/2 artifacts record <latest-stable>, not a copied model name (skills/ai-integration.md)."""
+    errors: list[str] = []
+    for path in sorted((reference_root / ".scaffold").glob("*.yaml")):
+        for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            match = CONCRETE_MODEL_PATTERN.search(line)
+            if match:
+                rel = path.relative_to(reference_root).as_posix()
+                errors.append(f"{rel}:{line_no}: concrete model name '{match.group(0)}' - use <latest-stable>")
+    return errors
+
+
 def validate_reference(reference_root: Path) -> list[str]:
     if not reference_root.is_dir():
         return [f"reference root is not a directory: {reference_root}"]
@@ -455,6 +472,7 @@ def validate_reference(reference_root: Path) -> list[str]:
     errors.extend(check_declared_evidence(reference_root, resource))
     errors.extend(check_action_refs(reference_root))
     errors.extend(check_dependabot(reference_root))
+    errors.extend(check_scaffold_model_names(reference_root))
     return errors
 
 
@@ -469,7 +487,7 @@ def main() -> int:
             print(f"[fail] {error}")
         print(f"\n[fail] reference validation found {len(errors)} issue(s)")
         return 1
-    print(f"[ok] reference contracts, links, proof paths, declared-capability evidence, action refs, and dependabot config match {root}")
+    print(f"[ok] reference contracts, links, proof paths, declared-capability evidence, action refs, dependabot config, and model-name placeholders match {root}")
     return 0
 
 

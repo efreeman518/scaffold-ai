@@ -173,9 +173,12 @@ Also **remove the line `*.e2e`** from the stock template. It targets a legacy Vi
 **/StrykerOutput/
 ```
 
-**Add ignore patterns for scaffold-session leakage:** Aspire's local launcher and other tooling occasionally drop transient log files at project root (e.g. `c..tmpaspire-run.log`). These are not scaffold artifacts and should never be committed. Append:
+**Add ignore patterns for scaffold-session leakage:** Aspire's local launcher and other tooling occasionally drop transient log files at project root (e.g. `c..tmpaspire-run.log`). These are not scaffold artifacts and should never be committed. Agent and subagent scratch (worktrees, session logs, reports) lives under the repo-root `.tmp/`, and the stock template ignores only `*.tmp` files, not that directory - rules in [../support/multi-agent.md](../support/multi-agent.md) section Agent Scratch. Append:
 
 ```gitignore
+# Agent scratch: worktrees, session logs, reports
+.tmp/
+
 # Scaffold-session leakage (transient logs from local tooling)
 /c..tmpaspire-run.log
 /*.tmpaspire-run.log

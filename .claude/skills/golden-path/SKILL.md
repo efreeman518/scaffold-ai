@@ -27,5 +27,6 @@ py -3 tests/golden-path/run-golden-path.py
 ## Notes
 
 - Not part of the installed payload (`tests/` is excluded by the installer).
-- Reports land under `.tmp/golden-path-runs/`.
+- Reports land under `.tmp/golden-path-runs/` and record the model the CLI actually used. The workspace stays in the system temp folder (outside any repo, so this repo's maintainer `AGENTS.md`/`CLAUDE.md` cannot leak into the sessions).
+- Cleanup: `py -3 scripts/clean-tmp.py --apply` keeps the newest 5 runs and deletes each pruned run's workspace with its report.
 - Heavy and slow - it spawns real agent sessions and builds/tests each phase. Run deliberately, not as a quick check. For fast structural validation use `/maintain-instructions` (the validator) instead.

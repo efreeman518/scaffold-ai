@@ -11,7 +11,7 @@ The ship boundary is an explicit allowlist in `scripts/install-to-project.py` (c
 **Ships** (copied into a target app):
 
 - Payload -> `<app>/.instructions/`: `START-AI.md`, `GROUND-RULES.md`, `README.md`, `AGENTS.md`, and the dirs `ai/`, `patterns/`, `profiles/`, `schemas/`, `skills/`, `support/`, `templates/`, `scripts/` (the `INSTRUCTIONS_FILES` + `INSTRUCTIONS_DIRS` lists).
-- Harness entrypoints -> app root / `.github/` / `.claude/`: `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md` (merged inside sentinel markers), `.claude/commands/`, `.github/agents/` (the `AGENT_COPIES` list). These sit at the repo root because they are also *this* repo's own agent config - they cannot move into a folder.
+- Harness entrypoints -> app root / `.github/` / `.claude/`: `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md` (merged inside sentinel markers), `.claude/commands/`, `.claude/agents/`, `.github/agents/` (the `AGENT_COPIES` list). These sit at the repo root because they are also *this* repo's own agent config - they cannot move into a folder.
 
 **Never ships** (source-repo only):
 
@@ -30,6 +30,7 @@ For Claude Code these are skills under `.claude/skills/` (auto-discovered, sourc
 | Validate TaskFlow against current scaffold | n/a | `py -3 scripts/validate-reference.py --reference-root ..\scaffold-proof` |
 | Fold feedback / a gap back into the set | `/fold-feedback` | edit the owner file -> validate -> reinstall |
 | Golden-path extraction smoke | `/golden-path` | `py -3 tests/golden-path/run-golden-path.py --dry-run` |
+| Clean agent scratch after a merge | n/a | `py -3 scripts/clean-tmp.py`, then `--apply` |
 
 ## Ground rules for instruction edits
 
@@ -38,6 +39,7 @@ For Claude Code these are skills under `.claude/skills/` (auto-discovered, sourc
 - Match the house voice: compressed, no em dash / emoji, `->` for arrows, no version numbers in baseline docs.
 - After any edit: `py -3 scripts/validate-instructions.py` must pass; reinstall affected apps with `--verify` (installs are content-aware and idempotent).
 - Before an instruction-set release: run `py -3 tests/golden-path/run-golden-path.py --package-strategy local` with a supported agent. Retain its real build, Unit, Endpoint, health, and SQL-backed CRUD output; the CI dry run is extraction-only evidence.
+- Maintainer sessions follow the same scratch rule as apps ([support/multi-agent.md](../support/multi-agent.md) section Agent Scratch): worktrees in `.tmp/worktrees/`, logs and reports in `.tmp/sessions/` or `.tmp/golden-path-runs/`, cleaned with `scripts/clean-tmp.py --apply` after the merge is verified. The golden-path workspace itself stays in the system temp folder so the maintainer `CLAUDE.md`/`AGENTS.md` cannot leak into the scaffold session; `clean-tmp.py` deletes it together with its pruned run report.
 
 ### Selective rationale
 

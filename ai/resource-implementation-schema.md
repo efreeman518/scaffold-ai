@@ -426,11 +426,11 @@ aiServices:
     resourceName: ""                   # existing only: Azure Foundry account name (RunAsExisting/AsExisting param)
     resourceGroup: ""                  # existing only: resource group of the existing account
     connectionName: chat               # Aspire deployment resource name; clients bind AddAzureChatCompletionsClient(<connectionName>)
-    models:
-      - name: gpt-4o
+    models:                            # names resolve from the model catalog at scaffold time (skills/ai-integration.md); never copy an example name
+      - name: <latest-stable>
         purpose: agent-reasoning       # agent-reasoning | embedding | completion
-        deploymentName: gpt-4o-deploy
-      - name: text-embedding-3-small
+        deploymentName: chat-deploy
+      - name: <latest-stable>
         purpose: embedding
         deploymentName: embedding-deploy
     agentHosting: code-hosted          # code-hosted | prompt-agent | pre-existing
@@ -451,8 +451,8 @@ aiServices:
           - { name: DescriptionVector, type: vector, dimensions: 1536, algorithm: hnsw }
         searchMode: hybrid             # keyword | vector | hybrid
         semanticConfig: true
-    embeddingModel: text-embedding-3-small
-    embeddingDimensions: 1536
+    embeddingModel: <latest-stable>
+    embeddingDimensions: 1536          # dimension of the resolved embedding model; vector fields must match
     vectorizationStrategy: on-write    # on-write | batch | change-feed
 
   # --- Agent Framework ---
@@ -461,14 +461,14 @@ aiServices:
     agents:
       - name: SupportTriageAgent
         type: ChatClientAgent          # ChatClientAgent (code-hosted) | FoundryAgent (prompt-agent/pre-existing, Azure-only) | CustomAgent
-        model: gpt-4o
+        model: <latest-stable>
         systemPrompt: "You are a support triage agent..."
         tools: [SearchKnowledgeBase, GetTicketHistory, ClassifyUrgency]
         groundingSource: products-index  # optional: search index for RAG
         humanInLoop: false
       - name: ContentSummaryAgent
         type: ChatClientAgent
-        model: gpt-4o
+        model: <latest-stable>
         tools: [SummarizeText]
 
     # --- Multi-Agent Workflow (if needed) ---

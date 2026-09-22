@@ -156,6 +156,8 @@ REQUIRED_COMMAND_HEADINGS = {
     ".github/agents/dotnet-scaffold.agent.md": ["Bootstrap", "Core Rules"],
     ".github/agents/vertical-slice.agent.md": ["Bootstrap", "Pre-Flight", "Constraints"],
     ".github/agents/scaffold-adopt.agent.md": ["Bootstrap", "Pre-Flight", "Constraints"],
+    ".github/agents/scaffold-reviewer.agent.md": ["Bootstrap", "Review Scope", "Constraints"],
+    ".claude/agents/scaffold-reviewer.md": ["Bootstrap", "Review Scope", "Constraints"],
 }
 
 MAINTENANCE_GUARD_PHRASES = ["Maintenance-repo note", "If `.instructions/` is missing"]
@@ -167,9 +169,11 @@ EXPECTED_SMOKE_CHECK_HARNESS_ENTRYPOINTS = {
     ".claude/commands/scaffold.md",
     ".claude/commands/vertical-slice.md",
     ".claude/commands/scaffold-adopt.md",
+    ".claude/agents/scaffold-reviewer.md",
     ".github/agents/dotnet-scaffold.agent.md",
     ".github/agents/vertical-slice.agent.md",
     ".github/agents/scaffold-adopt.agent.md",
+    ".github/agents/scaffold-reviewer.agent.md",
 }
 
 OPTIONAL_AI_CONTRACT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
@@ -1398,6 +1402,14 @@ FOUNDRY_LOCAL_PATTERN = re.compile(
     r"foundry\s+local|FoundryLocal|Microsoft\.AI\.Foundry\.Local", re.IGNORECASE
 )
 
+# Model names age like package versions; examples use <latest-stable> and agents resolve
+# names from the catalog at scaffold time (skills/ai-integration.md). Keep in sync with
+# validate-reference.py CONCRETE_MODEL_PATTERN.
+CONCRETE_MODEL_PATTERN = re.compile(
+    r"\b(?:gpt-\d[\w.-]*|(?-i:o[1-9](?:-[a-z][\w.-]*)?)\b|text-embedding-[\w-]+|claude-(?:\d|opus|sonnet|haiku)[\w.-]*|gemini-(?:\d|embedding|pro|flash|ultra|nano)[\w.-]*)",
+    re.IGNORECASE,
+)
+
 # Dated, repo-specific audit reports are author-side evidence. `support/` ships
 # whole into every consuming app, so they would be permanent context tax there.
 DATED_REPORT_PATTERN = re.compile(r"-\d{4}-\d{2}-\d{2}(-to-\d{4}-\d{2}-\d{2})?\.md$")
@@ -1436,6 +1448,17 @@ def check_no_foundry_local(path: Path, findings: Findings) -> None:
                 path,
                 f"line {num}: Foundry Local is not a supported provider lane - remove it "
                 f"(Azure AI Foundry, AddFoundry, and FoundryEndpoint are unaffected)",
+            )
+
+
+def check_no_concrete_model_names(path: Path, findings: Findings) -> None:
+    for num, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        match = CONCRETE_MODEL_PATTERN.search(line)
+        if match:
+            findings.err(
+                path,
+                f"line {num}: concrete model name {match.group(0)!r} - use <latest-stable>; "
+                "agents resolve model names at scaffold time (skills/ai-integration.md)",
             )
 
 
@@ -1506,6 +1529,7 @@ def main() -> int:
         check_naive_plural_tokens(path, findings)
         check_nonexistent_commands(path, findings)
         check_no_foundry_local(path, findings)
+        check_no_concrete_model_names(path, findings)
 
     check_command_shape(findings)
     check_claude_command_frontmatter(findings)

@@ -28,7 +28,11 @@ Typical flow:
        py -3 tests/golden-path/run-golden-path.py --target <kept-workspace> --phases 5a,5b
 
 Exit code 0 when every requested phase passes its gate, 1 otherwise.
-The workspace is always kept so failures can be inspected and resumed.
+The workspace is always kept so failures can be inspected and resumed. It lives in
+the system temp folder, outside any repo, so this repo's maintainer AGENTS.md /
+CLAUDE.md cannot leak into the scaffold sessions; reports land under
+.tmp/golden-path-runs/, and scripts/clean-tmp.py deletes a pruned run's workspace
+together with its report.
 """
 
 from __future__ import annotations
@@ -274,6 +278,8 @@ def run_claude(prompt: str, target: Path, args: argparse.Namespace, phase: str, 
         try:
             payload = json.loads(proc.stdout.strip().splitlines()[-1])
             meta = {k: payload.get(k) for k in ("session_id", "total_cost_usd", "num_turns", "is_error") if k in payload}
+            if isinstance(payload.get("modelUsage"), dict):
+                meta["models"] = sorted(payload["modelUsage"])
         except (json.JSONDecodeError, IndexError):
             meta = {"raw_tail": proc.stdout[-500:]}
     return (proc.returncode if proc is not None else 1), meta
@@ -293,7 +299,34 @@ def run_codex(prompt: str, target: Path, args: argparse.Namespace, phase: str, l
     env = dict(os.environ)
     proc = _run_with_timeout(cmd, cwd=target, env=env, timeout_min=args.timeout_minutes, log_dir=log_dir, phase=phase)
     meta: dict = {"last_message_file": str(last_msg)}
+    model = _first_model_in_jsonl(proc.stdout) if proc is not None else None
+    if model:
+        meta["models"] = [model]
     return (proc.returncode if proc is not None else 1), meta
+
+
+def _first_model_in_jsonl(stdout: str) -> str | None:
+    """Best effort: the first string `model` field in codex --json events, at any depth."""
+    def find(node):
+        if isinstance(node, dict):
+            if isinstance(node.get("model"), str):
+                return node["model"]
+            node = list(node.values())
+        if isinstance(node, list):
+            for item in node:
+                found = find(item)
+                if found:
+                    return found
+        return None
+
+    for line in (stdout or "").splitlines():
+        try:
+            found = find(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+        if found:
+            return found
+    return None
 
 
 DRIVERS = {"claude": run_claude, "codex": run_codex}
@@ -522,6 +555,24 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def require_own_repository(target: Path) -> None:
+    """Agent sessions and the baseline commit must never write into an enclosing repository."""
+    toplevel = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(target),
+                              capture_output=True, text=True)
+    if toplevel.returncode != 0 or Path(toplevel.stdout.strip()).resolve() != target.resolve():
+        fail(f"{target} is not the root of its own git repository "
+             f"(toplevel: {toplevel.stdout.strip() or toplevel.stderr.strip()}); use a fresh --target")
+
+
+def enclosing_repository(path: Path) -> str | None:
+    """Toplevel of the git repository containing `path` (or its nearest existing ancestor), if any."""
+    probe = path
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    proc = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(probe), capture_output=True, text=True)
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
 def preflight(args: argparse.Namespace) -> str | None:
     """Returns the resolved feed URL (feed mode) or None (local mode)."""
     for tool, probe in [(args.agent, ["--version"]), ("dotnet", ["--version"]), ("git", ["--version"])]:
@@ -596,6 +647,10 @@ def main() -> int:
 
     fresh_workspace = not (target / ".instructions").exists()
     if fresh_workspace:
+        enclosing = enclosing_repository(target)
+        # Installing inside another repo would modify its tree and leak its AGENTS.md/CLAUDE.md into sessions.
+        if enclosing:
+            fail(f"--target {target} is inside the git repository {enclosing}; use a path outside any repo")
         log(f"workspace: {target}")
         target.mkdir(parents=True, exist_ok=True)
         install = subprocess.run([sys.executable, str(INSTALLER), "--target", str(target), "--verify"],
@@ -607,10 +662,15 @@ def main() -> int:
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(content + "\n", encoding="utf-8")
         (target / "HANDOFF.md").write_text(HANDOFF_FIXTURE, encoding="utf-8")
-        for cmd in (["git", "init"], ["git", "add", "."], ["git", "commit", "-m", "golden-path fixture baseline"]):
+        init = subprocess.run(["git", "init"], cwd=str(target), capture_output=True, text=True)
+        if init.returncode != 0:
+            fail(f"git init failed in {target}:\n{init.stderr}")
+        require_own_repository(target)
+        for cmd in (["git", "add", "."], ["git", "commit", "-m", "golden-path fixture baseline"]):
             subprocess.run(cmd, cwd=str(target), capture_output=True)
     else:
         log(f"resuming existing workspace: {target}")
+        require_own_repository(target)
 
     report_dir.mkdir(parents=True, exist_ok=True)
     report_lines = [f"# Golden-path regression run {timestamp}",
@@ -619,6 +679,7 @@ def main() -> int:
                     + (f" ({feed_url})" if feed_url else f" (prefix {args.package_prefix})"),
                     f"- workspace: {target}", ""]
     overall_ok = True
+    resolved_models: set[str] = set()
 
     for phase in phases:
         if args.gate_only:
@@ -638,6 +699,7 @@ def main() -> int:
             gate_ok, gate_notes = gate(phase, target, pre_migrations)
             status = "PASS" if (exit_code == 0 and gate_ok) else "FAIL"
             log(f"phase {phase}: agent exit {exit_code}, gate {'PASS' if gate_ok else 'FAIL'} ({duration}s)")
+        resolved_models.update(meta.get("models", []))
         report_lines += [f"## Phase {phase} - {status}",
                          f"- agent exit code: {exit_code}, duration: {duration}s",
                          f"- metadata: {json.dumps(meta, default=str)}",
@@ -652,6 +714,7 @@ def main() -> int:
             shutil.copy2(src, report_dir / src.name)
 
     report_lines += ["## Result", f"- {'PASS' if overall_ok else 'FAIL'}",
+                     f"- resolved model(s): {', '.join(sorted(resolved_models)) or 'unresolved (CLI output carried no model field)'}",
                      f"- workspace kept at: {target}",
                      "- manual follow-up (not gated here): dotnet run --project src/Host/Aspire/AppHost", ""]
     report_path = report_dir / "report.md"

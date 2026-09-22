@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -55,6 +56,7 @@ validator = load_module("validator", REPO_ROOT / "scripts" / "validate-instructi
 reference_validator = load_module("reference_validator", REPO_ROOT / "scripts" / "validate-reference.py")
 goldenpath = load_module("goldenpath", REPO_ROOT / "tests" / "golden-path" / "run-golden-path.py")
 ontology = load_module("ontology", REPO_ROOT / "scripts" / "generate-ontology.py")
+clean_tmp = load_module("clean_tmp", REPO_ROOT / "scripts" / "clean-tmp.py")
 
 
 class InstallerTests(unittest.TestCase):
@@ -1090,6 +1092,111 @@ class ValidatorMutationTests(unittest.TestCase):
         self.assertIn(needle, text)
         target.write_text(text.replace(needle, needle + "ontologyExtra: x\n", 1), encoding="utf-8")
         self.assertEqual(self._run_validator(repo), 1)
+
+    def test_concrete_model_name_fails(self):
+        repo = self._copy_repo()
+        target = repo / "skills" / "ai-integration.md"
+        target.write_text(
+            target.read_text(encoding="utf-8") + "\nDeploy gpt-4o for chat.\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self._run_validator(repo), 1)
+
+
+class ModelNamePatternTests(unittest.TestCase):
+    def test_validators_share_one_pattern(self):
+        self.assertEqual(validator.CONCRETE_MODEL_PATTERN.pattern, reference_validator.CONCRETE_MODEL_PATTERN.pattern)
+        self.assertEqual(validator.CONCRETE_MODEL_PATTERN.flags, reference_validator.CONCRETE_MODEL_PATTERN.flags)
+
+    def test_pattern_matches_names_not_placeholders(self):
+        pattern = validator.CONCRETE_MODEL_PATTERN
+        for name in ("gpt-4o", "text-embedding-3-small", "o4-mini", "o3", "o1-preview", "claude-sonnet-4",
+                     "claude-3-5-sonnet", "claude-3-opus", "gemini-2.5-pro", "gemini-embedding-001"):
+            self.assertIsNotNone(pattern.search(f"model: {name}"), name)
+        for text in ("model: <latest-stable>", "FoundryModel.OpenAI.<latest-stable>", "embeddingDimensions: 1536",
+                     "O3 isotope", "cost O(1)", "--backend claude-cli"):
+            self.assertIsNone(pattern.search(text), text)
+
+    def test_reference_scaffold_yaml_rejects_concrete_names(self):
+        root = Path(tempfile.mkdtemp(prefix="tooling-ref-models-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        (root / ".scaffold").mkdir()
+        artifact = root / ".scaffold" / "resource-implementation.yaml"
+        artifact.write_text("models:\n  - name: <latest-stable>\n", encoding="utf-8")
+        self.assertEqual(reference_validator.check_scaffold_model_names(root), [])
+        artifact.write_text("models:\n  - name: gpt-4o\n", encoding="utf-8")
+        errors = reference_validator.check_scaffold_model_names(root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("resource-implementation.yaml:2", errors[0])
+
+
+@unittest.skipUnless(shutil.which("git"), "git not installed")
+class GoldenPathTargetTests(unittest.TestCase):
+    def test_enclosing_repository_detects_nested_targets(self):
+        self.assertIsNotNone(goldenpath.enclosing_repository(REPO_ROOT / ".tmp" / "not-yet-created" / "ws"))
+        outside = Path(tempfile.mkdtemp(prefix="tooling-gp-target-"))
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        self.assertIsNone(goldenpath.enclosing_repository(outside / "ws"))
+
+
+@unittest.skipUnless(shutil.which("git"), "git not installed")
+class CleanTmpTests(unittest.TestCase):
+    def _git(self, cwd: Path, *args: str) -> None:
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", *args],
+            cwd=cwd, check=True, capture_output=True,
+        )
+
+    def test_removes_only_clean_merged_worktrees_and_prunes_old_runs(self):
+        root = Path(tempfile.mkdtemp(prefix="tooling-clean-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        self._git(root, "init", "-b", "main")
+        (root / ".gitignore").write_text(".tmp/\n", encoding="utf-8")
+        self._git(root, "add", ".")
+        self._git(root, "commit", "-m", "base")
+        worktrees = root / ".tmp" / "worktrees"
+        for slug in ("merged", "dirty", "unmerged"):
+            self._git(root, "worktree", "add", str(worktrees / slug), "-b", f"feature/{slug}")
+        for slug in ("merged", "unmerged"):
+            (worktrees / slug / f"{slug}.txt").write_text(slug, encoding="utf-8")
+            self._git(worktrees / slug, "add", ".")
+            self._git(worktrees / slug, "commit", "-m", slug)
+        self._git(root, "merge", "--ff-only", "feature/merged")
+        (worktrees / "dirty" / "scratch.txt").write_text("x", encoding="utf-8")
+        stale_session = root / ".tmp" / "sessions" / "old"
+        stale_session.mkdir(parents=True)
+        (stale_session / "log.txt").write_text("x", encoding="utf-8")
+        stale_time = time.time() - 30 * 86400
+        os.utime(stale_session / "log.txt", (stale_time, stale_time))
+        os.utime(stale_session, (stale_time, stale_time))
+        runs = root / ".tmp" / "golden-path-runs"
+        for name in ("20260101-000000", "20260102-000000", "20260103-000000"):
+            (runs / name).mkdir(parents=True)
+        shared, old = root / "workboard-gp-shared", root / "workboard-gp-old"
+        for workspace, run_names in ((shared, ("20260101-000000", "20260103-000000")), (old, ("20260102-000000",))):
+            workspace.mkdir()
+            for name in run_names:
+                (runs / name / "report.md").write_text(f"- workspace: {workspace}\n", encoding="utf-8")
+
+        args = ["--root", str(root), "--base", "main", "--no-gh", "--keep-runs", "1"]
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(clean_tmp.main(args), 0)
+        self.assertTrue((worktrees / "merged").exists(), "dry run must not remove anything")
+        self.assertEqual(len(list(runs.iterdir())), 3)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(clean_tmp.main(args + ["--apply"]), 0)
+        self.assertFalse((worktrees / "merged").exists())
+        self.assertTrue((worktrees / "dirty" / "scratch.txt").exists())
+        self.assertTrue((worktrees / "unmerged" / "unmerged.txt").exists())
+        self.assertEqual([p.name for p in runs.iterdir()], ["20260103-000000"])
+        self.assertTrue(shared.exists(), "workspace still referenced by a kept run must survive")
+        self.assertFalse(old.exists())
+        self.assertTrue(stale_session.exists(), "sessions stay while dirty/unmerged worktrees remain")
+
+    def test_rejects_negative_retention(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            clean_tmp.main(["--session-days", "-1"])
 
 
 WORKBOARD_SPEC_HEADING = "### `.scaffold/domain-specification.yaml`"

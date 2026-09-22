@@ -42,9 +42,12 @@ Assert:
 
 ## Deterministic Test Output Location
 
-- Optional hardening - `.gitignore` already keeps `TestResults/` out of commits; this only buys a deterministic location (useful for CI artifact collection or when `dotnet test` runs from varying directories). Skip it if a single test props/targets file does not already exist.
-- To pin test results, in the test-scoped `Directory.Build.props`/`.targets` under `tests/` (when one is present), inside the `IsTestProject` PropertyGroup set `<VSTestResultsDirectory>$(MSBuildThisFileDirectory)TestResults</VSTestResultsDirectory>`.
-- `$(MSBuildThisFileDirectory)` resolves to the targets file's own absolute directory, so every test project writes to the same `tests/TestResults` regardless of the directory `dotnet test` runs from. `VSTestResultsDirectory` is the property the VSTest MSBuild task maps to `--results-directory`.
+- Required: every test project writes results to `tests/TestResults`, never the caller's CWD or the repo root. A fixed location keeps CI artifact upload paths, local reruns, and cleanup pointing at one folder no matter where `dotnet test` runs from. `.gitignore` already keeps `TestResults/` out of commits.
+- In the test-scoped `tests/Directory.Build.props` (create it with an `<Import>` of the parent `Directory.Build.props` via `GetPathOfFileAbove` when absent), set `<VSTestResultsDirectory>$(MSBuildThisFileDirectory)TestResults</VSTestResultsDirectory>` in an unconditional PropertyGroup. Do not gate it on `IsTestProject`: the test SDK defines that property after `Directory.Build.props` is evaluated, so the condition is always false there. The property is inert for non-test projects under `tests/`.
+- `$(MSBuildThisFileDirectory)` resolves to the props file's own absolute directory, so every test project writes to the same `tests/TestResults`. `VSTestResultsDirectory` is the property the VSTest MSBuild task maps to `--results-directory`.
+- When the repo opts into Microsoft.Testing.Platform (`global.json` `test.runner`), VSTest properties do not apply: pass `--results-directory tests/TestResults` explicitly, or append `--results-directory $(MSBuildThisFileDirectory)TestResults` to `TestingPlatformCommandLineArguments` in the same props file.
+- CI passes no competing `--results-directory` and uploads from `tests/TestResults/**`; producer and uploader must use the same resolved path (section Uno WASM: Browser Diagnostics).
+- Scripts that run a subset (mobile, browser, live-provider) write under `tests/TestResults/<suite>/`, not a per-project `TestResults` folder.
 - Caveat: a raw `dotnet vstest <dll>` call bypasses MSBuild and honors only its own `--ResultsDirectory` flag.
 
 ## Optional Extras
