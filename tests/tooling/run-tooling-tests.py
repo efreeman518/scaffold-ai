@@ -1117,6 +1117,15 @@ class ModelNamePatternTests(unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which("git"), "git not installed")
+class GoldenPathTargetTests(unittest.TestCase):
+    def test_enclosing_repository_detects_nested_targets(self):
+        self.assertIsNotNone(goldenpath.enclosing_repository(REPO_ROOT / ".tmp" / "not-yet-created" / "ws"))
+        outside = Path(tempfile.mkdtemp(prefix="tooling-gp-target-"))
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        self.assertIsNone(goldenpath.enclosing_repository(outside / "ws"))
+
+
+@unittest.skipUnless(shutil.which("git"), "git not installed")
 class CleanTmpTests(unittest.TestCase):
     def _git(self, cwd: Path, *args: str) -> None:
         subprocess.run(

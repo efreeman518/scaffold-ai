@@ -564,6 +564,15 @@ def require_own_repository(target: Path) -> None:
              f"(toplevel: {toplevel.stdout.strip() or toplevel.stderr.strip()}); use a fresh --target")
 
 
+def enclosing_repository(path: Path) -> str | None:
+    """Toplevel of the git repository containing `path` (or its nearest existing ancestor), if any."""
+    probe = path
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    proc = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(probe), capture_output=True, text=True)
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
 def preflight(args: argparse.Namespace) -> str | None:
     """Returns the resolved feed URL (feed mode) or None (local mode)."""
     for tool, probe in [(args.agent, ["--version"]), ("dotnet", ["--version"]), ("git", ["--version"])]:
@@ -638,6 +647,10 @@ def main() -> int:
 
     fresh_workspace = not (target / ".instructions").exists()
     if fresh_workspace:
+        enclosing = enclosing_repository(target)
+        # Installing inside another repo would modify its tree and leak its AGENTS.md/CLAUDE.md into sessions.
+        if enclosing:
+            fail(f"--target {target} is inside the git repository {enclosing}; use a path outside any repo")
         log(f"workspace: {target}")
         target.mkdir(parents=True, exist_ok=True)
         install = subprocess.run([sys.executable, str(INSTALLER), "--target", str(target), "--verify"],
