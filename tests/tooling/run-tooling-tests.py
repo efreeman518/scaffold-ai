@@ -1110,10 +1110,24 @@ class ModelNamePatternTests(unittest.TestCase):
 
     def test_pattern_matches_names_not_placeholders(self):
         pattern = validator.CONCRETE_MODEL_PATTERN
-        for name in ("gpt-4o", "text-embedding-3-small", "o4-mini", "o3", "o1-preview", "claude-sonnet-4", "gemini-2.5-pro"):
+        for name in ("gpt-4o", "text-embedding-3-small", "o4-mini", "o3", "o1-preview", "claude-sonnet-4",
+                     "claude-3-5-sonnet", "claude-3-opus", "gemini-2.5-pro", "gemini-embedding-001"):
             self.assertIsNotNone(pattern.search(f"model: {name}"), name)
-        for text in ("model: <latest-stable>", "FoundryModel.OpenAI.<latest-stable>", "embeddingDimensions: 1536", "O3 isotope", "cost O(1)"):
+        for text in ("model: <latest-stable>", "FoundryModel.OpenAI.<latest-stable>", "embeddingDimensions: 1536",
+                     "O3 isotope", "cost O(1)", "--backend claude-cli"):
             self.assertIsNone(pattern.search(text), text)
+
+    def test_reference_scaffold_yaml_rejects_concrete_names(self):
+        root = Path(tempfile.mkdtemp(prefix="tooling-ref-models-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        (root / ".scaffold").mkdir()
+        artifact = root / ".scaffold" / "resource-implementation.yaml"
+        artifact.write_text("models:\n  - name: <latest-stable>\n", encoding="utf-8")
+        self.assertEqual(reference_validator.check_scaffold_model_names(root), [])
+        artifact.write_text("models:\n  - name: gpt-4o\n", encoding="utf-8")
+        errors = reference_validator.check_scaffold_model_names(root)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("resource-implementation.yaml:2", errors[0])
 
 
 @unittest.skipUnless(shutil.which("git"), "git not installed")

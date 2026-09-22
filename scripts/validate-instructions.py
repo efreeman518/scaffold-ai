@@ -1406,7 +1406,7 @@ FOUNDRY_LOCAL_PATTERN = re.compile(
 # names from the catalog at scaffold time (skills/ai-integration.md). Keep in sync with
 # validate-reference.py CONCRETE_MODEL_PATTERN.
 CONCRETE_MODEL_PATTERN = re.compile(
-    r"\b(?:gpt-\d[\w.-]*|(?-i:o[1-9](?:-[a-z][\w.-]*)?)\b|text-embedding-[\w-]+|claude-(?:opus|sonnet|haiku)[\w.-]*|gemini-\d[\w.-]*)",
+    r"\b(?:gpt-\d[\w.-]*|(?-i:o[1-9](?:-[a-z][\w.-]*)?)\b|text-embedding-[\w-]+|claude-(?:\d|opus|sonnet|haiku)[\w.-]*|gemini-(?:\d|embedding|pro|flash|ultra|nano)[\w.-]*)",
     re.IGNORECASE,
 )
 
