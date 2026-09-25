@@ -390,7 +390,74 @@ powershell -NoProfile -File tests/Test.Mobile/run-mobile-tests.ps1 -AndroidSdk "
 
 ---
 
-## Load Tests (NBomber)
+## Load Tests (In-House LoadRunner)
+
+No load-test package: commercial-license load tools are excluded by **GR-04**, and an open-model runner is small. Thresholds come from the workload envelope recorded in `.scaffold/DESIGN-DECISIONS.md`; a load test without asserted thresholds is a benchmark printout, not a gate. Run against a hosted stack (Aspire or Compose), never `WebApplicationFactory` - in-memory hosting bypasses Kestrel, the network, and real connection pools.
+
+### File: `tests/Test.Load/LoadRunner.cs`
+
+```csharp
+public sealed record LoadResult(int Offered, int Failed, int Dropped, TimeSpan P50, TimeSpan P95, TimeSpan P99)
+{
+    public double ErrorRate => Offered == 0 ? 0 : (double)(Failed + Dropped) / Offered;
+}
+
+public static class LoadRunner
+{
+    // Open model: requests start on a fixed schedule so a slow server cannot throttle the offered load,
+    // and latency is measured from the scheduled start (no coordinated omission). A request that finds
+    // maxInFlight exhausted is dropped and counted as an error - the system did not keep up.
+    public static async Task<LoadResult> RunAsync(
+        Func<CancellationToken, Task<bool>> operation, int ratePerSecond, TimeSpan duration,
+        int maxInFlight, CancellationToken ct)
+    {
+        var offered = (int)(ratePerSecond * duration.TotalSeconds);
+        var interval = TimeSpan.FromSeconds(1.0 / ratePerSecond);
+        var latencies = new TimeSpan?[offered];
+        var failed = 0;
+        var dropped = 0;
+        using var gate = new SemaphoreSlim(maxInFlight);
+        var inFlight = new List<Task>(offered);
+        var clock = Stopwatch.StartNew();
+
+        for (var i = 0; i < offered; i++)
+        {
+            var scheduled = interval * i;
+            var wait = scheduled - clock.Elapsed;
+            if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
+            if (!gate.Wait(0)) { dropped++; continue; }
+
+            var index = i;
+            inFlight.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    if (!await operation(ct)) Interlocked.Increment(ref failed);
+                }
+                catch (Exception ex) when (ex is HttpRequestException
+                    || (ex is TaskCanceledException && !ct.IsCancellationRequested)) // client timeout
+                {
+                    Interlocked.Increment(ref failed);
+                }
+                finally
+                {
+                    latencies[index] = clock.Elapsed - scheduled;
+                    gate.Release();
+                }
+            }, ct));
+        }
+
+        await Task.WhenAll(inFlight);
+        var sorted = latencies.OfType<TimeSpan>().Order().ToArray();
+        return new LoadResult(offered, failed, dropped,
+            Percentile(sorted, 0.50), Percentile(sorted, 0.95), Percentile(sorted, 0.99));
+    }
+
+    // Nearest-rank percentile; an empty sample reports zero and the error-rate assertion fails instead.
+    public static TimeSpan Percentile(TimeSpan[] sorted, double p) =>
+        sorted.Length == 0 ? TimeSpan.Zero : sorted[Math.Max(0, (int)Math.Ceiling(p * sorted.Length) - 1)];
+}
+```
 
 ### File: `tests/Test.Load/{Entity}LoadTests.cs`
 
@@ -399,20 +466,29 @@ powershell -NoProfile -File tests/Test.Mobile/run-mobile-tests.ps1 -AndroidSdk "
 [TestCategory("Load")]
 public class {Entity}LoadTests
 {
-    [TestMethod]
-    public void Given_SearchEndpoint_When_LoadApplied_Then_MeetsPerformanceBaseline()
-    {
-        var scenario = Scenario.Create("search", async context =>
-        {
-            var response = await _httpClient.GetAsync("api/v1/{entity}?pageIndex=1&pageSize=20");
-            return response.IsSuccessStatusCode ? Response.Ok() : Response.Fail();
-        })
-        .WithLoadSimulations(Simulation.InjectPerSec(rate: 20, during: TimeSpan.FromSeconds(60)));
+    public TestContext TestContext { get; set; } = null!;
 
-        NBomberRunner.RegisterScenarios(scenario).Run();
+    [TestMethod]
+    public async Task Given_SearchEndpoint_When_EnvelopeRateApplied_Then_MeetsLatencyAndErrorBudget()
+    {
+        // Rate, duration, and budgets are the recorded workload envelope for this endpoint.
+        var result = await LoadRunner.RunAsync(
+            async ct =>
+            {
+                using var response = await _httpClient.GetAsync("api/v1/{entity}?pageIndex=1&pageSize=20", ct);
+                return response.IsSuccessStatusCode;
+            },
+            ratePerSecond: 20, duration: TimeSpan.FromSeconds(60), maxInFlight: 200, TestContext.CancellationToken);
+
+        TestContext.WriteLine($"{result}");
+        Assert.IsTrue(result.ErrorRate <= 0.01, $"Error rate {result.ErrorRate:P2} exceeds budget.");
+        Assert.IsTrue(result.P95 <= TimeSpan.FromMilliseconds(300), $"p95 {result.P95} exceeds budget.");
+        Assert.IsTrue(result.P99 <= TimeSpan.FromMilliseconds(800), $"p99 {result.P99} exceeds budget.");
     }
 }
 ```
+
+Keep one percentile check in `Test.Unit` (`Percentile([1..100 ms], 0.95) == 95 ms`) so a broken runner cannot pass every load gate. A single client machine saturates before a scaled-out service does: when the client's own CPU or socket count is the bottleneck, the run is inconclusive, not a pass. Distributed load generation beyond one runner is a deployment-environment concern.
 
 ---
 

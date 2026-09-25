@@ -137,8 +137,14 @@ private static readonly Histogram<double> s_requestDuration = s_meter.CreateHist
 
 // Usage
 s_entityCreated.Add(1, new KeyValuePair<string, object?>("entity", nameof(TodoItem)));
-s_cacheHit.Add(1, new KeyValuePair<string, object?>("key", cacheKey));
+s_cacheHit.Add(1, new KeyValuePair<string, object?>("cache", cacheName));
 ```
+
+### Telemetry at Scale
+
+- Metric tags have bounded cardinality: entity type, cache name, route template, status class. Never tag a metric with a tenant, user, entity id, cache key, or raw path - each distinct value is a new time series. Put identifiers on traces and logs instead.
+- Sample traces in production with parent-based ratio sampling, configured per environment; keep errors and slow traces through collector tail sampling where the sink supports it. Development samples everything.
+- Hot-path logging uses `[LoggerMessage]` source-generated methods, which skip argument boxing and formatting when the level is disabled.
 
 ---
 
@@ -160,7 +166,8 @@ Aspire wiring: ServiceDefaults calls `AddDefaultHealthChecks()` to register the 
 - [ ] `ILogger<T>` injected per class (not `ILoggerFactory`)
 - [ ] Correlation ID middleware registered in API pipeline
 - [ ] Background jobs create explicit `Activity` spans
-- [ ] Custom metrics use `System.Diagnostics.Metrics` with `{Project}.{Layer}` naming
+- [ ] Custom metrics use `System.Diagnostics.Metrics` with `{Project}.{Layer}` naming and no unbounded tag values
+- [ ] Production trace sampling is configured, not left at always-on
 - [ ] Health checks registered for SQL and Redis (if enabled)
 - [ ] `/healthz/live` (liveness), `/healthz/ready` (readiness), and `/healthz` (operator aggregate) endpoints mapped
 - [ ] Critical dependency failure makes `/healthz/ready` unhealthy while `/healthz/live` stays healthy

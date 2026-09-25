@@ -7,7 +7,7 @@ Resilience policy for outbound calls: what the scaffold applies by default, when
 
 ## Standard Resilience Handler (default path)
 
-Every `HttpClient` registered through `AddServiceDefaults()` gets `AddStandardResilienceHandler()` automatically - see [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section ServiceDefaults Configuration. The standard pipeline bundles, in order: rate limiter, total-request timeout, retry (exponential + jitter), circuit breaker, and per-attempt timeout. Service-discovery internal calls (API -> API, Gateway -> API) therefore need **no additional wiring** - the default is the policy.
+Every `HttpClient` registered through `AddServiceDefaults()` gets `AddStandardResilienceHandler()` automatically, with retries disabled for unsafe methods (`POST`, `PATCH`, `PUT`, `DELETE`, `CONNECT`) - see [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section ServiceDefaults Configuration. The standard pipeline bundles, in order: rate limiter, total-request timeout, retry (exponential + jitter), circuit breaker, and per-attempt timeout. Service-discovery internal calls (API -> API, Gateway -> API) therefore need **no additional wiring** - the default is the policy.
 
 ## Custom Per-Client Pipelines
 
@@ -27,8 +27,20 @@ Keep the client total timeout larger than `retries x per-attempt timeout` budget
 
 ## Internal-Call Guidance
 
-- **Never stack pipelines.** A client that already has the standard handler (via ServiceDefaults) must not also get a custom `AddResilienceHandler` - double retry multiplies load during incidents.
-- Retries are safe for idempotent calls (GET, PUT with full payload, DELETE). **Do not retry non-idempotent POSTs** unless the endpoint is idempotency-keyed; a retried create duplicates data.
+- **Never stack pipelines.** A client that already has the standard handler (via ServiceDefaults) must not also get a custom `AddResilienceHandler` - double retry multiplies load during incidents. Replace it instead: `RemoveAllResilienceHandlers()` then the one custom or hedging handler for that client.
+- Retries are safe for idempotent calls (GET, PUT with full payload, DELETE). **Do not retry non-idempotent POSTs** unless the endpoint is idempotency-keyed; a retried create duplicates data. The ServiceDefaults `DisableForUnsafeHttpMethods()` enforces this; a client that re-enables unsafe-method retry for an idempotency-keyed endpoint records why.
+
+### Hedging
+
+Hedging sends a parallel attempt when the first is slow, which cuts tail latency but multiplies load. It is opt-in per client for idempotent reads only, under the policy in [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits:
+
+```csharp
+services.AddHttpClient<{Service}ReadClient>()
+    .RemoveAllResilienceHandlers()
+    .AddStandardHedgingHandler();
+```
+
+The hedged client serves only GET/HEAD calls; writes use a separate non-hedged client.
 - In-process calls (service -> repository, domain methods) get no resilience wrapper - failures there are bugs or store outages, surfaced through `Result<T>`/exceptions, not retried.
 
 ## What NOT to Wrap
@@ -44,6 +56,7 @@ Keep the client total timeout larger than `retries x per-attempt timeout` budget
 
 - [ ] Internal clients rely on ServiceDefaults only (no custom pipeline stacked on the standard handler)
 - [ ] Each external client has exactly one named pipeline with settings-bound knobs
-- [ ] No retry on non-idempotent POSTs without an idempotency key
+- [ ] No retry on non-idempotent POSTs without an idempotency key; ServiceDefaults keeps `DisableForUnsafeHttpMethods()`
+- [ ] A hedged client serves reads only and replaced, not stacked on, the standard handler
 - [ ] Client total timeout exceeds the retry budget
 - [ ] Circuit-breaker open state surfaces as a `Result` failure / `ProblemDetails`, not an unhandled exception (see [api.md](api.md) section Error Handling Strategy)

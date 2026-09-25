@@ -382,7 +382,7 @@ Unit, service, endpoint, and integration tests already exist from Phases 5a/5b/5
 
 **New tests in this phase:**
 - Architecture tests (NetArchTest layering rules)
-- Load tests (NBomber, if comprehensive profile)
+- Load tests (in-house `LoadRunner`, if comprehensive profile)
 - Benchmarks (BenchmarkDotNet, if comprehensive profile)
 - Mutation tests (Stryker.NET, if comprehensive profile)
 - E2E Playwright tests (if comprehensive profile + UI enabled)

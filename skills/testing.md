@@ -224,7 +224,7 @@ When any of `Test.Aspire`, the `WasmUI` bridge tier, or `Test.Mobile` is in scop
 | `Test.Aspire` | Aspire `DistributedApplicationTestingBuilder` | Mesh: full AppHost graph over HTTP - API/Function audit pipelines, Service Bus -> Function -> projection, Blazor-mesh smoke | [test-templates-aspire.md](../templates/test-templates-aspire.md) |
 | `Test.PlaywrightUI` | Real hosted stack (Aspire / docker-compose / preview) | Browser-driven UI - hosts both the `PlaywrightUI` DOM lane and the `WasmUI` canvas-bridge lane (`WasmUI` is a category here, not a separate project) | [testing-quality.md](testing-quality.md) section Hosted Browser UI |
 | `Test.Architecture` | `NetArchTest.Rules` | Layer dependency rules | [test-templates-quality.md](../templates/test-templates-quality.md) |
-| `Test.Load` | NBomber | Throughput / latency baselines | [test-templates-quality.md](../templates/test-templates-quality.md) |
+| `Test.Load` | In-house `LoadRunner` (no package) | Throughput / latency / error-rate thresholds | [test-templates-quality.md](../templates/test-templates-quality.md) |
 | `Test.Benchmarks` | BenchmarkDotNet | Per-operation micro-benchmarks | [test-templates-quality.md](../templates/test-templates-quality.md) |
 | `Test.Mutation` | Stryker.NET + MSTest | Focused mutation testing for high-value domain/service paths | [test-templates-quality.md](../templates/test-templates-quality.md) |
 
@@ -271,7 +271,6 @@ Keeping them in separate assemblies means the fast component tier never pays the
 - Endpoint/E2E harness: `Microsoft.AspNetCore.Mvc.Testing`
 - Architecture: `NetArchTest.Rules`
 - Hosted UI: `Microsoft.Playwright.MSTest`
-- Load: `NBomber`
 - Benchmarks: `BenchmarkDotNet`
 - Mutation: `dotnet-stryker` local tool
 
@@ -305,7 +304,7 @@ Category boundaries that matter:
 - **`LiveAI`** marks model-backed smoke tests; `Test.Aspire` owns them, against Azure AI Foundry. Fast AI coverage (provider selection, contract, parse guard, no-write, write, no-op fallback) uses a fake `IChatClient` in `Test.Unit` / `Test.Endpoints` and carries no AI category. `AzureFoundry` is for Azure-specific selection/provisioning only, not a second copy of a provider-neutral contract. Classification and doctrine: [ai-integration.md](ai-integration.md) -> Provider Test Tiers.
 
 ```powershell
-# Canonical "all normal tests" - excludes Load (NBomber). Use explicit false opt-outs for heavy
+# Canonical "all normal tests" - excludes Load. Use explicit false opt-outs for heavy
 # lanes not provisioned on this machine. Optional LiveAI also performs its canonical provider preflight.
 dotnet test .\{SolutionName}.slnx --filter "TestCategory!=Load" -m:1
 

@@ -140,6 +140,13 @@ SQL Server `rowversion` and PostgreSQL `xmin` are acceptable provider-specific t
 
 Externally mutable aggregates use fail-on-conflict semantics. Missing required `If-Match` returns 428; a stale value returns 412 with the current ETag. `ClientWins` is allowed only for an explicitly recorded last-write-wins path. A broad `catch (Exception)` must not swallow `DbUpdateConcurrencyException` before the exception handler maps it.
 
+### Set-Based Writes and Query Shape
+
+- `ExecuteUpdateAsync`/`ExecuteDeleteAsync` execute immediately in SQL and bypass the change tracker, `SaveChanges` interceptors (audit, outbox staging), domain methods, and the `RowVersion` check. Use them for set-based work on non-aggregate or work tables (retention purges, bulk status stamps) where no invariant, audit record, or integration event is required; aggregate changes go through the root and `SaveChangesAsync`. When one must join a unit of work, open an explicit transaction and stage outbox rows explicitly ([messaging.md](messaging.md) section Transactional Producer: Outbox). Tenant query filters still apply because the statement is a LINQ query; prove it with a cross-tenant test per provider.
+- `AsSplitQuery()` is a per-query choice for multiple collection includes with measured cartesian growth, never a global default. Each split is a separate round trip with no shared snapshot outside a snapshot-isolation transaction, and paged split queries need a deterministic order with a unique tie-breaker.
+- Hot-path reads may use `EF.CompileAsyncQuery` or raw SQL after a benchmark. Raw SQL is parameterized through `FromSql`/`SqlQuery` interpolation; never concatenate values into `FromSqlRaw`.
+- `readNoLock: true` (`ConnectionNoLockInterceptor`, `READ UNCOMMITTED`) is a dirty read that can skip or duplicate rows while pages split. Limit it to approximate reads such as dashboard tiles. Cursor-paged feeds and any read feeding a decision pass `readNoLock: false`; on SQL Server prefer `READ_COMMITTED_SNAPSHOT` (the Azure SQL default) to avoid reader blocking.
+
 ---
 
 ## Entity Configuration
@@ -227,6 +234,7 @@ await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 - [ ] Repositories are split for write and read concerns
 - [ ] Multi-provider apps have one provider-options branch, one migration assembly per provider, and the same real-database suite per arm
 - [ ] Caller page size is clamped; high-cardinality cursor sorts include a unique tie-breaker
+- [ ] `ExecuteUpdateAsync`/`ExecuteDeleteAsync` touch no aggregate that needs audit, outbox, or concurrency checks; cursor feeds use `readNoLock: false`
 - [ ] Externally mutable aggregates surface concurrency conflicts instead of silently applying `ClientWins`
 - [ ] Read queries use projector expressions
 - [ ] Update paths use updater sync pattern for child collections

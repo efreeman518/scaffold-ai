@@ -91,7 +91,7 @@ tests/
 |-- Test.Architecture/                # NetArchTest layering rules
 |-- Test.PlaywrightUI/                # browser-driven UI tests against hosted stack (Aspire/docker-compose)
 |-- Test.Mobile/                      # Appium mobile lane when Uno native testing is in scope
-|-- Test.Load/                        # NBomber (comprehensive profile)
+|-- Test.Load/                        # in-house LoadRunner harness (comprehensive profile)
 |-- Test.Benchmarks/                  # BenchmarkDotNet (comprehensive profile)
 |-- Test.Mutation/                    # Stryker.NET mutation tests (comprehensive profile)
 `-- Test.Support/                     # shared bases, builders, fixtures

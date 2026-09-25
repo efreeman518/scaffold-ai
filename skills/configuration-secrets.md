@@ -125,6 +125,8 @@ public class NotificationOptions
 services.Configure<NotificationOptions>(config.GetSection(NotificationOptions.SectionName));
 ```
 
+A flag that must change without a redeploy (kill switch, degradation toggle, canary) is read through `IOptionsMonitor<T>` or `IOptionsSnapshot<T>`, never captured once at startup, and comes from a reloadable source: Azure App Configuration refresh with a sentinel on the Azure lane, a reloadable configuration provider elsewhere. Evaluation is per process, so a flip converges across replicas within the refresh interval, not instantly. Each kill switch defines its safe value for when the flag source is unreachable. Percentage rollout or targeting needs a feature-management package, which is a **GR-04** decision; plain boolean switches do not.
+
 ### PostConfigure
 
 Use `PostConfigure<T>()` when settings need environment-specific overrides after initial binding - for example, swapping webhook URLs in development:

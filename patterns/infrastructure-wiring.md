@@ -29,7 +29,8 @@ public static IHostApplicationBuilder AddServiceDefaults(
     builder.Services.AddServiceDiscovery();
     builder.Services.ConfigureHttpClientDefaults(http =>
     {
-        http.AddStandardResilienceHandler();
+        // Standard handler retries every method by default; retried POST/PATCH creates duplicates.
+        http.AddStandardResilienceHandler(o => o.Retry.DisableForUnsafeHttpMethods());
         http.AddServiceDiscovery();
     });
     return builder;

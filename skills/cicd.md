@@ -125,7 +125,7 @@ on:
       includeLoad:
         type: boolean
         default: false
-        description: "Run Test.Load (NBomber) throughput/latency baselines"
+        description: "Run Test.Load (in-house harness) throughput/latency thresholds"
       includeBenchmarks:
         type: boolean
         default: false
@@ -261,7 +261,7 @@ Treat Aspire, Playwright, and WasmUI projects as resource-heavy. Keep their work
 | `E2E` | Manual (`includeE2E`) | Docker (multi-endpoint chains, Testcontainers SQL) |
 | `PlaywrightUI` | Manual (`includePlaywright`) | hosted stack + browser install (own job) |
 | `MobileUI` | Manual (`includeMobile`) | `tests/Test.Mobile/run-mobile-tests.ps1`; Android SDK + emulator + Appium + UiAutomator2; fail-fast prerequisites (own job) |
-| `Load` | Manual (`includeLoad`) | heavy; NBomber via `dotnet test --filter TestCategory=Load` |
+| `Load` | Manual (`includeLoad`) | heavy; in-house `LoadRunner` via `dotnet test --filter TestCategory=Load` |
 | `Benchmark` | Manual (`includeBenchmarks`) | heavy; BenchmarkDotNet via `dotnet run` (NOT `dotnet test`) |
 | `Mutation` | Manual (`includeMutation`) | heavy; Stryker via `dotnet stryker` (NOT `dotnet test`) |
 

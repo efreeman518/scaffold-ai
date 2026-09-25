@@ -227,7 +227,7 @@ Mechanically, a second head means enabling a second per-stack host flag (`includ
 
 When the developer asks for high scale, high availability, cloud portability, or more than one hosting target, do not infer an architecture from a user-count headline. Close these questions before Phase 2:
 
-1. What peak requests per second, concurrent connections, payload sizes, read/write ratio, data growth, p95/p99 latency, recovery target, replica count, and cost ceiling must the design meet?
+1. What peak requests per second, concurrent connections and long-lived sockets, payload sizes, read/write ratio, data growth, p95/p99 latency, recovery target, replica count, regions, and cost ceiling must the design meet? These numbers become the asserted `Test.Load` thresholds.
 2. Which deployment lanes must ship now? Default to one lane. A second lane must name its compute topology and retained cloud dependencies.
 3. Which provider families vary by lane: relational database, broker, object storage, read model, audit sink, search, AI, Data Protection persistence, configuration, identity, and telemetry?
 4. Which per-provider selections must remain independently overridable after a lane is chosen?

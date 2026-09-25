@@ -67,7 +67,6 @@ These are already part of the reference app and may be added without developer d
 | `StackExchange.Redis` | Redis client (backplane / direct) | [caching.md](caching.md) |
 | `Moq` | Test doubles | [testing.md](testing.md) |
 | `NetArchTest.Rules` | Architecture tests | [testing.md](testing.md) |
-| `NBomber` | Load tests | [testing.md](testing.md) |
 | `Testcontainers.*` | Real-infra integration/E2E tests | [testing.md](testing.md) |
 | `BenchmarkDotNet` | Microbenchmarks | [testing.md](testing.md) |
 | `dotnet-stryker` (local tool) | Mutation testing runner | [testing-quality.md](testing-quality.md) |
@@ -89,6 +88,8 @@ Before adding any other package, pause and discuss with the developer. The bar i
 2. Why is a small in-house extension method insufficient?
 3. What is the maintenance, license, and transitive-dependency cost?
 4. Could equivalent behavior live as a thin extension package under `src/Packages/<packagePrefix>.<Layer>` (so it benefits other scaffolded apps) instead of as a third-party dependency?
+
+**No paid licenses by default.** A package, tool, or framework whose license requires payment for organizational or commercial use - including a free package whose current major moved to a commercial license - is excluded unless it adds significant value **and** no free built-in, allowlisted, in-house, or OSI-licensed option covers the need. Check the license of the version you would actually resolve, not the one you remember. An approved exception records the license name, cost basis, what the free options lacked, and an exit path in `.scaffold/DESIGN-DECISIONS.md`. Known exclusions: FluentAssertions ([testing.md](testing.md) section Assertion Policy), NBomber (replaced by the in-house `LoadRunner` in [test-templates-quality.md](../templates/test-templates-quality.md)), and MassTransit (use the owned outbox/transport port in [messaging.md](messaging.md)).
 
 If a candidate clears that bar, propose it explicitly to the developer with a one-paragraph rationale. Examples of common categories where teams reach for a package but the reference-app stack already covers the need: input validation, object mapping, assertion DSLs, alternate mocking frameworks, alternate JSON serializers. Default response in these categories: **write the extension or use what's already there.**
 
