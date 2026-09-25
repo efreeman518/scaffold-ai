@@ -27,20 +27,25 @@ Keep the client total timeout larger than `retries x per-attempt timeout` budget
 
 ## Internal-Call Guidance
 
-- **Never stack pipelines.** A client that already has the standard handler (via ServiceDefaults) must not also get a custom `AddResilienceHandler` - double retry multiplies load during incidents. Replace it instead: `RemoveAllResilienceHandlers()` then the one custom or hedging handler for that client.
+- **Never stack pipelines.** A client that already has the standard handler (via ServiceDefaults) must not also get a custom `AddResilienceHandler` - double retry multiplies load during incidents. Replace it instead: `RemoveAllResilienceHandlers()` then the one custom handler for that client. Hedging is the one deliberate nesting (see Hedging).
 - Retries are safe for idempotent calls (GET, PUT with full payload, DELETE). **Do not retry non-idempotent POSTs** unless the endpoint is idempotency-keyed; a retried create duplicates data. The ServiceDefaults `DisableForUnsafeHttpMethods()` enforces this; a client that re-enables unsafe-method retry for an idempotency-keyed endpoint records why.
+- **Every gRPC call is an HTTP POST**, so `DisableForUnsafeHttpMethods()` removes all retries from a gRPC client. A read-only gRPC client registers its own standard handler without that filter and records that it serves only idempotent calls; a gRPC client that carries writes keeps retries off.
 
 ### Hedging
 
-Hedging sends a parallel attempt when the first is slow, which cuts tail latency but multiplies load. It is opt-in per client for idempotent reads only, under the policy in [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits:
+Hedging sends a parallel attempt when the first is slow, which cuts tail latency but multiplies load. It is opt-in per client for idempotent reads only, under the policy in [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits. Two shapes are valid:
 
-```csharp
-services.AddHttpClient<{Service}ReadClient>()
-    .RemoveAllResilienceHandlers()
-    .AddStandardHedgingHandler();
-```
+- **Read-only client:** replace the standard handler with the standard hedging handler, which brings per-endpoint circuit breakers and no retry.
 
-The hedged client serves only GET/HEAD calls; writes use a separate non-hedged client.
+  ```csharp
+  services.AddHttpClient<{Service}ReadClient>()
+      .RemoveAllResilienceHandlers()
+      .AddStandardHedgingHandler();
+  ```
+
+- **Mixed read/write client:** keep the standard handler and add a hedging strategy inside it through `AddResilienceHandler`, guarded to GET on both `ShouldHandle` (outcome-triggered hedges) and `DelayGenerator` (latency-triggered hedges, which consult no outcome). Guarding only `ShouldHandle` still duplicates a slow POST. The outer retry then wraps one hedged pair per attempt. Proof: TaskFlow `src/Host/Aspire/ServiceDefaults/ReadHedgingExtensions.cs` and `tests/Test.Unit/Hosting/ReadHedgingTests.cs`.
+
+Either way, a test proves a slow POST is sent exactly once.
 - In-process calls (service -> repository, domain methods) get no resilience wrapper - failures there are bugs or store outages, surfaced through `Result<T>`/exceptions, not retried.
 
 ## What NOT to Wrap
@@ -57,6 +62,7 @@ The hedged client serves only GET/HEAD calls; writes use a separate non-hedged c
 - [ ] Internal clients rely on ServiceDefaults only (no custom pipeline stacked on the standard handler)
 - [ ] Each external client has exactly one named pipeline with settings-bound knobs
 - [ ] No retry on non-idempotent POSTs without an idempotency key; ServiceDefaults keeps `DisableForUnsafeHttpMethods()`
-- [ ] A hedged client serves reads only and replaced, not stacked on, the standard handler
+- [ ] A hedged client either replaced the standard handler (read-only) or nests a GET-guarded hedge with both guards, and a test proves a slow POST is sent once
+- [ ] Read-only gRPC clients keep retries explicitly; gRPC clients carrying writes do not retry
 - [ ] Client total timeout exceeds the retry budget
 - [ ] Circuit-breaker open state surfaces as a `Result` failure / `ProblemDetails`, not an unhandled exception (see [api.md](api.md) section Error Handling Strategy)
