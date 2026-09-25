@@ -170,6 +170,10 @@ builder.Services.AddGrpcClient<{Entity}Service.{Entity}ServiceClient>(options =>
 .AddInterceptor<ClientErrorInterceptor>();
 ```
 
+### Load Balancing and Deadlines
+
+HTTP/2 multiplexes every call over one long-lived connection, so a layer-4 balancer or direct replica address pins a client to one server. Route through a layer-7 proxy that balances per call (Container Apps ingress, YARP), or configure client-side balancing with a `dns:///` address and a round-robin `ServiceConfig`. Give every call a deadline and propagate it from the incoming call with `EnableCallContextPropagation()`, so a cancelled caller cancels its downstream work. Server streams hold a connection and memory per client; count them in the workload envelope ([../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Workload Envelope Before Architecture).
+
 ---
 
 ## Configuration

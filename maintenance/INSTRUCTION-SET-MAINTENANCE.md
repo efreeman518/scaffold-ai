@@ -94,6 +94,12 @@ CANARIES = {
     "Pipeline order alone does not reject anonymous callers": "skills/gateway.md",  # forwarded-claims trust boundary lives with Gateway; API wiring points here
     "RelationshipTypes/{id}/definition.json": "support/ontology-projection.md",  # ontology projection outputs + mapping live once; schema doc, interview, gates carry only the command and a pointer
     "participate in an enterprise or analytics model": "ai/shared-understanding-interview.md",  # the opt-in question verbatim lives with the interview; adopt-codebase and schema doc point here
+    "session state does not survive between transactions": "support/scalability-and-hosting.md",  # transaction-mode pooler hazards (advisory locks, SET, prepare) live with connection budgets
+    "hard deletes alone do not prevent bloat": "support/scalability-and-hosting.md",  # PostgreSQL work-table churn/vacuum/partition-retention rule
+    "bypass the change tracker, `SaveChanges` interceptors": "skills/data-persistence.md",  # ExecuteUpdate/ExecuteDelete audit/outbox/concurrency bypass rule
+    "http.AddStandardResilienceHandler(o => o.Retry.DisableForUnsafeHttpMethods());": "patterns/infrastructure-wiring.md",  # ServiceDefaults no-unsafe-retry call; resilience.md states the policy by name only
+    "No paid licenses by default.": "skills/package-dependencies.md",  # GR-04 license criterion + known exclusions; GROUND-RULES/ai/SKILL.md carry the short form
+    "no coordinated omission": "templates/test-templates-quality.md",  # in-house LoadRunner shape (replaces NBomber); skills name LoadRunner only
 }
 roots = ["skills", "patterns", "ai", "support", "schemas", "profiles", "templates"]
 files = [p for r in roots for p in pathlib.Path(r).rglob("*.md")]
@@ -194,6 +200,11 @@ are pointers.
   single-entity overlays.
 - Uno enabled-target validation commands: [support/execution-gates.md](../support/execution-gates.md) section 5c.
   Uno skills keep project policy, asset-graph hazards, and diagnostics.
+- Scale policy (workload envelope, overload/timeouts/shutdown, connection budgets, runtime GC defaults, stateful exceptions):
+  [support/scalability-and-hosting.md](../support/scalability-and-hosting.md). Skills own the implementation of each
+  control (resilience, caching, data persistence, gRPC) and point back for the policy.
+- Package license policy and known paid-license exclusions: [skills/package-dependencies.md](../skills/package-dependencies.md)
+  section Minimize Third-Party Dependencies; **GR-04** carries the short form.
 - Ontology projection (outputs, mapping, Fabric IQ ingestion, check semantics):
   [support/ontology-projection.md](../support/ontology-projection.md). The schema doc owns the optional fields,
   the interview owns the opt-in question, gates and checklists carry only the `--check` command.

@@ -367,7 +367,7 @@ Defaults: [ai/resource-implementation-schema.md](ai/resource-implementation-sche
 
 ## Scalability and Hosting Lanes
 
-Phase 2 defaults to one Azure lane. Add another lane only when it must ship, then declare independent provider switches and executable proof for that lane instead of forking the application architecture. Workload-envelope questions, lane/provider precedence, health probes, runtime tuning boundaries, portable deployment rules, and the TaskFlow refactor evidence are in [support/scalability-and-hosting.md](support/scalability-and-hosting.md).
+Phase 2 defaults to one Azure lane. Add another lane only when it must ship, then declare independent provider switches and executable proof for that lane instead of forking the application architecture. Workload-envelope questions, lane/provider precedence, health probes, overload and shutdown behavior, connection budgets, runtime tuning boundaries, portable deployment rules, and the TaskFlow refactor evidence are in [support/scalability-and-hosting.md](support/scalability-and-hosting.md).
 
 ## Happy Path
 

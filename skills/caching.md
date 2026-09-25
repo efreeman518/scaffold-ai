@@ -175,6 +175,14 @@ public class CacheSettings
 
 ---
 
+## Scale Hazards
+
+- Invalidate after the database commit, never before; a read between an early invalidation and the commit repopulates the stale value.
+- Factory coalescing (stampede protection) is per node. A cold start across N replicas still reaches the store up to N times per key; the L2 plus eager refresh and jitter keep that bounded.
+- More than one replica with L1 enabled needs the backplane, or each node serves its own stale copy for up to `Duration`.
+- Keys that vary by tenant or user include that scope; never cache a user-specific response under a shared key.
+- Keep the System.Text.Json serializer. A binary serializer is a measured, **GR-04**-gated change under [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits.
+
 ## Testing Guidance
 
 Mock `IFusionCacheProvider` and `IFusionCache` in test base; verify:
@@ -191,7 +199,7 @@ Mock `IFusionCacheProvider` and `IFusionCache` in test base; verify:
 - [ ] Redis L2 + backplane configured where distributed caching is enabled
 - [ ] key patterns are deterministic and tenant-safe
 - [ ] reads use `GetOrSetAsync` cache-aside pattern
-- [ ] writes invalidate or update relevant keys
+- [ ] writes invalidate or update relevant keys after commit
 - [ ] `IFusionCacheProvider` is used for named cache resolution
 - [ ] Aspire Redis resource name aligns with connection string naming
 - [ ] tests mock cache provider and validate behavior
