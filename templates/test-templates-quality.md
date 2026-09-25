@@ -394,7 +394,9 @@ powershell -NoProfile -File tests/Test.Mobile/run-mobile-tests.ps1 -AndroidSdk "
 
 No load-test package: commercial-license load tools are excluded by **GR-04**, and an open-model runner is small. Thresholds come from the workload envelope recorded in `.scaffold/DESIGN-DECISIONS.md`; a load test without asserted thresholds is a benchmark printout, not a gate. Run against a hosted stack (Aspire or Compose), never `WebApplicationFactory` - in-memory hosting bypasses Kestrel, the network, and real connection pools.
 
-### File: `tests/Test.Load/LoadRunner.cs`
+### File: `tests/Test.Support/LoadRunner.cs`
+
+The runner lives in `Test.Support` so `Test.Unit`, which normal CI runs, can test it; `Test.Load` scenarios are manual.
 
 ```csharp
 public sealed record LoadResult(int Offered, int Failed, int Dropped, TimeSpan P50, TimeSpan P95, TimeSpan P99)
@@ -488,7 +490,7 @@ public class {Entity}LoadTests
 }
 ```
 
-Keep one percentile check in `Test.Unit` (`Percentile([1..100 ms], 0.95) == 95 ms`) so a broken runner cannot pass every load gate. A single client machine saturates before a scaled-out service does: when the client's own CPU or socket count is the bottleneck, the run is inconclusive, not a pass. Distributed load generation beyond one runner is a deployment-environment concern.
+Keep runner checks in `Test.Unit` - percentile (`Percentile([1..100 ms], 0.95) == 95 ms`), failure counting, and saturation drops - so a broken runner cannot pass every load gate. Warm up each scenario (run it briefly and discard the result) before the measured run so cold-start work is not counted. A single client machine saturates before a scaled-out service does: when the client's own CPU or socket count is the bottleneck, the run is inconclusive, not a pass. Distributed load generation beyond one runner is a deployment-environment concern.
 
 ---
 
