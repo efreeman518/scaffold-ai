@@ -407,7 +407,7 @@ Full decision, runtime, and verification rules: [../support/scalability-and-host
 
 | Input | Default |
 |---|---|
-| `includeIaC` | `true` (Bicep for an `Azure` lane; the `NonAzure` lane deploys through its `DockerCompose` target) |
+| `includeIaC` | `true`: deployment definitions for each `deployTargets` entry - `deploy/compose/` for `DockerCompose` (default `NonAzure` lane, [../support/compose-deployment.md](../support/compose-deployment.md)), Bicep under `infra/` for `ContainerApps` (`Azure` lane) |
 | `azureRegion` | `eastus2` (Azure lane) |
 | `iacEnvironments` | `[dev, staging, prod]` |
 | `includeGitHubActions` | `false` |

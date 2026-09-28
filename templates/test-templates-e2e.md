@@ -411,7 +411,7 @@ interaction checks; prove create/update/delete through the API.
 ---
 
 **TaskFlow proof (local):**
-- `../scaffold-proof/tests/Test.E2E/SqlApiFactory.cs`
+- `../scaffold-proof/tests/Test.E2E/DbApiFactory.cs` (TaskFlow's `SqlApiFactory`, provider-selected)
 - `../scaffold-proof/tests/Test.E2E/TaskItemCrudE2ETests.cs`
 
 **TaskFlow proof (remote fallback):**

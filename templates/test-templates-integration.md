@@ -838,7 +838,7 @@ Skip this template when the project does not have a projection service / read-mo
 ---
 
 **TaskFlow proof (local):**
-- `../scaffold-proof/tests/Test.Integration/Infrastructure/SqlContainerFixture.cs`
+- `../scaffold-proof/tests/Test.Integration/Infrastructure/DbContainerFixture.cs` (TaskFlow's `SqlContainerFixture`, provider-selected)
 - `../scaffold-proof/tests/Test.Integration/Infrastructure/AzuriteContainerFixture.cs`
 - `../scaffold-proof/tests/Test.Integration/Infrastructure/IntegrationTestSetup.cs`
 - `../scaffold-proof/tests/Test.Integration/MigrationAndRepositoryTests.cs`

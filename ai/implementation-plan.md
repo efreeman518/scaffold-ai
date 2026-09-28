@@ -82,12 +82,12 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 - [ ] Benchmarks (if comprehensive profile)
 - [ ] Mutation tests (if comprehensive profile or `includeMutationTests: true`)
 - [ ] Browser UI Playwright tests against hosted stack (if comprehensive profile + UI enabled) - `Test.PlaywrightUI`, C# MSTest + `Microsoft.Playwright.MSTest`
-- [ ] IaC templates (Bicep)
+- [ ] IaC for each declared deployment target (Bicep for `ContainerApps`, `deploy/compose/` for `DockerCompose`)
 - [ ] CI/CD pipeline
 - [ ] Dockerfile
 - [ ] Vulnerability audit (`dotnet list package --vulnerable --include-transitive`)
 - [ ] Full regression: `dotnet test -m:1` (all categories; serialize resource-heavy projects)
-- [ ] **Checkpoint:** full test suite passes; `az bicep build` succeeds (if IaC enabled)
+- [ ] **Checkpoint:** full test suite passes; the 5d IaC commands succeed for each declared target (if IaC enabled)
 
 ### Phase 5e - Integration (Auth + AI)
 

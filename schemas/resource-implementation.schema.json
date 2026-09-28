@@ -81,7 +81,11 @@
       "default": "same-db-separate-schema",
       "description": "Variant A (same-db-separate-schema, default) keeps the FE outbox transactionally co-located with workflow state - message/integration/agent delivery is atomic. Variant B/C (separate-db) splits FE into its own database; outbox delivery degrades to best-effort and the integrator must wire FE message nodes through the app's existing at-least-once publisher. Ignored when includeFlowEngine is false."
     },
-    "includeIaC": { "type": "boolean", "default": true },
+    "includeIaC": {
+      "type": "boolean",
+      "default": true,
+      "description": "Generate deployment definitions for each deployTargets entry: deploy/compose/ for DockerCompose (default NonAzure lane), Bicep under infra/ for ContainerApps (Azure lane)."
+    },
     "includeGitHubActions": { "type": "boolean", "default": false },
     "includeAzd": { "type": "boolean", "default": false },
     "includeAiServices": { "type": "boolean", "default": false },

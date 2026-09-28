@@ -351,7 +351,7 @@ Column encryption does not cover the audit trail: `AuditInterceptor` writes prop
 
 CMK/CEK rotation is an operational task on top of the secret-rotation workflow in [../skills/security.md](../skills/security.md). Rotate the CMK in Key Vault, re-wrap the CEK, then retire the old CMK version; record the rotation owner in the Security-branch decision.
 
-**TaskFlow proof:** `src/Infrastructure/TaskFlow.Infrastructure.Data/Migrations/*_InitialCreate.cs` (`ConfigureAlwaysEncrypted`), `Configurations/TaskItemConfiguration.cs` (varbinary + UTF8 converter), `src/Host/TaskFlow.Bootstrapper/Registration/RegisterServices.Database.cs` (provider registration, `Column Encryption Setting`), `src/Host/Aspire/AppHost/AppHost.cs` (opt-in gate, `AKVCMKURL`), `infra/main.bicep` (CMK key, purge protection, Crypto User RBAC), `tests/Test.Unit/Domain/TaskItemTests.cs` (domain length test). Decision recorded as D-019 (Branch Security).
+**TaskFlow proof:** none for Always Encrypted. TaskFlow records it as the superseded SQL Server-only alternative (D-019) and ships the provider-neutral replacement (D-023): application-layer AES-256-GCM with an HMAC blind index in `src/Infrastructure/TaskFlow.Infrastructure.Data/Configurations/TaskItemConfiguration.cs`, proved by `tests/Test.Unit/Infrastructure/ColumnEncryptionTests.cs` and `tests/Test.Integration/ColumnEncryptionIntegrationTests.cs`.
 
 ---
 

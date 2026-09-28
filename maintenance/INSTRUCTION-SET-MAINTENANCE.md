@@ -106,6 +106,7 @@ CANARIES = {
     "Branch on the `CanConnectAsync` result": "templates/health-check-template.md",  # SQL health check must use the bool, not an unconditional Healthy()
     "Never seed code-defined jobs with `ICronTickerManager.AddAsync`": "skills/background-services.md",  # TickerQ cron lives on [TickerFunction]; trigger templates point here
     "a live `Processing` lease means retry later": "skills/messaging.md",  # two-state inbox claim (Processing lease -> Completed with the effect)
+    "Compose interpolates only from `.env`": "support/compose-deployment.md",  # DockerCompose deployment owner (.env.base + images.env -> generated .env); iac/cicd/schema point here
 }
 roots = ["skills", "patterns", "ai", "support", "schemas", "profiles", "templates"]
 files = [p for r in roots for p in pathlib.Path(r).rglob("*.md")]
@@ -219,6 +220,9 @@ are pointers.
 - Read hedging registration: [skills/resilience.md](../skills/resilience.md) section Hedging.
 - Outbox claim/dispatch and inbox claim states: [skills/messaging.md](../skills/messaging.md).
 - TickerQ cron declaration and scheduler health: [skills/background-services.md](../skills/background-services.md).
+- `DockerCompose` deployment (file layout, service rules, Caddy edge, secrets, OpenObserve, VPS deploy workflow):
+  [support/compose-deployment.md](../support/compose-deployment.md). Bicep stays in [skills/iac.md](../skills/iac.md); the
+  generic release contract stays in [skills/cicd.md](../skills/cicd.md).
 - Ontology projection (outputs, mapping, Fabric IQ ingestion, check semantics):
   [support/ontology-projection.md](../support/ontology-projection.md). The schema doc owns the optional fields,
   the interview owns the opt-in question, gates and checklists carry only the `--check` command.

@@ -261,5 +261,5 @@ After generating domain entities, confirm:
 
 ---
 
-**TaskFlow proof (local):** `../scaffold-proof/src/Domain/TaskFlow.Domain.Model/TaskItem/TaskItem.cs` and `../scaffold-proof/src/Domain/TaskFlow.Domain.Model/Rules/TaskItemStatusTransitionRule.cs`
+**TaskFlow proof (local):** `../scaffold-proof/src/Domain/TaskFlow.Domain.Model/TaskItem/TaskItem.cs` (`TransitionStatus`) and `../scaffold-proof/tests/Test.Unit/Domain/TaskItemStatusTransitionTests.cs`
 **TaskFlow proof (remote fallback):** <https://github.com/efreeman518/scaffold-proof/blob/main/src/Domain/TaskFlow.Domain.Model/TaskItem/TaskItem.cs>

@@ -20,11 +20,7 @@ dotnet test .\{SolutionName}.slnx --no-build -m:1
 
 All three must exit 0. The test command is unfiltered and serial so Aspire, Playwright, and WASM full-stack projects cannot boot overlapping graphs. Then walk the **Completion Criteria** below.
 
-If IaC is enabled:
-
-```powershell
-az bicep build --file infra/main.bicep
-```
+If IaC is enabled, run the IaC commands for each declared deployment target in [execution-gates.md](execution-gates.md) section 5d - Quality Gates + Delivery.
 
 If Aspire is enabled:
 

@@ -1,6 +1,6 @@
 # Infrastructure as Code - Azure Bicep
 
-Use this skill to generate `infra/` Bicep templates that mirror the runtime topology of an `Azure` lane. The default `NonAzure` lane deploys through its `DockerCompose` target instead ([../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Deployment and Verification Matrix).
+Use this skill to generate `infra/` Bicep templates that mirror the runtime topology of an `Azure` lane. The default `NonAzure` lane deploys through its `DockerCompose` target instead ([../support/compose-deployment.md](../support/compose-deployment.md)).
 
 ## Prerequisites
 

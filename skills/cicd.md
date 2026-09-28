@@ -318,6 +318,8 @@ Live AI smoke (`LiveAI`) runs against Azure AI Foundry inside the `Aspire` mesh 
 
 ## `cd.yml` (Build, Push, Deploy)
 
+A `DockerCompose` target applies this contract in its own workflow: [../support/compose-deployment.md](../support/compose-deployment.md) section Deploy Workflow.
+
 ### Trigger default: `workflow_dispatch` only
 
 `cd.yml` (and `provision.yml`, below) default to callable/manual entrypoints only until infra exists and the `AZURE_*` / registry secrets+vars are set. `workflow_call` preserves orchestration from a trusted promotion workflow; `workflow_dispatch` supports explicit deploy or rollback. Auto-deploy on push to `main` is opt-in only after the environment is ready.

@@ -388,7 +388,7 @@ Unit, service, endpoint, and integration tests already exist from Phases 5a/5b/5
 - E2E Playwright tests (if comprehensive profile + UI enabled)
 
 **Also in this phase:**
-- IaC (Bicep), CI/CD pipeline YAML, Dockerfile, coverage settings
+- IaC (deployment definitions per `deployTargets` entry: Bicep for `ContainerApps`, `deploy/compose/` for `DockerCompose`), CI/CD pipeline YAML, Dockerfile, coverage settings
 
 Required profile gate (full regression):
 - `minimal`: Unit + Endpoint
@@ -416,16 +416,24 @@ Then run Stryker from `tests/Test.Mutation`:
 dotnet tool run dotnet-stryker
 ```
 
-IaC (if enabled):
+IaC (if enabled), for each declared deployment target:
 
 ```powershell
+# ContainerApps (Azure lane)
 az bicep build --file infra/main.bicep
+# DockerCompose (NonAzure lane): render with the committed templates only
+Push-Location deploy/compose
+Get-Content .env.example, images.env.example | Set-Content .env
+docker compose -f docker-compose.yml config -q
+docker compose -f docker-compose.yml -f docker-compose.override.local.yml config -q
+Remove-Item .env
+Pop-Location
 ```
 
 Delivery checks:
 - [ ] Full test suite passes (regression - not first-time creation for unit/endpoint/integration)
 - [ ] Architecture tests enforce layering rules
-- [ ] `az bicep build --file infra/main.bicep` succeeds *(if IaC enabled)*
+- [ ] The IaC command for each declared deployment target succeeds *(if IaC enabled)*
 - [ ] Aspire <-> IaC names/connection strings are aligned
 - [ ] Every configured migration provider has a non-destructive pending-model-change/parity check
 - [ ] Browser-WASM delivery uses clean published `Release` output and passes the static-host contract in [../skills/ui-uno-platforms.md](../skills/ui-uno-platforms.md) section Published Release artifact and static-host contract
@@ -552,11 +560,7 @@ dotnet test .\{SolutionName}.slnx --no-build -m:1
 
 Plus a manual walk-through of [final-scaffold-checklist.md](final-scaffold-checklist.md) covering: solution structure shape, no-op stub coverage, host startup smoke checks, and HANDOFF.md completeness.
 
-If IaC is part of scope:
-
-```powershell
-az bicep build --file infra/main.bicep
-```
+If IaC is part of scope, run the IaC commands in section 5d - Quality Gates + Delivery for each declared deployment target.
 
 ---
 
