@@ -204,7 +204,7 @@ public record DomainError(string Error, string? Code = null);
 
 Also available:
 - `DomainException`
-- `[Mask]` attribute for redaction
+- `EF.Domain.Attributes.MaskAttribute` for audit redaction of modified entries (sensitive properties also need the `EF.Common` one: [../support/data-persistence-advanced.md](../support/data-persistence-advanced.md) section Testing expectations)
 
 ---
 

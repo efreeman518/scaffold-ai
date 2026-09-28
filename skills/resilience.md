@@ -27,25 +27,50 @@ Keep the client total timeout larger than `retries x per-attempt timeout` budget
 
 ## Internal-Call Guidance
 
-- **Never stack pipelines.** A client that already has the standard handler (via ServiceDefaults) must not also get a custom `AddResilienceHandler` - double retry multiplies load during incidents. Replace it instead: `RemoveAllResilienceHandlers()` then the one custom handler for that client. Hedging is the one deliberate nesting (see Hedging).
+- **Never stack pipelines.** A client that already has the standard handler (via ServiceDefaults) must not also get a custom `AddResilienceHandler` - double retry multiplies load during incidents. Replace it instead: `RemoveAllResilienceHandlers()` then the one custom handler for that client (hedging included; see Hedging).
 - Retries are safe for idempotent calls (GET, PUT with full payload, DELETE). **Do not retry non-idempotent POSTs** unless the endpoint is idempotency-keyed; a retried create duplicates data. The ServiceDefaults `DisableForUnsafeHttpMethods()` enforces this; a client that re-enables unsafe-method retry for an idempotency-keyed endpoint records why.
 - **Every gRPC call is an HTTP POST**, so `DisableForUnsafeHttpMethods()` removes all retries from a gRPC client. A read-only gRPC client registers its own standard handler without that filter and records that it serves only idempotent calls; a gRPC client that carries writes keeps retries off.
 
 ### Hedging
 
-Hedging sends a parallel attempt when the first is slow, which cuts tail latency but multiplies load. It is opt-in per client for idempotent reads only, under the policy in [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits. Two shapes are valid:
+Hedging sends a parallel attempt when the first is slow, which cuts tail latency but multiplies load. It is opt-in per client for idempotent reads only, under the policy in [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits. One shape is valid: replace the client's handler with the standard hedging handler, guarded to GET/HEAD on both `ShouldHandle` and `DelayGenerator`.
 
-- **Read-only client:** replace the standard handler with the standard hedging handler, which brings per-endpoint circuit breakers and no retry.
+```csharp
+using Polly;
 
-  ```csharp
-  services.AddHttpClient<{Service}ReadClient>()
-      .RemoveAllResilienceHandlers()
-      .AddStandardHedgingHandler();
-  ```
+public static IHttpClientBuilder AddReadHedging(this IHttpClientBuilder builder)
+{
+#pragma warning disable EXTEXP0001 // RemoveAllResilienceHandlers is [Experimental]; the hedging handler must replace the ServiceDefaults handler. Remove this pragma when the API is no longer experimental.
+    builder.RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
 
-- **Mixed read/write client:** keep the standard handler and add a hedging strategy inside it through `AddResilienceHandler`, guarded to GET on both `ShouldHandle` (outcome-triggered hedges) and `DelayGenerator` (latency-triggered hedges, which consult no outcome). Guarding only `ShouldHandle` still duplicates a slow POST. The outer retry then wraps one hedged pair per attempt. Proof: TaskFlow `src/Host/Aspire/ServiceDefaults/ReadHedgingExtensions.cs` and `tests/Test.Unit/Hosting/ReadHedgingTests.cs`.
+    builder.AddStandardHedgingHandler().Configure(options =>
+    {
+        var transient = options.Hedging.ShouldHandle;
+        var delay = options.Hedging.Delay;
 
-Either way, a test proves a slow POST is sent exactly once.
+        // Outcome-triggered hedges: the standard transient predicate, narrowed to reads.
+        options.Hedging.ShouldHandle = args =>
+            IsRead(args.Context) ? transient(args) : ValueTask.FromResult(false);
+
+        // Latency-triggered hedges consult no outcome, so they need their own guard.
+        options.Hedging.DelayGenerator = args =>
+            ValueTask.FromResult(IsRead(args.Context) ? delay : Timeout.InfiniteTimeSpan);
+    });
+
+    return builder;
+}
+
+private static bool IsRead(ResilienceContext context) =>
+    context.GetRequestMessage()?.Method is { } method
+    && (method == HttpMethod.Get || method == HttpMethod.Head);
+```
+
+- Only the standard hedging pipeline snapshots the `HttpRequestMessage` for each attempt. A custom `AddResilienceHandler(...).AddHedging(...)` sends the same request instance concurrently; never build hedging that way or nest it inside the standard handler.
+- The standard hedging handler replaces the client's standard handler: attempt timeout, per-endpoint circuit breaker, and total timeout come from the hedging options, and GET retries become hedges. Guarding only `ShouldHandle` still duplicates a slow POST through the delay path.
+- `RemoveAllResilienceHandlers` is marked `[Experimental("EXTEXP0001")]`. Each call site, here or in a replaced custom pipeline, carries the scoped pragma above with its reason and removal criterion; never a project-wide `NoWarn`.
+- Tests prove a slow POST is sent exactly once and hedged attempts use distinct `HttpRequestMessage` instances. Proof: TaskFlow `src/Host/Aspire/ServiceDefaults/ReadHedgingExtensions.cs` and `tests/Test.Unit/Hosting/ReadHedgingTests.cs`.
+
 - In-process calls (service -> repository, domain methods) get no resilience wrapper - failures there are bugs or store outages, surfaced through `Result<T>`/exceptions, not retried.
 
 ## What NOT to Wrap
@@ -62,7 +87,7 @@ Either way, a test proves a slow POST is sent exactly once.
 - [ ] Internal clients rely on ServiceDefaults only (no custom pipeline stacked on the standard handler)
 - [ ] Each external client has exactly one named pipeline with settings-bound knobs
 - [ ] No retry on non-idempotent POSTs without an idempotency key; ServiceDefaults keeps `DisableForUnsafeHttpMethods()`
-- [ ] A hedged client either replaced the standard handler (read-only) or nests a GET-guarded hedge with both guards, and a test proves a slow POST is sent once
+- [ ] A hedged client replaced its handler with the GET/HEAD-guarded standard hedging handler, and tests prove a slow POST is sent once and each hedged attempt gets its own request instance
 - [ ] Read-only gRPC clients keep retries explicitly; gRPC clients carrying writes do not retry
 - [ ] Client total timeout exceeds the retry budget
 - [ ] Circuit-breaker open state surfaces as a `Result` failure / `ProblemDetails`, not an unhandled exception (see [api.md](api.md) section Error Handling Strategy)

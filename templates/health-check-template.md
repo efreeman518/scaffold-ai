@@ -14,8 +14,9 @@ public class SqlHealthCheck(IDbContextFactory<{App}DbContextTrxn> factory) : IHe
         try
         {
             using var db = await factory.CreateDbContextAsync(ct);
-            await db.Database.CanConnectAsync(ct);
-            return HealthCheckResult.Healthy();
+            return await db.Database.CanConnectAsync(ct)
+                ? HealthCheckResult.Healthy()
+                : HealthCheckResult.Unhealthy("SQL connection failed");
         }
         catch (Exception ex)
         {
@@ -45,6 +46,7 @@ app.MapHealthChecks("/healthz", new()).AllowAnonymous(); // operator aggregate
 ## Rules
 
 - One `IHealthCheck` class per external dependency.
+- Branch on the `CanConnectAsync` result: it reports most connection failures as `false` instead of throwing, so an unconditional `Healthy()` after the call reports a down database as healthy.
 - Tag dependency checks with `"ready"`; ServiceDefaults owns the `"self"` check tagged `"live"`.
 - `/healthz/live` runs only `"live"` checks. `/healthz/ready` runs only `"ready"` checks. `/healthz` runs the operator aggregate and is never the liveness target.
 - Do not duplicate ServiceDefaults self-liveness - add domain-specific readiness only.

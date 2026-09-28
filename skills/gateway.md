@@ -99,7 +99,7 @@ private static void ConfigureProxyTransforms(TransformBuilderContext context)
         ctx.ProxyRequest.Headers.Remove(originalUserHeader);
         AddOriginalUserClaimsHeader(ctx);
 
-        var token = await tokenService.GetAccessTokenAsync(clusterId);
+        var token = await tokenService.GetAccessTokenAsync(clusterId, ctx.HttpContext.RequestAborted);
         ctx.ProxyRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
     });
 }
@@ -112,7 +112,7 @@ private static void ConfigureProxyTransforms(TransformBuilderContext context)
 1. Every claim-relaying proxy route requires an authenticated-user authorization policy. Pipeline order alone does not reject anonymous callers.
 2. Gateway removes any inbound `X-Orig-Request` and regenerates one envelope only from the authenticated `HttpContext.User`.
 3. Gateway replaces the user token with its downstream service token.
-4. API bearer authentication validates issuer and audience, then an allowlisted gateway application identity (`azp` for v2 tokens, `appid` for v1) before any forwarded-claims transformer parses the envelope.
+4. API bearer authentication validates issuer and audience, then an allowlisted gateway application identity (`azp` for v2 tokens, `appid` for v1) on an app-only token (no `scp` delegated-scope claim) before any forwarded-claims transformer parses the envelope.
 5. Non-gateway service identities and direct-user-token paths ignore the header. `IRequestContext` reads only the resulting authenticated principal, never the raw envelope.
 
 Required verification:
@@ -120,7 +120,8 @@ Required verification:
 - `AnonymousClaimRelayRoute_IsRejectedBeforeProxy`: an anonymous caller never reaches the transform.
 - `ForgedInboundEnvelope_IsOverwritten`: a caller-supplied envelope sent through Gateway cannot supply roles or tenant.
 - `ForgedDirectEnvelope_WithoutTrustedGateway_IsIgnored`: a direct API call with no allowlisted gateway service identity returns 401/403 or leaves the principal unchanged.
-- `TrustedGatewayEnvelope_AddsExpectedClaims`: a valid gateway service token plus gateway-generated envelope produces only the expected user, role, and tenant claims.
+- `TrustedGatewayEnvelope_AddsExpectedClaims`: a valid gateway service token plus gateway-generated envelope produces only the expected user, role, and tenant claims, in a new identity that carries none of the gateway identity's claims.
+- `DelegatedUserTokenForGatewayClient_IsIgnored`: a user token whose `azp` is the gateway client id cannot supply an envelope.
 - `RepeatedTransformation_DoesNotDuplicateForwardedClaims`: repeated authentication transformation adds no duplicate identity or claim.
 
 Keep API-side wiring concise and point it back here; see [api-host-wiring.md](../patterns/api-host-wiring.md#gateway-claim-relay-trust-boundary).
@@ -129,7 +130,7 @@ Keep API-side wiring concise and point it back here; see [api-host-wiring.md](..
 
 ## TokenService Contract
 
-`TokenService` acquires and caches client-credential tokens per cluster with an expiry buffer. Injects `TokenCredential` (not `IConfiguration` or MSAL directly).
+`TokenService` acquires and caches client-credential tokens per cluster with an expiry buffer. Injects `TokenCredential` (not `IConfiguration` or MSAL directly). Acquisition is single-flight: the cache holds the in-flight task, so a burst on an expired token makes one identity-provider call. The shared acquisition runs on `CancellationToken.None` plus a bounded timeout, never a caller's token; each caller cancels only its own wait through `WaitAsync(ct)`, and only a faulted or cancelled acquisition is evicted.
 
 ```csharp
 using Azure.Core;
@@ -137,20 +138,48 @@ using System.Collections.Concurrent;
 
 public class TokenService(TokenCredential credential, IConfiguration config)
 {
-    private readonly ConcurrentDictionary<string, (string Token, DateTimeOffset Expiry)> _cache = new();
+    private static readonly TimeSpan RefreshWindow = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan AcquireTimeout = TimeSpan.FromSeconds(30);
+    private readonly ConcurrentDictionary<string, Lazy<Task<AccessToken>>> _cache = new();
 
     public async Task<string> GetAccessTokenAsync(string clusterId, CancellationToken ct = default)
     {
-        if (_cache.TryGetValue(clusterId, out var cached) && cached.Expiry > DateTimeOffset.UtcNow.AddMinutes(5))
-            return cached.Token;
+        // Two attempts: the first may find a token inside the refresh window and evict it.
+        for (var attempt = 0; ; attempt++)
+        {
+            var pending = _cache.GetOrAdd(clusterId, key => new Lazy<Task<AccessToken>>(
+                () => AcquireAsync(key), LazyThreadSafetyMode.ExecutionAndPublication));
 
+            AccessToken token;
+            try
+            {
+                token = await pending.Value.WaitAsync(ct);   // a disconnecting caller abandons only its own wait
+            }
+            catch when (pending.Value.IsFaulted || pending.Value.IsCanceled)
+            {
+                RemoveIfSame(clusterId, pending);   // never cache a failure; never evict a newer entry
+                throw;
+            }
+
+            if (attempt == 1 || token.ExpiresOn > DateTimeOffset.UtcNow.Add(RefreshWindow))
+                return token.Token;
+
+            RemoveIfSame(clusterId, pending);
+        }
+    }
+
+    private async Task<AccessToken> AcquireAsync(string clusterId)
+    {
         var scope = config[$"ReverseProxy:Clusters:{clusterId}:TokenScope"]
             ?? throw new InvalidOperationException($"TokenScope not configured for cluster '{clusterId}'");
 
-        var tokenResult = await credential.GetTokenAsync(new TokenRequestContext([scope]), ct);
-        _cache[clusterId] = (tokenResult.Token, tokenResult.ExpiresOn);
-        return tokenResult.Token;
+        using var timeout = new CancellationTokenSource(AcquireTimeout);
+        return await credential.GetTokenAsync(new TokenRequestContext([scope]), timeout.Token);
     }
+
+    private void RemoveIfSame(string clusterId, Lazy<Task<AccessToken>> observed) =>
+        ((ICollection<KeyValuePair<string, Lazy<Task<AccessToken>>>>)_cache)
+            .Remove(new KeyValuePair<string, Lazy<Task<AccessToken>>>(clusterId, observed));
 }
 ```
 
@@ -209,7 +238,7 @@ public static WebApplication ConfigurePipeline(this WebApplication app)
 {
     ConfigureSecurity(app);
     ConfigureCors(app);
-    ConfigureMiddleware(app);   // routing, limiter, auth
+    ConfigureMiddleware(app);   // routing, auth, then limiter (claim partitions need the principal)
     ConfigureEndpoints(app);    // health/liveness
     ConfigureReverseProxy(app);
     return app;
@@ -246,6 +275,8 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 Prefer explicit `KnownProxies`/`KnownIPNetworks` and a finite `ForwardLimit`. Container networks with dynamic proxy addresses may instead use `ForwardLimit = null` plus cleared `KnownIPNetworks`/`KnownProxies` only when network policy makes the app port unreachable except through the controlled Gateway. Clearing trust lists on a publicly reachable port lets clients forge scheme and host.
 
 For an externally prefixed app such as `/admin`, preserve that prefix to the downstream host and call `UsePathBase` (for example, `UsePathBase("/admin")`) before static files, routing, auth, and endpoints. Derive the served HTML `<base href>` from the effective `Request.PathBase` and include the same prefix in redirect/logout URIs. If YARP strips the external prefix, `UsePathBase` cannot rediscover it; either preserve the prefix or set `Request.PathBase` from controlled deployment configuration. ASP.NET Core forwarded-header middleware does not infer it from `X-Forwarded-Prefix`.
+
+A per-IP edge limiter partitions on `Connection.RemoteIpAddress`, which is the ingress address until forwarded headers run. Enable forwarded headers with known proxies or networks in every deployed lane, before the limiter, and test that the partition key is the forwarded client address, not the ingress address.
 
 Deployment proof uses the public URL: an unauthenticated challenge redirects to public `https://<host>/<path-base>/...`, and prefixed UI root, framework, content, API, and OIDC callback paths return the expected status. Internal `http://container:port` must not appear in a redirect.
 

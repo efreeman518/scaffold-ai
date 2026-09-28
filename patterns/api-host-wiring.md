@@ -88,17 +88,17 @@ public static WebApplication ConfigurePipeline(this WebApplication app)
     // 3. Catch unhandled exceptions (before routing)
     app.UseExceptionHandler();
 
-    // 4. Rate limiting
-    app.UseRateLimiter();
-
-    // 5. CORS
+    // 4. CORS
     app.UseCors("UiCors");
 
-    // 6. Authenticate
+    // 5. Authenticate
     app.UseAuthentication();
 
-    // 7. Authorize
+    // 6. Authorize
     app.UseAuthorization();
+
+    // 7. Rate limiting after auth so tenant/user partitions see the principal (skills/security.md)
+    app.UseRateLimiter();
 
     // OpenAPI + Scalar (feature-gated)
     if (app.Configuration.GetValue<bool>("OpenApiSettings:Enable", true))
@@ -133,12 +133,17 @@ public static WebApplication ConfigurePipeline(this WebApplication app)
 
 API may consume `X-Orig-Request` only after bearer authentication validates issuer, audience, and an allowlisted gateway application identity (`azp`/`appid`). A forwarded-claims transformer may then add context to the authenticated principal; `IRequestContext` reads that principal, never the raw header. Direct-user-token and other service-token paths ignore the envelope. The canonical trust boundary and forged-header cases live in [gateway.md](../skills/gateway.md#forwarded-claims-trust-boundary).
 
-When claim relay is used, bind `ForwardedClaims:TrustedGatewayClientIds` from validated configuration and fail startup when the allowlist is empty. Register the transformer only for that path. `IClaimsTransformation` runs during authentication, before authorization; the transformer itself must enforce the caller check before reading the header. It may run more than once, so forwarded-context application must be idempotent: clone one identity and add each allowlisted claim only when the same type/value is absent.
+When claim relay is used, bind `ForwardedClaims:TrustedGatewayClientIds` from validated configuration and fail startup when the allowlist is empty. Register the transformer only for that path. `IClaimsTransformation` runs during authentication, before authorization; the transformer itself must enforce the caller check before reading the header. On success it returns a new principal with a new `ClaimsIdentity` holding only the allowlisted forwarded claims plus a relayed-by marker, never a clone of the gateway service identity: merging them attributes every request to the gateway `oid` and hands the user the gateway's app roles. It may run more than once; the transformed principal carries no trusted-caller claim, so a second run is a no-op.
 
 ```csharp
 private bool IsTrustedGatewayCaller(ClaimsPrincipal principal)
 {
     if (principal.Identity?.IsAuthenticated != true) return false;
+
+    // App-only (client-credentials) token only: a delegated user token issued to the gateway client id
+    // carries the same azp, so any delegated scope disqualifies the caller.
+    if (principal.HasClaim(c => c.Type is "scp" or "http://schemas.microsoft.com/identity/claims/scope"))
+        return false;
 
     var callerAppId = principal.FindFirst("azp")?.Value
         ?? principal.FindFirst("appid")?.Value; // v1 fallback only when azp is absent
@@ -155,9 +160,9 @@ public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
         return Task.FromResult(principal);
     if (envelope.Count != 1) return Task.FromResult(principal);
 
-    // Parse validated gateway context, clone one identity, and add missing allowlisted type/value pairs only.
-    // Never copy arbitrary claim names. AddForwardedContextAsync must be idempotent.
-    return AddForwardedContextAsync(principal, envelope);
+    // Parse validated gateway context into a NEW identity with allowlisted claim types only.
+    // Never copy the gateway identity's claims or arbitrary claim names.
+    return BuildForwardedPrincipalAsync(principal, envelope);
 }
 ```
 
@@ -167,7 +172,7 @@ public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
 
 **Source:** `Host/{App}.Bootstrapper/Registration/RegisterServices.RequestContext.cs`
 
-Scoped `IRequestContext<string, Guid?>` factory: correlation ID from `X-Correlation-ID` header, claim precedence (`oid` > `NameIdentifier` > `sub`), tenant from the authenticated principal's `userTenantId` claim, role extraction, background service fallback.
+Scoped `IRequestContext<string, Guid?>` factory: correlation ID from `X-Correlation-ID` header, claim precedence (`oid` > `NameIdentifier` > `sub`), tenant from the authenticated principal's `userTenantId` claim, role extraction, and an explicit system context outside a request.
 
 ```csharp
 private static void AddRequestContextServices(IServiceCollection services)
@@ -189,11 +194,12 @@ private static void AddRequestContextServices(IServiceCollection services)
             }
         }
 
-        // Background service fallback -- no HttpContext available
+        // No HttpContext (background job, Functions trigger): an explicit system context with no tenant,
+        // the fixed system user id, and the system role. Never the scaffold/dev principal or a default tenant.
         if (httpContext == null)
         {
             return new RequestContext<string, Guid?>(
-                correlationId, $"BackgroundService-{correlationId}", null, []);
+                correlationId, AppConstants.SYSTEM_USER_ID, null, [AppConstants.ROLE_SYSTEM]);
         }
 
         // Claim precedence for audit identity

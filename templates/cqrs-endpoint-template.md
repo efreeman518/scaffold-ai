@@ -19,7 +19,7 @@ group.MapPost("/", async (
     return result.Match<IResult>(
         response => TypedResults.Created(httpContext.Request.Path, response),
         errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
-            errors: errors)));
+            errors: errors, statusCodeOverride: StatusCodes.Status400BadRequest)));
 });
 ```
 

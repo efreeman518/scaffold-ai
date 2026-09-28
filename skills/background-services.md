@@ -171,11 +171,11 @@ Key settings:
 ## Runtime Scheduling APIs
 
 - One-off jobs: use `ITimeTickerManager<T>.EnqueueAsync("JobName", scheduledTime, payload)`.
-- Cron job seeding: use `ICronTickerManager.AddAsync(new CronTickerEntity { Function = "JobName", Expression = "* * * * * *", ... })`.
-  `ICronTickerManager` is NOT generic. Property names on `CronTickerEntity` are `Function` (not `FunctionName`) and `Expression` (not `CronExpression`).
-- In-memory mode (no `TickerQ.EntityFrameworkCore` configured) does NOT register `ICronTickerManager` - wrap cron seeding in a try-catch on `InvalidOperationException` so the host starts cleanly during development.
+- Cron jobs: declare the expression on the job method, `[TickerFunction("JobName", "<cron>")]`, or as a `%Section:Key%` placeholder TickerQ resolves from configuration. TickerQ seeds attribute cron idempotently at start, keyed by function. Never seed code-defined jobs with `ICronTickerManager.AddAsync`: before the host starts no function is registered, so every call returns a failed result, and after start every restart and replica inserts a duplicate ticker.
 
 TickerQ cron format is six fields: seconds, minutes, hours, day-of-month, month, day-of-week.
+
+`SchedulerHealthCheck` asserts the scheduler fires, not only that the process is up: it reports Degraded when no job has executed after an uptime threshold, or when the latest execution is older than the expected interval (a configured stall threshold, such as twice the shortest cron interval).
 
 For ingestion/event-time workflows, define and apply allowed-lateness/watermark behavior before triggering reconciliation jobs.
 

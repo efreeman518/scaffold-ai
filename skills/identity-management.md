@@ -176,6 +176,8 @@ public class ScaffoldAuthHandler : AuthenticationHandler<AuthenticationSchemeOpt
 }
 ```
 
+The scaffold principal authenticates HTTP requests only. Code running outside a request resolves the explicit system context ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Request Context Resolution), never this principal, its global-admin role, or the dev tenant.
+
 ### Claim-type contract (non-negotiable)
 
 The handler and the `RequestContext` reader must use the SAME claim types, or the dev principal is

@@ -124,7 +124,7 @@ namespace {Project}.Scheduler.Jobs;
 
 public sealed class NightlyReconciliationJob(IWorkflowTrigger workflows)
 {
-    [TickerFunction(functionName: nameof(NightlyReconciliationJob), cronExpression: "0 2 * * *")]
+    [TickerFunction(functionName: nameof(NightlyReconciliationJob), cronExpression: "0 0 2 * * *")]
     public async Task Run(TickerFunctionContext ctx, CancellationToken ct)
     {
         await workflows.StartAsync(
@@ -136,7 +136,7 @@ public sealed class NightlyReconciliationJob(IWorkflowTrigger workflows)
 ```
 
 Notes:
-- Cron uses TickerQ's standard 5-field expression (UTC).
+- Cron uses TickerQ's six-field expression with seconds first (UTC); the attribute is the only place a job's cron lives - see [../skills/background-services.md](../skills/background-services.md) section Runtime Scheduling APIs.
 - One scheduler replica unless TickerQ Redis coordination is enabled - see [../skills/background-services.md](../skills/background-services.md).
 - Do **not** put the workflow's business logic in the job. The job is a thin trigger; the work belongs in the workflow's nodes.
 

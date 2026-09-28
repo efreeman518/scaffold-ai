@@ -345,6 +345,8 @@ Must report `No changes` (same rooting as the Mapping-Foundation Neutrality Gate
 
 Full encrypt/decrypt E2E needs a real AKV key and **cannot run locally** (no emulator). Do not attempt or claim local E2E of encryption. The runnable checks are: the **domain length/validation test** (value fits `RULE_SECURE_PROPERTY_MAX_BYTES`) and the **model-drift check** above. State this plainly rather than pretending encryption was exercised locally.
 
+Column encryption does not cover the audit trail: `AuditInterceptor` writes property values in clear text unless the property is masked. Every encrypted or sensitive property carries both `EF.Domain.Attributes.MaskAttribute` (read for modified entries) and `EF.Common.Attributes.MaskAttribute` (read by `SerializeToJson` for added entries), and a test asserts its audit entry is masked on create and update.
+
 ### Key rotation
 
 CMK/CEK rotation is an operational task on top of the secret-rotation workflow in [../skills/security.md](../skills/security.md). Rotate the CMK in Key Vault, re-wrap the CEK, then retire the old CMK version; record the rotation owner in the Security-branch decision.

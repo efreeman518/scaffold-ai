@@ -60,21 +60,21 @@ When a committed database mutation must publish an integration event:
 
 1. Map domain events to a versioned integration envelope at the application boundary.
 2. Insert the envelope into an outbox table in the same `SaveChanges` transaction as the aggregate mutation. A `SaveChangesInterceptor` is the normal common path; non-tracked bulk operations stage explicitly in the same transaction.
-3. Claim a bounded batch with a unique lease token, owner, expiry, availability time, and attempt count. Read back only rows carrying that token. Never use a claim timestamp as identity because provider precision differs.
-4. Publish through a provider-neutral transport. Mark complete only after broker confirmation. A failure remains retryable and visible; never catch and discard it.
+3. Claim a bounded batch with a unique lease token, owner, expiry, availability time, and attempt count. The claim takes only rows whose attempt count is below `MaxAttempts`, bound from configuration and shared with the dead-letter rule; an exhausted row whose lease expired is dead-lettered, never reclaimed. Read back only rows carrying that token. Never use a claim timestamp as identity because provider precision differs.
+4. Publish through a provider-neutral transport and settle each message on its own result: one failed message never fails or re-sends the rest of the batch. Mark complete only after broker confirmation. Settle on a bounded token that host shutdown does not cancel, so a confirmed send is not left leased and sent again. A failure remains retryable and visible; never catch and discard it.
 5. Retain exhausted rows with last error and dead-letter time. Provide an observable replay operation and a bounded retention job.
 
 Provider-specific atomic claim SQL such as SQL Server `READPAST` or PostgreSQL `SKIP LOCKED` is an optimization after the provider-neutral conditional-lease path has contention evidence. The test contract is two or more concurrent claimers with no overlapping ownership plus lease-expiry recovery.
 
 ### At-Least-Once Consumer: Inbox
 
-Every side-effecting at-least-once consumer needs an idempotency boundary. Use an inbox key such as `(Consumer, MessageId)` and claim it inside the consumer's unit of work. The business mutation and inbox completion commit together; failure releases or rolls back the claim so broker retry can run. Broker duplicate detection is an additional optimization, not a substitute, because not every transport provides it.
+Every side-effecting at-least-once consumer needs an idempotency boundary: an inbox row keyed `(Consumer, MessageId)` with two states. Before the work, the consumer claims the row as `Processing` with a lease owner and expiry. `Completed` is written in the same transaction as the business mutation, or after an external effect succeeds. A delivery that finds `Completed` acknowledges without repeating the effect; a live `Processing` lease means retry later, never success and never a second run; an expired lease is reclaimable. Failure releases the claim or lets it expire so broker retry can run. Broker duplicate detection is an additional optimization, not a substitute, because not every transport provides it.
 
 Replay the same envelope in an integration test and assert exactly one business effect. Scheduler/event jobs that mint messages use deterministic IDs from stable business inputs so a rerun does not create a new logical event.
 
 ### Provider Switch and Transport Boundary
 
-When more than one broker is declared, keep the outbox, envelope, consumer, and inbox unchanged behind a small transport port such as `SendBatchAsync(destination, messages, ct)`. The resolver follows `environment > config > lane default > hard default`, and an unknown explicit value fails startup. A third-party bus framework is optional: adopt it only when it replaces owned retry/outbox/consumer infrastructure rather than duplicating a proven path.
+When more than one broker is declared, keep the outbox, envelope, consumer, and inbox unchanged behind a small transport port such as `SendBatchAsync(destination, messages, ct)` that returns one result per message. The resolver follows `environment > config > lane default > hard default`, and an unknown explicit value fails startup. A third-party bus framework is optional: adopt it only when it replaces owned retry/outbox/consumer infrastructure rather than duplicating a proven path.
 
 RabbitMQ consumers normally run in a worker/scheduler host; Service Bus may use a worker or Functions trigger. Selecting one transport disables the competing consumer host so one event is not processed by both.
 
@@ -84,7 +84,7 @@ Broker confirmation is bounded. For RabbitMQ, enable publisher confirms, publish
 
 ### Broker Trace Context
 
-The envelope carries correlation identifiers, while W3C trace context travels in transport headers. On publish, start a Producer activity and inject `traceparent`/`tracestate`. On consume, extract them and start a Consumer activity with the extracted parent. Missing or malformed trace context starts a new trace without failing message processing. Prove parent continuity for each transport adapter.
+The envelope carries correlation identifiers, while W3C trace context travels in transport headers. On publish, start a Producer activity parented on the `traceparent`/`tracestate` persisted with the outbox row (not the dispatcher's own activity), inject its context, and keep it open until the send completes. On consume, extract them and start a Consumer activity with the extracted parent. Missing or malformed trace context starts a new trace without failing message processing. Prove parent continuity for each transport adapter.
 
 ### Service Bus (queue/topic workflows)
 

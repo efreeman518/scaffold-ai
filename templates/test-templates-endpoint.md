@@ -323,7 +323,7 @@ public class {Entity}EndpointsTests : EndpointTestBase
 
 ### File: `tests/Test.Endpoints/Middleware/DefaultExceptionHandlerTests.cs`
 
-**Generate this whenever [exception-handler-template](exception-handler-template.md) is generated - it is not optional.** The handler decides by environment whether the client receives `exception.ToString()` (full stack trace, internal type names, file paths) or `exception.Message`. That is an information-disclosure control, so both arms need a test that fails if the environment gate is inverted, widened, or dropped. The handler is a plain class, so test it directly against a `DefaultHttpContext` - no host boot, no HTTP.
+**Generate this whenever [exception-handler-template](exception-handler-template.md) is generated - it is not optional.** The handler decides by environment whether the client receives `exception.ToString()` (full stack trace, internal type names, file paths) or, for a 5xx, a fixed generic detail. That is an information-disclosure control, so both arms need a test that fails if the environment gate is inverted, widened, or dropped. The handler is a plain class, so test it directly against a `DefaultHttpContext` - no host boot, no HTTP.
 
 ```csharp
 using Microsoft.AspNetCore.Http;
@@ -338,8 +338,8 @@ using {Host}.Api.Middleware;
 namespace Test.Endpoints.Middleware;
 
 /// <summary>
-/// Pins the environment gate on <c>ProblemDetails.Detail</c>. Development/Staging may return the full
-/// exception; Production must return only the message. Also covers the HasStarted guard, which exists so a
+/// Pins the environment gate on <c>ProblemDetails.Detail</c>. Development may return the full exception;
+/// every other environment returns a fixed generic detail for a 5xx. Also covers the HasStarted guard, which exists so a
 /// second write cannot mask the original exception.
 /// </summary>
 [TestClass]
@@ -362,10 +362,28 @@ public sealed class DefaultExceptionHandlerTests
             .ReturnsAsync(true);
     }
 
+    [TestMethod]
+    public async Task Given_DevelopmentEnvironment_When_ExceptionHandled_Then_DetailCarriesStackTrace()
+    {
+        // Arrange
+        var exception = CaptureThrownException();
+        var handler = CreateHandler(Environments.Development);
+
+        // Act
+        var handled = await handler.TryHandleAsync(
+            NewHttpContext(), exception, TestContext.CancellationToken);
+
+        // Assert
+        Assert.IsTrue(handled);
+        Assert.IsNotNull(_written);
+        Assert.AreEqual(exception.ToString(), _written!.Detail);
+        StringAssert.Contains(_written.Detail!, nameof(CaptureThrownException));  // a real stack frame leaked
+    }
+
     [DataTestMethod]
-    [DataRow(Environments.Development)]
     [DataRow(Environments.Staging)]
-    public async Task Given_NonProductionEnvironment_When_ExceptionHandled_Then_DetailCarriesStackTrace(
+    [DataRow(Environments.Production)]
+    public async Task Given_DeployedEnvironment_When_ServerFaultHandled_Then_DetailIsGeneric(
         string environmentName)
     {
         // Arrange
@@ -379,26 +397,10 @@ public sealed class DefaultExceptionHandlerTests
         // Assert
         Assert.IsTrue(handled);
         Assert.IsNotNull(_written);
-        Assert.AreEqual(exception.ToString(), _written!.Detail);
-        StringAssert.Contains(_written.Detail!, nameof(CaptureThrownException));  // a real stack frame leaked
-    }
-
-    [TestMethod]
-    public async Task Given_ProductionEnvironment_When_ExceptionHandled_Then_DetailOmitsStackTrace()
-    {
-        // Arrange
-        var exception = CaptureThrownException();
-        var handler = CreateHandler(Environments.Production);
-
-        // Act
-        var handled = await handler.TryHandleAsync(
-            NewHttpContext(), exception, TestContext.CancellationToken);
-
-        // Assert
-        Assert.IsTrue(handled);
-        Assert.IsNotNull(_written);
-        Assert.AreEqual(exception.Message, _written!.Detail);
-        Assert.IsFalse(_written.Detail!.Contains(nameof(CaptureThrownException), StringComparison.Ordinal),
+        Assert.AreEqual(StatusCodes.Status500InternalServerError, _written!.Status);
+        Assert.IsFalse(_written.Detail!.Contains(exception.Message, StringComparison.Ordinal),
+            "A deployed 5xx must not expose exception text");
+        Assert.IsFalse(_written.Detail.Contains(nameof(CaptureThrownException), StringComparison.Ordinal),
             "Production ProblemDetails must not expose stack frames");
         Assert.IsFalse(_written.Detail.Contains(exception.GetType().FullName!, StringComparison.Ordinal),
             "Production ProblemDetails must not expose internal type names");
@@ -470,7 +472,7 @@ public sealed class DefaultExceptionHandlerTests
 }
 ```
 
-Add one `[DataTestMethod]` over the *Exception-to-Status Mapping* table in [exception-handler-template](exception-handler-template.md) as each mapping is added - one `DataRow` per exception type asserting `context.Response.StatusCode`. Keep correlation assertions (`requestId` separate from W3C `traceId`/`spanId`) in whichever test already boots a real host; they need the registered `CustomizeProblemDetails` callback, which this class replaces with a mock.
+Add one `[DataTestMethod]` over the *Exception-to-Status Mapping* table in [exception-handler-template](exception-handler-template.md) as each mapping is added - one `DataRow` per exception type asserting `context.Response.StatusCode`. Cover `OperationCanceledException` twice: with a cancelled `RequestAborted` (set `context.RequestAborted` from a cancelled source) it is 499, and with a live one it is 500. Keep correlation assertions (`requestId` separate from W3C `traceId`/`spanId`) in whichever test already boots a real host; they need the registered `CustomizeProblemDetails` callback, which this class replaces with a mock.
 
 ---
 

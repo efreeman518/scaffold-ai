@@ -109,14 +109,7 @@ internal class {Entity}Service(
         var entity = entityResult.Value!;
         repoTrxn.Create(ref entity);
 
-        try
-        {
-            await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
-        }
-        catch (Exception ex)
-        {
-            return Result<DefaultResponse<{Entity}Dto>>.Failure(ex.GetBaseException().Message);
-        }
+        await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 
         await _cache.SetAsync($"{Entity}:{entity.Id}", entity.ToDto(), token: ct);
 
@@ -174,14 +167,7 @@ internal class {Entity}Service(
         if (updateResult.IsFailure)
             return Result<DefaultResponse<{Entity}Dto>>.Failure(updateResult.ErrorMessage);
 
-        try
-        {
-            await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
-        }
-        catch (Exception ex)
-        {
-            return Result<DefaultResponse<{Entity}Dto>>.Failure(ex.GetBaseException().Message);
-        }
+        await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 
         await _cache.SetAsync($"{Entity}:{entity.Id}", entity.ToDto(), token: ct);
 
@@ -202,14 +188,7 @@ internal class {Entity}Service(
 
         repoTrxn.Delete(entity);
 
-        try
-        {
-            await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
-        }
-        catch (Exception ex)
-        {
-            return Result.Failure(ex.GetBaseException().Message);
-        }
+        await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 
         await _cache.RemoveAsync($"{Entity}:{entity.Id}", token: ct);
 
@@ -256,6 +235,7 @@ public interface I{Entity}Service
 9. **Missing BuildResponse** - All success paths should use the private static `BuildResponse` helper, not inline `new() { Item = ... }`.
 10. **[Multi-tenant] Missing PreventTenantChange in Update** - After boundary check, before domain update, compare the existing entity tenant with the stamped authoritative tenant as a defense-in-depth invariant.
 11. **Invented repository members (GR-14)** - Call only members that exist on the injected contract. Read the interface (or the first green service/handler in the codebase) before writing call sites. `IRepositoryQuery<TEntity, TId>` exposes `GetAsync(id)` / `ListAsync(predicate)`; paged search lives on the bespoke `I{Entity}RepositoryQuery.Search{Entity}Async`. There is no `QueryPageAsync` on the consumer-facing contracts - `QueryPageAsync` / `QueryPageProjectionAsync` are protected `RepositoryBase` helpers, callable only inside repository implementations.
+12. **Provider error text in a result** - Save exceptions propagate to the exception handler, which maps concurrency to 412 and everything else to a generic 500. Never return `ex.Message` or `GetBaseException().Message`: it leaks SQL, schema, and connection details to the caller. Catch only an app-mapped constraint exception (for example a unique-name violation) and return a fixed `ErrorConstants` message.
 
 ## Policy Notes
 

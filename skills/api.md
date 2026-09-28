@@ -196,7 +196,7 @@ internal sealed record ApiDocument(ApiVersion Version, string GroupName)
 ```
 
 `WebApplicationBuilderExtensions.cs` must preserve middleware order:
-SecurityHeaders -> CorrelationId -> ExceptionHandler -> RateLimiter -> CORS -> Authentication -> Authorization.
+SecurityHeaders -> CorrelationId -> ExceptionHandler -> CORS -> Authentication -> Authorization -> RateLimiter (limiter placement: [security.md](security.md) section Pipeline Registration).
 
 Map versioned groups and apply policy at the group level (adjust route pattern to project needs - tenant-scoped, versioned, or simple `/api/` prefix):
 
@@ -262,7 +262,7 @@ Required endpoint rules:
    This is especially fragile when a feature is gated per host (Cosmos-only services, Service Bus senders - see [bootstrapper.md](bootstrapper.md) section Conditional (Per-Host) Dependency Pattern). The endpoint still references the service interface; the host that opted out of registering it then refuses to start with a misleading body-inference error.
 
    **No exceptions:** add `[FromServices]` on the service parameter even for trivially-registered types. Treat any handler missing `[FromServices]` on a service parameter as a Phase 5b regression and fix it before the gate.
-5. Return `ProblemDetails` for errors (no raw strings). Always use `ProblemDetailsHelper.BuildProblemDetailsResponseMultiple` (or the singular variant for single-error cases) - never `TypedResults.BadRequest(string)`.
+5. Return `ProblemDetails` for errors (no raw strings). Always use `ProblemDetailsHelper.BuildProblemDetailsResponseMultiple` (or the singular variant for single-error cases) - never `TypedResults.BadRequest(string)`. Every error branch passes an explicit `statusCodeOverride`: 400 for validation failures, 404 or 409 when the error type is not-found or conflict. Without it the helper answers 500.
 6. Validate route/body ID consistency on update.
 7. Add OpenAPI metadata (`Produces*`, summary/tags).
 8. Use POST for complex search filters.
@@ -338,13 +338,10 @@ Reference: See [exception-handler-template](../templates/exception-handler-templ
 | Domain | `DomainError.NotFound` | 404 Not Found |
 | Domain | `DomainError.Conflict` | 409 Conflict |
 | Domain | `DomainError.Unauthorized` | 403 Forbidden |
-| Service | `Result.Failure` (generic) | 422 Unprocessable Entity |
+| Service | `Result.Failure` (generic) | 400 Bad Request (explicit `statusCodeOverride`) |
 | Service | `Result.None` | 404 Not Found |
 | Service | `StructureValidator` failure | 400 Bad Request |
-| Global | `DbUpdateConcurrencyException` | 409 Conflict |
-| Global | `UnauthorizedAccessException` | 403 Forbidden |
-| Global | `OperationCanceledException` | 499 Client Closed (non-standard; log only - response may not be written) |
-| Global | Unhandled exception | 500 Internal Server Error |
+| Global | Unexpected exceptions, concurrency, cancellation | [exception-handler-template](../templates/exception-handler-template.md) section Exception-to-Status Mapping |
 
 ### Anti-Patterns
 
@@ -353,14 +350,8 @@ Reference: See [exception-handler-template](../templates/exception-handler-templ
 - **Returning raw error strings** - Always wrap in `ProblemDetails` at the API boundary.
 - **Catching generic `Exception` in services** - Let `DefaultExceptionHandler` handle the rest.
 - **Exposing stack traces in production** - Only include outside production.
-- **Relying on `DefaultExceptionHandler` to silence `OperationCanceledException`** - The VS debugger breaks at the throw site (inside EF Core) before the handler runs. Catch `OperationCanceledException` in the service method and return an empty/default result:
-  ```csharp
-  catch (OperationCanceledException)
-  {
-      logger.LogDebug("Search cancelled by client.");
-      return new PagedResponse<TDto>();
-  }
-  ```
+- **Catching `OperationCanceledException` in services or handlers** - Cancellation and request timeouts propagate; the exception handler maps them ([exception-handler-template](../templates/exception-handler-template.md) section Rules).
+- **Returning provider error text from a save** - Never put `ex.Message` in a `Result`; see [service-template](../templates/service-template.md) section Common Mistakes (Verified via Test Failures).
 - **Non-nullable `[FromBody]` on search endpoints** - An empty body (e.g. sent on rapid navigation or client cancellation) causes `BadHttpRequestException` before the service is reached. Make the parameter nullable and null-coalesce at the call site:
   ```csharp
   app.MapPost("/search", async ([FromBody] SearchRequest<TFilter>? request, ...) => {

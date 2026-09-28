@@ -138,7 +138,7 @@ When `databaseProviders` contains more than one provider, keep one shared model 
 
 SQL Server `rowversion` and PostgreSQL `xmin` are acceptable provider-specific tokens for a single-provider app. A multi-provider API that exposes one aggregate ETag should prefer an app-managed `long Version` concurrency token stamped in `SaveChanges`, because its type and HTTP representation stay stable across providers. Record this choice explicitly; do not pretend two native tokens form one provider-neutral contract.
 
-Externally mutable aggregates use fail-on-conflict semantics. Missing required `If-Match` returns 428; a stale value returns 412 with the current ETag. `ClientWins` is allowed only for an explicitly recorded last-write-wins path. A broad `catch (Exception)` must not swallow `DbUpdateConcurrencyException` before the exception handler maps it.
+Externally mutable aggregates use fail-on-conflict semantics. Missing required `If-Match` returns 428; a stale value returns 412 with the current ETag, written by the endpoint filter or Result path before the save; a lost update detected at save (`DbUpdateConcurrencyException`) maps to 412 without an ETag in the exception handler, because `ExceptionHandlerMiddleware` clears response headers. `ClientWins` is allowed only for an explicitly recorded last-write-wins path. A broad `catch (Exception)` must not swallow `DbUpdateConcurrencyException` before the exception handler maps it.
 
 ### Set-Based Writes and Query Shape
 

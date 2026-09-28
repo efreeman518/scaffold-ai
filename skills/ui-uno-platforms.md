@@ -188,7 +188,7 @@ Static hosting rules:
 - `index.html`, generated bootstrap files, `package_*` configuration, manifests, and runtime configuration must revalidate or use `no-store`; never cache deployment-varying bootstrap configuration as immutable.
 - Parse `Accept-Encoding` tokens and quality values. Do not serve `br` or `gzip` when its `q=0`, and choose the highest supported acceptable encoding rather than substring matching the header.
 - When serving a `.br` or `.gz` variant, set `Content-Encoding` but preserve the original asset's content type.
-- Return 404 for a missing asset-looking path before SPA fallback. Fallback to `index.html` only for extensionless client routes.
+- Return 404 for a missing asset-looking path before SPA fallback. Fallback to `index.html` only for extensionless client routes. The same holds in an nginx image: a location for paths with an extension uses `try_files $uri =404`, only extensionless routes fall back to `/index.html`, and `index.html` is served with `Cache-Control: no-cache`.
 - Add host contract tests for cache classification, encoding quality, MIME preservation, asset 404 behavior, path separators/case, and survival of host-owned files in the final staged publish directory.
 
 ---

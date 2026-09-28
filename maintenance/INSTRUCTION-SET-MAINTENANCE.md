@@ -100,6 +100,12 @@ CANARIES = {
     "http.AddStandardResilienceHandler(o => o.Retry.DisableForUnsafeHttpMethods());": "patterns/infrastructure-wiring.md",  # ServiceDefaults no-unsafe-retry call; resilience.md states the policy by name only
     "No paid licenses by default.": "skills/package-dependencies.md",  # GR-04 license criterion + known exclusions; GROUND-RULES/ai/SKILL.md carry the short form
     "no coordinated omission": "templates/test-templates-quality.md",  # in-house LoadRunner shape (replaces NBomber); skills name LoadRunner only
+    "every caller lands in the anonymous partition": "skills/security.md",  # UseRateLimiter after UseAuthentication/UseAuthorization; host wiring and api.md carry the order and point here
+    "499 only when `HttpContext.RequestAborted` is cancelled": "templates/exception-handler-template.md",  # cancellation/timeout status mapping; api.md points to the mapping table
+    "Only the standard hedging pipeline snapshots the `HttpRequestMessage` for each attempt": "skills/resilience.md",  # one hedging shape; scale doc keeps the GET-only policy by name
+    "Branch on the `CanConnectAsync` result": "templates/health-check-template.md",  # SQL health check must use the bool, not an unconditional Healthy()
+    "Never seed code-defined jobs with `ICronTickerManager.AddAsync`": "skills/background-services.md",  # TickerQ cron lives on [TickerFunction]; trigger templates point here
+    "a live `Processing` lease means retry later": "skills/messaging.md",  # two-state inbox claim (Processing lease -> Completed with the effect)
 }
 roots = ["skills", "patterns", "ai", "support", "schemas", "profiles", "templates"]
 files = [p for r in roots for p in pathlib.Path(r).rglob("*.md")]
@@ -205,6 +211,14 @@ are pointers.
   control (resilience, caching, data persistence, gRPC) and point back for the policy.
 - Package license policy and known paid-license exclusions: [skills/package-dependencies.md](../skills/package-dependencies.md)
   section Minimize Third-Party Dependencies; **GR-04** carries the short form.
+- Edge and tenant rate limiting (pipeline placement, distributed limiter, single count per budget):
+  [skills/security.md](../skills/security.md) section Rate Limiting. The scale doc keeps the per-replica policy.
+- Exception-to-status mapping (412 without ETag, 499/504/500 cancellation split, generic 5xx detail):
+  [templates/exception-handler-template.md](../templates/exception-handler-template.md). The stale-`If-Match`
+  412 policy stays in [skills/data-persistence.md](../skills/data-persistence.md).
+- Read hedging registration: [skills/resilience.md](../skills/resilience.md) section Hedging.
+- Outbox claim/dispatch and inbox claim states: [skills/messaging.md](../skills/messaging.md).
+- TickerQ cron declaration and scheduler health: [skills/background-services.md](../skills/background-services.md).
 - Ontology projection (outputs, mapping, Fabric IQ ingestion, check semantics):
   [support/ontology-projection.md](../support/ontology-projection.md). The schema doc owns the optional fields,
   the interview owns the opt-in question, gates and checklists carry only the `--check` command.
