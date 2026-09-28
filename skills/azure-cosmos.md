@@ -1,4 +1,4 @@
-# Azure Cosmos DB (EF.Cosmos)
+# Azure Cosmos DB (EF.CosmosDb)
 
 > **Shared shape** (settings class, repository wrapper, DI registration, Aspire integration, local inspection tools) lives in [azure-data-storage.md](azure-data-storage.md). This file covers Cosmos DB-specific guidance only.
 

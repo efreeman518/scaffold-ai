@@ -185,7 +185,7 @@ Read the rest of this guide when you need setup details, MCP recommendations, or
 - Latest stable `.NET SDK`
 - Docker engine running (Docker Desktop not required) - Aspire relies on it for hosting local container services
 - VS Code + AI assistant
-- Local SQL Server/Azure SQL access for dev scenarios
+- No separate database install: Aspire runs the lane's database container (PostgreSQL by default, SQL Server on the Azure lane)
 - For `packageStrategy: feed` or `hybrid` only - read access to the configured private NuGet feed (e.g., GitHub Packages for the canonical `EF.*` example); expose via `NUGET_AUTH_TOKEN` or an approved credential provider before Phase 3/4 restore. `packageStrategy: local` skips this entirely.
 - If using Uno UI:
   - `dotnet new install Uno.Templates`
@@ -367,7 +367,7 @@ Defaults: [ai/resource-implementation-schema.md](ai/resource-implementation-sche
 
 ## Scalability and Hosting Lanes
 
-Phase 2 defaults to one Azure lane. Add another lane only when it must ship, then declare independent provider switches and executable proof for that lane instead of forking the application architecture. Workload-envelope questions, lane/provider precedence, health probes, overload and shutdown behavior, connection budgets, runtime tuning boundaries, portable deployment rules, and the TaskFlow refactor evidence are in [support/scalability-and-hosting.md](support/scalability-and-hosting.md).
+Phase 2 defaults to one `NonAzure` lane (PostgreSQL, RabbitMQ, S3-compatible object storage, PostgreSQL JSONB read model, relational audit, Redis Data Protection keys, Docker Compose deployment). `Azure` is the explicit opt-in lane. Add another lane only when it must ship, then declare independent provider switches and executable proof for that lane instead of forking the application architecture. Workload-envelope questions, lane/provider precedence, health probes, overload and shutdown behavior, connection budgets, runtime tuning boundaries, portable deployment rules, and the TaskFlow refactor evidence are in [support/scalability-and-hosting.md](support/scalability-and-hosting.md).
 
 ## Happy Path
 

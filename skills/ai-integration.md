@@ -87,8 +87,8 @@ Model and deployment names age the same way package versions do, and a copied on
 
 ## Technology Choices
 
-- **Foundry Models / Azure OpenAI client:** default model host for completions, embeddings, and tool-calling.
-- **Azure AI Search:** default retrieval tier.
+- **Model host:** `Provider=None` on both lanes until one is selected. The default `NonAzure` lane opts into an `OpenAICompatible` endpoint; the `Azure` lane opts into Foundry Models / Azure OpenAI (`AzureInference`) for completions, embeddings, and tool-calling.
+- **Retrieval:** `Sql` search on both lanes; opt-in `PgVector` (`NonAzure`) or Azure AI Search (`Azure`).
 - **Microsoft Agent Framework:** default code-side agent SDK (`ChatClientAgent` over the injected `IChatClient`).
 - **Foundry projects + server-hosted agents:** optional hosted agent backend - Aspire `AddProject` + `AddPromptAgent`, or a pre-existing portal/IaC agent consumed via `AIProjectClient.AsAIAgent(...)`. Azure-only.
 - **Agent Framework Workflows:** optional explicit orchestration layer.
@@ -542,7 +542,7 @@ separately-launched host - and it is the simplest path for the journey test.
 - Add `{App}:AiServices:UseScriptedAgent` (default false). When true, `AddAiServices` registers a scripted
   `IChatClient`/agent returning canned, deterministic responses (and a fixed tool-call sequence) instead of
   the live or no-op client.
-- Set it in the E2E/journey host config (the `SqlApiFactory` config, or the Aspire AppHost testing branch,
+- Set it in the E2E/journey host config (the `DbApiFactory` config, or the Aspire AppHost testing branch,
   which also selects `AiServices:Provider=None`) so the journey is repeatable and needs no provider.
 - It is a test mechanism, distinct from `AiServices:DevStubContent` (a manual demo aid). Like the stub and
   no-op, the scripted agent reports `isConfigured: false` on `GET /api/v1/ai/status`. Do not enable it in a
@@ -587,7 +587,7 @@ Provider dispatch is a closed switch, not an availability fallback chain:
 
 ### Deciding the Live Lane
 
-**The deterministic default is `AiServices:Provider=None`** on every API-booting tier: the in-memory `WebApplicationFactory` base (`CustomApiFactory` / `SqlApiFactory` config) and the Aspire AppHost testing branch. `Test.Aspire` is the one tier that may instead select a live provider before graph creation, and only for the optional live smoke - see [aspire.md](aspire.md) -> *Azure AI Foundry* for the AppHost side. Unit and endpoint tests use fake or no-op clients.
+**The deterministic default is `AiServices:Provider=None`** on every API-booting tier: the in-memory `WebApplicationFactory` base (`CustomApiFactory` / `DbApiFactory` config) and the Aspire AppHost testing branch. `Test.Aspire` is the one tier that may instead select a live provider before graph creation, and only for the optional live smoke - see [aspire.md](aspire.md) -> *Azure AI Foundry* for the AppHost side. Unit and endpoint tests use fake or no-op clients.
 
 **Gate the live lane on `GET /api/v1/ai/status`, not on a connection string.** The endpoint reports the fixed mapping `azure` / `openai-compatible` / `none` (or explicit Development `stub`) from the provider resolved before registration, recorded once at startup. It must not call the model. Do not infer the provider by sniffing a connection string: the OpenAI-compatible path wires no Aspire `chat` connection. Scaffold it by default whenever AI is enabled.
 

@@ -1,6 +1,6 @@
 # Messaging
 
-Base types (`IServiceBusSender`, `IEventGridPublisher`, `IEventHubProducer`) come from the `EF.Messaging` package - see [package-dependencies.md](package-dependencies.md) and the [EF.Packages repo](https://github.com/efreeman518/EF.Packages) for full API details.
+Base types come from `EF.Messaging.RabbitMq` (`IRabbitMqPublisher`, `IRabbitMqMessageHandler`) and `EF.Messaging` (`IServiceBusSender`, `IEventGridPublisher`, `IEventHubProducer`) - see [package-dependencies.md](package-dependencies.md) and the [EF.Packages repo](https://github.com/efreeman518/EF.Packages) for full API details.
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ Rule: use `IInternalMessageBus` for in-process events; use this skill for cross-
 Cross-process bus payloads are application/integration contracts, not domain artifacts.
 
 - Place externally published event records in `Application.Contracts.Events`.
-- Use `IIntegrationEventPublisher` for Service Bus / Event Grid.
+- Use `IIntegrationEventPublisher` for the broker (RabbitMQ or Service Bus) and Event Grid.
 - Keep domain events in `Domain` only when raised from aggregate invariants and handled in-process before integration mapping.
 - Do not publish `Domain` namespace events directly over transport - map to an `Application.Contracts.Events` record at the boundary.
 
@@ -26,8 +26,8 @@ Cross-process bus payloads are application/integration contracts, not domain art
 
 | Need | Service |
 |---|---|
-| Reliable queue/topic workflows, retries, DLQ | Service Bus |
-| Portable queue/topic workflows and self-managed broker | RabbitMQ |
+| Reliable queue/topic workflows, retries, DLQ - default `NonAzure` lane | RabbitMQ |
+| Reliable queue/topic workflows, retries, DLQ - `Azure` lane | Service Bus |
 | Event notifications and pub/sub routing | Event Grid |
 | High-throughput telemetry/event streams | Event Hub |
 
@@ -60,21 +60,21 @@ When a committed database mutation must publish an integration event:
 
 1. Map domain events to a versioned integration envelope at the application boundary.
 2. Insert the envelope into an outbox table in the same `SaveChanges` transaction as the aggregate mutation. A `SaveChangesInterceptor` is the normal common path; non-tracked bulk operations stage explicitly in the same transaction.
-3. Claim a bounded batch with a unique lease token, owner, expiry, availability time, and attempt count. Read back only rows carrying that token. Never use a claim timestamp as identity because provider precision differs.
-4. Publish through a provider-neutral transport. Mark complete only after broker confirmation. A failure remains retryable and visible; never catch and discard it.
+3. Claim a bounded batch with a unique lease token, owner, expiry, availability time, and attempt count. The claim takes only rows whose attempt count is below `MaxAttempts`, bound from configuration and shared with the dead-letter rule; an exhausted row whose lease expired is dead-lettered, never reclaimed. Read back only rows carrying that token. Never use a claim timestamp as identity because provider precision differs.
+4. Publish through a provider-neutral transport and settle each message on its own result: one failed message never fails or re-sends the rest of the batch. Mark complete only after broker confirmation. Settle on a bounded token that host shutdown does not cancel, so a confirmed send is not left leased and sent again. A failure remains retryable and visible; never catch and discard it.
 5. Retain exhausted rows with last error and dead-letter time. Provide an observable replay operation and a bounded retention job.
 
 Provider-specific atomic claim SQL such as SQL Server `READPAST` or PostgreSQL `SKIP LOCKED` is an optimization after the provider-neutral conditional-lease path has contention evidence. The test contract is two or more concurrent claimers with no overlapping ownership plus lease-expiry recovery.
 
 ### At-Least-Once Consumer: Inbox
 
-Every side-effecting at-least-once consumer needs an idempotency boundary. Use an inbox key such as `(Consumer, MessageId)` and claim it inside the consumer's unit of work. The business mutation and inbox completion commit together; failure releases or rolls back the claim so broker retry can run. Broker duplicate detection is an additional optimization, not a substitute, because not every transport provides it.
+Every side-effecting at-least-once consumer needs an idempotency boundary: an inbox row keyed `(Consumer, MessageId)` with two states. Before the work, the consumer claims the row as `Processing` with a lease owner and expiry. `Completed` is written in the same transaction as the business mutation, or after an external effect succeeds. A delivery that finds `Completed` acknowledges without repeating the effect; a live `Processing` lease means retry later, never success and never a second run; an expired lease is reclaimable. Failure releases the claim or lets it expire so broker retry can run. Broker duplicate detection is an additional optimization, not a substitute, because not every transport provides it.
 
 Replay the same envelope in an integration test and assert exactly one business effect. Scheduler/event jobs that mint messages use deterministic IDs from stable business inputs so a rerun does not create a new logical event.
 
 ### Provider Switch and Transport Boundary
 
-When more than one broker is declared, keep the outbox, envelope, consumer, and inbox unchanged behind a small transport port such as `SendBatchAsync(destination, messages, ct)`. The resolver follows `environment > config > lane default > hard default`, and an unknown explicit value fails startup. A third-party bus framework is optional: adopt it only when it replaces owned retry/outbox/consumer infrastructure rather than duplicating a proven path.
+When more than one broker is declared, keep the outbox, envelope, consumer, and inbox unchanged behind a small transport port such as `SendBatchAsync(destination, messages, ct)` that returns one result per message. The resolver follows `environment > config > lane default > hard default`, and an unknown explicit value fails startup. A third-party bus framework is optional: adopt it only when it replaces owned retry/outbox/consumer infrastructure rather than duplicating a proven path.
 
 RabbitMQ consumers normally run in a worker/scheduler host; Service Bus may use a worker or Functions trigger. Selecting one transport disables the competing consumer host so one event is not processed by both.
 
@@ -84,9 +84,25 @@ Broker confirmation is bounded. For RabbitMQ, enable publisher confirms, publish
 
 ### Broker Trace Context
 
-The envelope carries correlation identifiers, while W3C trace context travels in transport headers. On publish, start a Producer activity and inject `traceparent`/`tracestate`. On consume, extract them and start a Consumer activity with the extracted parent. Missing or malformed trace context starts a new trace without failing message processing. Prove parent continuity for each transport adapter.
+The envelope carries correlation identifiers, while W3C trace context travels in transport headers. On publish, start a Producer activity parented on the `traceparent`/`tracestate` persisted with the outbox row (not the dispatcher's own activity), inject its context, and keep it open until the send completes. On consume, extract them and start a Consumer activity with the extracted parent. Missing or malformed trace context starts a new trace without failing message processing. Prove parent continuity for each transport adapter.
 
-### Service Bus (queue/topic workflows)
+### RabbitMQ (default lane: queue/topic workflows)
+
+`EF.Messaging.RabbitMq` owns confirmed publishing, topology declaration, and consumer hosting; API list in [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section RabbitMQ (EF.Messaging.RabbitMq). The transport adapter implements the provider-neutral port; only the consumer host registers consumers.
+
+```csharp
+// Every host that dispatches outbox rows
+services.AddRabbitMqMessaging(config, "Messaging:RabbitMq");
+services.AddSingleton<IIntegrationEventTransport, {Project}RabbitMqEventTransport>(); // provider-neutral port
+
+// Consumer host only (worker/scheduler; Functions has no RabbitMQ trigger)
+services.AddRabbitMqConsumer<{Consumer}Handler>("{consumer}-queue");
+services.AddHealthChecks().AddRabbitMqHealthCheck(tags: "ready");
+```
+
+`{Consumer}Handler : IRabbitMqMessageHandler` validates the envelope, returns `ConsumeResult.Reject(reason)` for an unreadable message (dead-letter), lets transient failures throw (requeue up to the delivery bound, then dead-letter), and returns `ConsumeResult.Ack` after the handler commits.
+
+### Service Bus (`Azure` lane: queue/topic workflows)
 
 ```csharp
 public interface IServiceBusSender
@@ -184,17 +200,27 @@ services.AddAzureClients(builder =>
 ## Aspire Integration
 
 ```csharp
-var serviceBus = builder.AddAzureServiceBus("ServiceBus1");
-serviceBus.AddQueue("todoitem-processing");
+var lane = HostingLaneResolver.Resolve(builder.Configuration);
+var api = builder.AddProject<Projects.{Project}_Api>("{project}-api");
 
-var eventHub = builder.AddAzureEventHubs("EventHub1").AddHub("telemetry");
-
-builder.AddProject<Projects.{Project}_Api>("{project}-api")
-    .WithReference(serviceBus)
-    .WithReference(eventHub);
+if (lane.Messaging == "RabbitMq") // NonAzure lane (default)
+{
+    var rabbitMq = builder.AddRabbitMQ("rabbitmq").WithManagementPlugin();
+    api.WithReference(rabbitMq, connectionName: "RabbitMq1")
+       .WithEnvironment("Messaging__RabbitMq__ConnectionString", rabbitMq.Resource.ConnectionStringExpression);
+}
+else // Azure lane: exactly one broker is declared
+{
+    var serviceBus = builder.AddAzureServiceBus("ServiceBus1");
+    serviceBus.AddQueue("todoitem-processing");
+    var eventHub = builder.AddAzureEventHubs("EventHub1").AddHub("telemetry");
+    api.WithReference(serviceBus).WithReference(eventHub);
+}
 ```
 
 ### Local Inspection
+
+RabbitMQ: `WithManagementPlugin()` serves the management UI from the broker container; no extra tool is needed.
 
 For Service Bus emulator inspection, pin the AMQP port (`5672`) and expose a management endpoint (`5300`) on non-test runs. **Messentra** is the recommended UI (it is an inspector, not an emulator - Aspire still owns the emulator container). Health probe: `http://localhost:5300/health`. SDK clients use `Endpoint=sb://localhost;...;UseDevelopmentEmulator=true;`; administration-client tools use `Endpoint=sb://localhost:5300;...;UseDevelopmentEmulator=true;`.
 
@@ -203,11 +229,11 @@ See [aspire.md](aspire.md) -> *Local Explorer Tooling* for the canonical port ma
 ## Rules
 
 1. One settings class per concrete sender/processor (`*SettingsBase` inheritance).
-2. Named Azure clients via `IAzureClientFactory<T>`.
+2. Named Azure clients via `IAzureClientFactory<T>` on Azure arms; RabbitMQ binds one `Messaging:RabbitMq` options section.
 3. Background processors create DI scopes for scoped dependencies.
 4. Preserve correlation IDs in message metadata.
 5. Event Hub processors checkpoint regularly (not every event unless required).
-6. Configure retries + dead-letter handling for Service Bus consumers.
+6. Configure retries + dead-letter handling for every broker consumer (RabbitMQ dead-letter exchange, Service Bus DLQ).
 7. Keep message contracts versioned and backward-compatible.
 8. For webhook/callback-originated events, verify signature/timestamp and deduplicate before publishing domain events.
 9. For support/dispute-critical workflows, maintain an immutable timeline projection (append-only event log + query read model).

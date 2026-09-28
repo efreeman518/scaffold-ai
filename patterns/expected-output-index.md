@@ -43,7 +43,6 @@ Expected file layout when scaffolding is complete. All paths are relative to the
 | Tenant boundary interface | `src/Application/{Project}.Application.Contracts/ITenantBoundaryValidator.cs` *(multi-tenant only)* |
 | Validation helper | `src/Application/{Project}.Application.Services/Rules/ValidationHelper.cs` *(multi-tenant only)* |
 | Tenant logging extensions | `src/Application/{Project}.Application.Services/Rules/TenantBoundaryLoggingExtensions.cs` *(multi-tenant only)* |
-| Tenant rules | `src/Application/{Project}.Application.Services/Rules/TenantRules.cs` *(multi-tenant only)* |
 | Message handler | `src/Application/{Project}.Application.MessageHandlers/TodoItemCreatedEventHandler.cs` |
 | Application style switch | `src/Application/{Project}.Application.Contracts/ApplicationStyle.cs` *(when applicationStyle: switch)* |
 | CQRS requests | `src/Application/{Project}.Application.Cqrs/Features/{EntityPlural}/{Entity}Requests.cs` *(when applicationStyle: cqrs or switch)* |
@@ -69,9 +68,8 @@ Default scaffold and TaskFlow reference app keep DTOs and mappers in `Applicatio
 | Test support - shared WAF base | `tests/Test.Support/WebApplicationFactoryBase.cs` (thin adapter over `EfWebApplicationFactoryBase` from EF.IntegrationTesting) |
 | Test support - JSON options | `tests/Test.Support/JsonTestOptions.cs` |
 | Test support - shared constants | `tests/Test.Support/TestConstants.cs` (`LocalSqlSettings.cs` lives in the AppHost project) |
-| Test support - utilities | `tests/Test.Support/InMemoryDbBuilder.cs` (unit tests are flat classes - no shared unit-test base) |
 | Test support - builders | `tests/Test.Support/Builders/{Entity}Builder.cs`, `{Entity}DtoBuilder.cs` (one of each per entity) |
-| Unit (domain) | `tests/Test.Unit/Domain/{Entity}Tests.cs`, `{Entity}RulesTests.cs` |
+| Unit (domain) | `tests/Test.Unit/Domain/{Entity}Tests.cs`, `{Entity}StatusTransitionTests.cs` (state machine only) |
 | Unit (mapper, per entity) | `tests/Test.Unit/Mappers/{Entity}MapperTests.cs` |
 | Unit (mapper parity, consolidated) | `tests/Test.Unit/Mappers/MapperProjectionParityTests.cs` |
 | Unit (services) | `tests/Test.Unit/Services/{Entity}ServiceTests.cs` |
@@ -81,16 +79,17 @@ Default scaffold and TaskFlow reference app keep DTOs and mappers in `Applicatio
 | Endpoint contract tests | `tests/Test.Endpoints/Endpoints/{Entity}EndpointsTests.cs` |
 | CQRS endpoint switch tests | `tests/Test.Endpoints/CqrsEndpointModeTests.cs` *(when applicationStyle: switch)* |
 | Endpoint factory | `tests/Test.Endpoints/CustomApiFactory.cs` (derives from `tests/Test.Support/WebApplicationFactoryBase`) |
-| E2E factory | `tests/Test.E2E/SqlApiFactory.cs` (Testcontainers SQL, static lifecycle) |
+| E2E factory | `tests/Test.E2E/DbApiFactory.cs` (Testcontainers database on the resolved lane, static lifecycle) |
 | E2E workflow tests | `tests/Test.E2E/{Entity}WorkflowTests.cs` |
-| Integration (component) - store fixtures | `tests/Test.Integration/Infrastructure/SqlContainerFixture.cs`, `AzuriteContainerFixture.cs` (+ `RedisContainerFixture.cs` when used) |
+| Integration (component) - store fixtures | `tests/Test.Support/Hosting/TestDatabaseContainer.cs`, `tests/Test.Integration/Infrastructure/DbContainerFixture.cs` (+ `RedisContainerFixture.cs`, `RabbitMqBrokerFixture.cs`, `SeaweedFsContainerFixture.cs` per selected store; `AzuriteContainerFixture.cs` on the `Azure` arm) |
 | Integration (component) - assembly lifecycle | `tests/Test.Integration/Infrastructure/IntegrationTestSetup.cs` (starts store fixtures in parallel; captures `StartupError`) |
 | Integration (component) - repo integration | `tests/Test.Integration/{Entity}RepositoryIntegrationTests.cs` (migrations + CRUD + tenant filter + M:N) |
-| Integration (component) - audit repo (Azurite) | `tests/Test.Integration/AuditLogRepositoryAzuriteTests.cs` |
+| Integration (component) - audit repo | `tests/Test.Integration/RelationalAuditLogRepositoryTests.cs` (`AuditLogRepositoryAzuriteTests.cs` on the `Azure` arm) |
+| Integration (component) - RabbitMQ transport | `tests/Test.Integration/RabbitMqTransportTests.cs` *(when messagingProvider: RabbitMq)* |
 | Integration (component) - projection pipeline | `tests/Test.Integration/DomainEventPipelineTests.cs` |
 | Aspire (mesh) - lazy host + lifecycle | `tests/Test.Aspire/AspireTestHost.cs` (lazy `EnsureStartedAsync`), `AspireMeshLifecycle.cs` (`[AssemblyCleanup]`) |
-| Aspire (mesh) - API audit pipeline | `tests/Test.Aspire/ApiAuditPipelineTests.cs` |
-| Aspire (mesh) - Function audit pipeline | `tests/Test.Aspire/FunctionAuditPipelineTests.cs` |
+| Aspire (mesh) - outbox mesh | `tests/Test.Aspire/OutboxMeshTests.cs` |
+| Aspire (mesh) - audit pipelines | `tests/Test.Aspire/ApiAuditPipelineTests.cs`, `FunctionAuditPipelineTests.cs` *(Azure arm)* |
 | Architecture | `tests/Test.Architecture/*DependencyTests.cs`, `CqrsArchitectureTests.cs` *(when applicationStyle: cqrs or switch)* |
 | Playwright UI | `tests/Test.PlaywrightUI/Pages/{Entity}CrudTests.cs` (browser; runs against hosted stack) |
 | Mobile UI smoke | `tests/Test.Mobile/run-mobile-tests.ps1`, `tests/Test.Mobile/*` (MSTest + Appium; opt-in Android/iOS native launch checks) *(when Uno mobile native testing is enabled)* |

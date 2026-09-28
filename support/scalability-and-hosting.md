@@ -1,6 +1,6 @@
 # Scalability and Multi-Lane Hosting
 
-Load this file in Phase 2 when scale, high availability, more than one hosting lane, or a non-Azure deployment is in scope. Reload the relevant sections in Phase 5b for runtime wiring and Phase 5d for deployment proof. A scale target is an input to validate, not permission to add every pattern in this file.
+Load this file in Phase 2 when scale, high availability, more than one hosting lane, or an `Azure` lane is in scope. Reload the relevant sections in Phase 5b for runtime wiring and Phase 5d for deployment proof. A scale target is an input to validate, not permission to add every pattern in this file.
 
 ## Workload Envelope Before Architecture
 
@@ -49,28 +49,18 @@ Unknown configured values fail startup and name allowed values. Cross-lane confi
 
 A lane owns a compatible provider profile and deployment topology. It is not a second branch point: the shared resolver selects provider values, validates them against the lane, and returns canonical settings. Outside that resolver and the AppHost topology map, code reads only its own provider switch.
 
-Single-lane projects keep the default compact:
+`NonAzure` is the default lane; `Azure` is the explicit opt-in lane. Single-lane projects keep the default compact:
 
 ```yaml
-hostingLanes: [Azure]
-deployTargets: [ContainerApps]
+hostingLanes: [NonAzure]
+deployTargets: [DockerCompose]
 ```
 
 Multi-lane projects declare every supported arm and the lane defaults:
 
 ```yaml
-hostingLanes: [Azure, NonAzure]
+hostingLanes: [NonAzure, Azure]
 hostingLaneDefaults:
-  Azure:
-    databaseProvider: SqlServer
-    messagingProvider: ServiceBus
-    storageProvider: AzureBlob
-    readModelProvider: Cosmos
-    auditProvider: AzureTable
-    searchProvider: Sql
-    aiProvider: None
-    dataProtectionPersistence: AzureBlob
-    deploymentTarget: ContainerApps
   NonAzure:
     databaseProvider: PostgreSql
     messagingProvider: RabbitMq
@@ -81,29 +71,39 @@ hostingLaneDefaults:
     aiProvider: None
     dataProtectionPersistence: Redis
     deploymentTarget: DockerCompose
+  Azure:
+    databaseProvider: SqlServer
+    messagingProvider: ServiceBus
+    storageProvider: AzureBlob
+    readModelProvider: Cosmos
+    auditProvider: AzureTable
+    searchProvider: Sql
+    aiProvider: None
+    dataProtectionPersistence: AzureBlob
+    deploymentTarget: ContainerApps
 
-storageProviders: [AzureBlob, S3]
-readModelProviders: [Cosmos, PostgreSqlJsonb, MongoDb]
-auditProviders: [AzureTable, Relational]
-searchProviders: [AzureAiSearch, PgVector, Sql]
-aiProviders: [AzureInference, OpenAICompatible, None]
-dataProtectionPersistence: [AzureBlob, Redis, None]
-deployTargets: [ContainerApps, DockerCompose]
+storageProviders: [S3, AzureBlob]
+readModelProviders: [PostgreSqlJsonb, MongoDb, Cosmos]
+auditProviders: [Relational, AzureTable]
+searchProviders: [Sql, PgVector, AzureAiSearch]
+aiProviders: [None, OpenAICompatible, AzureInference]
+dataProtectionPersistence: [Redis, AzureBlob, None]
+deployTargets: [DockerCompose, ContainerApps]
 ```
 
-`Azure` and `NonAzure` are strict profiles. Their default and permitted opt-in arms are:
+`NonAzure` (default) and `Azure` (opt-in) are strict profiles. Their default and permitted opt-in arms are:
 
-| Switch | Azure | NonAzure |
+| Switch | NonAzure | Azure |
 |---|---|---|
-| Database | `SqlServer` | `PostgreSql` |
-| Messaging | `ServiceBus` | `RabbitMq` |
-| Storage | `AzureBlob` | `S3` |
-| Read model | `Cosmos` | `PostgreSqlJsonb`, optional `MongoDb` |
-| Audit | `AzureTable` | `Relational` |
-| Search | `Sql`, optional `AzureAiSearch` | `Sql`, optional `PgVector` |
-| AI | `None`, optional `AzureInference` | `None`, optional `OpenAICompatible` |
-| Data Protection | `AzureBlob` | `Redis` |
-| Deployment | `ContainerApps` | `DockerCompose` |
+| Database | `PostgreSql` | `SqlServer` |
+| Messaging | `RabbitMq` | `ServiceBus` |
+| Storage | `S3` | `AzureBlob` |
+| Read model | `PostgreSqlJsonb`, optional `MongoDb` | `Cosmos` |
+| Audit | `Relational` | `AzureTable` |
+| Search | `Sql`, optional `PgVector` | `Sql`, optional `AzureAiSearch` |
+| AI | `None`, optional `OpenAICompatible` | `None`, optional `AzureInference` |
+| Data Protection | `Redis` | `AzureBlob` |
+| Deployment | `DockerCompose` | `ContainerApps` |
 
 Keep `Sql` search and `None` AI as defaults unless that lane provisions and validates the optional provider. `NonAzure` means zero Azure runtime dependencies: reject Azure App Configuration, Key Vault, Azure Data Protection key encryption, and every Azure-owned provider even when supplied through environment variables. A project that intentionally mixes provider families must declare a separately named lane and its compatibility matrix instead of weakening `NonAzure`. `Portable` remains a one-release input alias for `NonAzure`; do not emit it as a canonical lane. `Relational` remains a one-release input alias for the default NonAzure `PostgreSqlJsonb` read model. `MongoDb` is the explicit document-database alternative.
 
@@ -113,7 +113,7 @@ Keep `Sql` search and `None` AI as defaults unless that lane provisions and vali
 - Treat in-memory cache, rate limits, locks, channels, and feature flags as per-process unless a distributed backend proves otherwise.
 - Blazor Server circuits are stateful. Either use affinity and record its failover ceiling, or choose a stateless UI architecture when transparent replica failover is required.
 - In-memory background queues are for disposable work only. Durable work uses a persisted scheduler, outbox, or broker.
-- A distributed lock is coordination, not exactly-once proof. Make the protected operation idempotent and use token-checked release. Work-table consumers use leases or atomic claims instead of a global lock.
+- A distributed lock is coordination, not exactly-once proof. Make the protected operation idempotent and use token-checked release. A startup-provisioning lock serializes, it does not dedupe: after acquiring it every replica runs the idempotent provisioning itself, never skipping it because another replica held the lock first, since that holder may have failed. Work-table consumers use leases or atomic claims instead of a global lock.
 - A lease can expire while its holder is paused (GC, network, throttling). When a stale holder could corrupt data, the protected write checks a monotonically increasing fencing token or a conditional version update. Redlock across independent Redis nodes does not remove that need; prefer one store's lease plus a fencing check, or a database row lease. PostgreSQL advisory locks behind a transaction-mode pooler must be transaction-scoped (`pg_advisory_xact_lock`); see Connection and Capacity Budgets.
 - SignalR and other long-lived connections are per-replica state. More than one replica needs a backplane or managed service, and non-WebSocket transports need affinity. Record connections per replica in the envelope.
 - Treat a persistent container volume target as stored-data metadata. Before changing an existing PostgreSQL named volume from one image-major mount root to another, require a verified backup plus migration/restore proof or an explicit disposable-volume declaration. Container health against a newly initialized empty cluster does not prove preserved data.

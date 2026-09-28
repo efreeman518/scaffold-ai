@@ -2,7 +2,7 @@
 
 Cross-project wiring for database context setup, startup tasks, migrations, and seed data. Load before Phase 5a (Foundation) and Phase 5b (App Core).
 
-For base types used here (`DbContextBase`, `DbContextScopedFactory`, `AuditInterceptor`, `IStartupTask`), see [../support/ef-packages-reference.md](../support/ef-packages-reference.md).
+For base types used here (`DbContextBase`, `DbContextScopedFactory`, `AuditInterceptor`), see [../support/ef-packages-reference.md](../support/ef-packages-reference.md).
 
 ---
 
@@ -10,9 +10,9 @@ For base types used here (`DbContextBase`, `DbContextScopedFactory`, `AuditInter
 
 **Source:** `{App}.Bootstrapper/Registration/RegisterServices.Database.cs`
 
-Dual-context registration: pooled factories only after their option delegates and interceptors pass lifetime validation, `DbContextScopedFactory` wrappers for scoped resolution, audit interceptor on Trxn only, `ConnectionNoLockInterceptor` on both, Azure vs local SQL detection, `ReadOnly` intent injection for Query.
+Dual-context registration: pooled factories only after their option delegates and interceptors pass lifetime validation, `DbContextScopedFactory` wrappers for scoped resolution, audit interceptor on Trxn only, `ConnectionNoLockInterceptor` on SQL Server contexts that need it, one provider branch (PostgreSQL on the default `NonAzure` lane; SQL Server or Azure SQL on the `Azure` lane), `ReadOnly` intent injection for SQL Server Query contexts.
 
-Set all SQL Server and Azure SQL EF registrations to compatibility level 170. This is SQL Server 2025 compatibility and enables native JSON type support, vector data types, and related indexing features.
+On the `Azure` lane, set all SQL Server and Azure SQL EF registrations to compatibility level 170. This is SQL Server 2025 compatibility and enables native JSON type support, vector data types, and related indexing features.
 
 ### DbSet Declarations
 
@@ -49,8 +49,10 @@ private static void AddDatabaseServices(IServiceCollection services, IConfigurat
     // (repositoryContractStyle: per-entity - omit the open generics and register a pair per entity.)
 
     // Interceptors
-    services.AddTransient<AuditInterceptor<string, Guid?>>();
-    services.AddTransient<ConnectionNoLockInterceptor>();
+    // Empty sink list: persistence goes through the bus handler (skills/data-persistence.md section Audit Strategy)
+    services.AddTransient(sp => new AuditInterceptor<string, Guid?>(sp.GetRequiredService<IInternalMessageBus>(), []));
+    // SQL Server arm only, and only when a context uses ReadIsolation.ReadUncommitted:
+    // services.AddTransient<EF.Data.SqlServer.Interceptors.ConnectionNoLockInterceptor>();
 
     ConfigureDatabaseContexts(services, config);
 }
@@ -59,13 +61,13 @@ private static void AddDatabaseServices(IServiceCollection services, IConfigurat
 **Dual context wiring with pooling compatibility proof:**
 
 ```csharp
-private static void ConfigureSqlDatabase(IServiceCollection services,
+private static void ConfigureSqlDatabase(IServiceCollection services, {App}DbProvider provider,
     string dbConnectionStringTrxn, string dbConnectionStringQuery)
 {
     // -- TRXN context: audit interceptor + exception processor
     services.AddPooledDbContextFactory<{App}DbContextTrxn>((sp, options) =>
     {
-        ConfigureTrxnDbContext(options, dbConnectionStringTrxn);
+        ConfigureTrxnDbContext(options, provider, dbConnectionStringTrxn);
         var auditInterceptor = sp.GetRequiredService<AuditInterceptor<string, Guid?>>();
         options.UseExceptionProcessor().AddInterceptors(auditInterceptor);
     });
@@ -73,10 +75,10 @@ private static void ConfigureSqlDatabase(IServiceCollection services,
     services.AddScoped(sp => sp.GetRequiredService<DbContextScopedFactory<{App}DbContextTrxn, string, Guid?>>()
         .CreateDbContext());
 
-    // -- QUERY context: no audit interceptor, no-tracking, ReadOnly intent
+    // -- QUERY context: no audit interceptor, no-tracking, ReadOnly intent on SQL Server
     services.AddPooledDbContextFactory<{App}DbContextQuery>((sp, options) =>
     {
-        ConfigureQueryDbContext(options, dbConnectionStringQuery);
+        ConfigureQueryDbContext(options, provider, dbConnectionStringQuery);
         options.UseExceptionProcessor();
     });
     services.AddScoped<DbContextScopedFactory<{App}DbContextQuery, string, Guid?>>();
@@ -85,15 +87,24 @@ private static void ConfigureSqlDatabase(IServiceCollection services,
 }
 ```
 
-**Azure vs local detection + ReadOnly intent for Query:**
+**Provider branch + ReadOnly intent for SQL Server Query:** `provider` comes from the shared lane resolver (`HostingLaneResolver.Resolve(config).Database`).
 
 ```csharp
 private const string SchemaName = "{app}";
 private const string HistoryTableName = "__EFMigrationsHistory";
 
-private static void ConfigureSqlOptions(DbContextOptionsBuilder options, string connectionString)
+private static void ConfigureSqlOptions(DbContextOptionsBuilder options, {App}DbProvider provider, string connectionString)
 {
-    if (connectionString.Contains("database.windows.net"))
+    if (provider == {App}DbProvider.PostgreSql) // NonAzure lane (default)
+    {
+        options.UseNpgsql(connectionString, npgsqlOptions =>
+        {
+            npgsqlOptions.MigrationsHistoryTable(HistoryTableName, SchemaName);
+            npgsqlOptions.EnableRetryOnFailure(maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(30), errorCodesToAdd: null);
+        });
+    }
+    else if (connectionString.Contains("database.windows.net")) // Azure lane: Azure SQL
     {
         options.UseAzureSql(connectionString, sqlOptions =>
         {
@@ -103,7 +114,7 @@ private static void ConfigureSqlOptions(DbContextOptionsBuilder options, string 
                 maxRetryDelay: TimeSpan.FromSeconds(30), errorNumbersToAdd: null);
         });
     }
-    else
+    else // Azure lane: SQL Server container or instance
     {
         options.UseSqlServer(connectionString, sqlOptions =>
         {
@@ -115,13 +126,13 @@ private static void ConfigureSqlOptions(DbContextOptionsBuilder options, string 
     }
 }
 
-private static void ConfigureQueryDbContext(DbContextOptionsBuilder options, string connectionString)
+private static void ConfigureQueryDbContext(DbContextOptionsBuilder options, {App}DbProvider provider, string connectionString)
 {
-    var readOnlyConnectionString = connectionString.Contains("ApplicationIntent=")
-        ? connectionString
-        : connectionString + ";ApplicationIntent=ReadOnly";
+    // ApplicationIntent is a SQL Server keyword; Npgsql rejects it. PostgreSQL routes replica reads by connection string.
+    if (provider == {App}DbProvider.SqlServer && !connectionString.Contains("ApplicationIntent="))
+        connectionString += ";ApplicationIntent=ReadOnly";
     options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
-    ConfigureSqlOptions(options, readOnlyConnectionString);
+    ConfigureSqlOptions(options, provider, connectionString);
 }
 ```
 
@@ -129,7 +140,7 @@ Pooling is an optimization, not a blanket context rule. Every service resolved b
 
 Leave one DI composition test that builds with `new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true }`, creates a scope, resolves each `IDbContextFactory<T>`, and creates a context. This catches scoped-from-root capture and recursive factory construction before host startup. Test both selected database providers when their registrations differ.
 
-Keep schema and history-table configuration inside this central provider-options helper so runtime, migrator, tests, and design-time factories cannot drift. Non-default providers use the same rule; Npgsql must call `MigrationsHistoryTable(HistoryTableName, SchemaName)` explicitly rather than relying on PostgreSQL `search_path`.
+Keep schema and history-table configuration inside this central provider-options helper so runtime, migrator, tests, and design-time factories cannot drift. Every provider arm uses the same rule; Npgsql must call `MigrationsHistoryTable(HistoryTableName, SchemaName)` explicitly rather than relying on PostgreSQL `search_path`.
 
 ---
 
@@ -137,7 +148,7 @@ Keep schema and history-table configuration inside this central provider-options
 
 **Source:** `Infrastructure.Data/{App}DbContextBase.cs`
 
-The base context inherits from `DbContextBase<string, Guid?>` (from EF.Data). `OnModelCreating` must follow this exact call order. **Why:** Package metadata must exist before app configuration, while global naming, type, and tenant-filter passes require the complete entity model; reordering can overwrite app choices or make final passes miss entities. Therefore preserve the sequence below.
+The base context inherits from `DbContextBase<string, Guid?>` (from EF.Data). `OnModelCreating` must follow this exact call order. **Why:** Package metadata must exist before app configuration, while the provider-only and tenant-filter passes require the complete entity model; reordering can overwrite app choices or make final passes miss entities. Therefore preserve the sequence below.
 
 ```csharp
 public abstract class {App}DbContextBase(DbContextOptions options)
@@ -147,9 +158,8 @@ public abstract class {App}DbContextBase(DbContextOptions options)
     {
         base.ConfigureConventions(cb);
 
-        cb.RegisterDomainIdConversions(typeof(TenantId).Assembly);               // Pre-convention ID converters from EF.Data
-        cb.Properties<Email>().HaveConversion<EmailValueConverter>().HaveMaxLength(320);
-        cb.Properties<Locale>().HaveConversion<LocaleValueConverter>().HaveMaxLength(20);
+        // Typed IDs, value objects, decimal precision, UTC temporals:
+        // ef-configuration-template.md section Model Conventions
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -161,13 +171,12 @@ public abstract class {App}DbContextBase(DbContextOptions options)
         modelBuilder.ApplyConfigurationsFromAssembly(                            // 3. All IEntityTypeConfiguration<T>
             typeof({App}DbContextBase).Assembly);
 
-        ConfigureDefaultDataTypes(modelBuilder);                                 // 4. Global type defaults
-        SetTableNames(modelBuilder);                                             // 5. Table naming convention
-        ConfigureTenantQueryFilters(modelBuilder);                               // 6. Tenant filters
+        ConfigurePostgreSqlModel(modelBuilder);                                  // 4. Forced provider-only types
+        ConfigureTenantQueryFilters(modelBuilder);                               // 5. Tenant filters
     }
 ```
 
-`RegisterDomainIdConversions` is an EF.Data extension used from `ConfigureConventions`, not an app-local `OnModelCreating` reflection loop. Type-level pre-convention registration lets EF discover and convert all `IDomainId<T>` properties, including unmapped scalar IDs such as `TenantId` and nullable FKs, before EF Core 10 validates the model. Value objects with one storage shape across the app (`Email`, `Locale`) follow the same type-level convention pattern. Keep per-property config only for required/default/index facets or for value objects that intentionally use different provider types in different entities.
+Type-level conventions run in `ConfigureConventions`, before EF discovers the model, and are owned by [../templates/ef-configuration-template.md](../templates/ef-configuration-template.md) section Model Conventions. `ConfigurePostgreSqlModel` is the only provider branch in the model: it returns unless `Database.ProviderName` is Npgsql and maps the types SQL Server cannot create (`jsonb`, `vector` and its extension), so the SQL Server migration snapshot never carries them. Omit it when the model has no provider-only type.
 
 **Dynamic tenant query filter** -- applied to every entity implementing `ITenantEntity<TenantId>`:
 
@@ -186,52 +195,13 @@ public abstract class {App}DbContextBase(DbContextOptions options)
     }
 ```
 
-**Global decimal and datetime2 defaults:**
-
-```csharp
-    private static void ConfigureDefaultDataTypes(ModelBuilder modelBuilder)
-    {
-        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
-        {
-            foreach (var property in entityType.GetProperties())
-            {
-                // All decimals -> decimal(10,4) unless explicitly overridden
-                if (property.ClrType == typeof(decimal) || property.ClrType == typeof(decimal?))
-                {
-                    if (property.GetPrecision() is null)
-                        property.SetPrecision(10);
-                    if (property.GetScale() is null)
-                        property.SetScale(4);
-                }
-
-                // All DateTime -> datetime2
-                if (property.ClrType == typeof(DateTime) || property.ClrType == typeof(DateTime?))
-                {
-                    property.SetColumnType("datetime2");
-                }
-            }
-        }
-    }
-```
-
-**Singular table names (class name = table name, skip owned types):**
-
-```csharp
-    private static void SetTableNames(ModelBuilder modelBuilder)
-    {
-        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
-        {
-            if (entityType.IsOwned()) continue;     // owned types share parent table
-            entityType.SetTableName(entityType.ClrType.Name);  // singular, matches class name
-        }
-    }
-```
+Table names come from each configuration's `ToTable` ([../templates/ef-configuration-template.md](../templates/ef-configuration-template.md)); the base context runs no table-naming loop.
 
 ---
 
 ## Startup Tasks
 
-`IStartupTask` (from EF.Common.Contracts) is the interface for tasks that run after `builder.Build()` but before the host accepts requests. `app.RunStartupTasks()` (from EF.Host) resolves and executes all registered implementations in order.
+`IStartupTask` (app-level, in the Bootstrapper; not a package type) is the interface for tasks that run after `builder.Build()` but before the host accepts requests. The Bootstrapper's `app.RunStartupTasks()` resolves and executes all registered implementations in order ([../skills/bootstrapper.md](../skills/bootstrapper.md)).
 
 ### Registration
 

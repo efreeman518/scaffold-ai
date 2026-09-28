@@ -128,7 +128,7 @@ Centralize on `JsonTestOptions.Default`; do **not** construct ad-hoc `JsonSerial
 - **Create / Update** (`POST`, `PUT`) expect `{"item": {dto}}`. Clients wrap: `new DefaultRequest<T> { Item = dto }`. A bare DTO deserializes `Item` as `null` and the handler faults.
 - **Get / Create / Update** return `{"item": {dto}}`. Clients unwrap `response.Item`. Reading the bare DTO yields all-default properties, silently.
 - **Search** is different: it accepts `SearchRequest<TFilter>` **directly** (not wrapped) and returns `PagedResponse<T>` with a `data` array and a `total` count - not `DefaultResponse`.
-- **Reuse the shared types from `EF.Common.Contracts`** - `DefaultRequest<T>`, `DefaultResponse<T>`, `SearchRequest<TFilter>`, `PagedResponse<T>` - on both sides. Clients reference them through the `{Project}.Application.Models` project that already pulls them in. Re-deriving a client-side envelope is the root cause of the paging bugs below: a hand-rolled copy drifts on the wire field name (`pageIndex` vs `pageNumber`) and on the index base, and each drift fails silently.
+- **Reuse the shared types** - the app-level `DefaultRequest<T>` / `DefaultResponse<T>` and `SearchRequest<TFilter>` / `PagedResponse<T>` from `EF.Common.Contracts` - on both sides. Clients reference them through the `{Project}.Application.Models` project that already pulls them in. Re-deriving a client-side envelope is the root cause of the paging bugs below: a hand-rolled copy drifts on the wire field name (`pageIndex` vs `pageNumber`) and on the index base, and each drift fails silently.
 - **The page-index base (0- or 1-based) is a property of the running API, not a constant.** Verify it empirically - request page 0 and page 1 against a seeded list with `PageSize = 1` and see which returns the first row - then send that base consistently. Do **no** offset conversion in the response parser: the server echoes back the base it used, so a `+1`/`-1` in a setter desyncs the page counter.
 - **Routes, validation limits, and enum wire strings live in one shared source** consumed by the server validator, every client, and test mocks. They drift independently otherwise, and an `/api/{**catch-all}` fallback turns route drift into a silent 404 rather than a loud failure; hand-pinned route strings in strict test mocks then validate the stale contract.
 
@@ -196,7 +196,7 @@ internal sealed record ApiDocument(ApiVersion Version, string GroupName)
 ```
 
 `WebApplicationBuilderExtensions.cs` must preserve middleware order:
-SecurityHeaders -> CorrelationId -> ExceptionHandler -> RateLimiter -> CORS -> Authentication -> Authorization.
+SecurityHeaders -> CorrelationId -> ExceptionHandler -> CORS -> Authentication -> Authorization -> RateLimiter (limiter placement: [security.md](security.md) section Pipeline Registration).
 
 Map versioned groups and apply policy at the group level (adjust route pattern to project needs - tenant-scoped, versioned, or simple `/api/` prefix):
 
@@ -262,7 +262,7 @@ Required endpoint rules:
    This is especially fragile when a feature is gated per host (Cosmos-only services, Service Bus senders - see [bootstrapper.md](bootstrapper.md) section Conditional (Per-Host) Dependency Pattern). The endpoint still references the service interface; the host that opted out of registering it then refuses to start with a misleading body-inference error.
 
    **No exceptions:** add `[FromServices]` on the service parameter even for trivially-registered types. Treat any handler missing `[FromServices]` on a service parameter as a Phase 5b regression and fix it before the gate.
-5. Return `ProblemDetails` for errors (no raw strings). Always use `ProblemDetailsHelper.BuildProblemDetailsResponseMultiple` (or the singular variant for single-error cases) - never `TypedResults.BadRequest(string)`.
+5. Return `ProblemDetails` for errors (no raw strings). Always use `ProblemDetailsHelper.BuildProblemDetailsResponseMultiple` (or the singular variant for single-error cases) - never `TypedResults.BadRequest(string)`. Every error branch passes an explicit `statusCodeOverride`: 400 for validation failures, 404 or 409 when the error type is not-found or conflict. Without it the helper answers 500.
 6. Validate route/body ID consistency on update.
 7. Add OpenAPI metadata (`Produces*`, summary/tags).
 8. Use POST for complex search filters.
@@ -338,13 +338,10 @@ Reference: See [exception-handler-template](../templates/exception-handler-templ
 | Domain | `DomainError.NotFound` | 404 Not Found |
 | Domain | `DomainError.Conflict` | 409 Conflict |
 | Domain | `DomainError.Unauthorized` | 403 Forbidden |
-| Service | `Result.Failure` (generic) | 422 Unprocessable Entity |
+| Service | `Result.Failure` (generic) | 400 Bad Request (explicit `statusCodeOverride`) |
 | Service | `Result.None` | 404 Not Found |
 | Service | `StructureValidator` failure | 400 Bad Request |
-| Global | `DbUpdateConcurrencyException` | 409 Conflict |
-| Global | `UnauthorizedAccessException` | 403 Forbidden |
-| Global | `OperationCanceledException` | 499 Client Closed (non-standard; log only - response may not be written) |
-| Global | Unhandled exception | 500 Internal Server Error |
+| Global | Unexpected exceptions, concurrency, cancellation | [exception-handler-template](../templates/exception-handler-template.md) section Exception-to-Status Mapping |
 
 ### Anti-Patterns
 
@@ -353,14 +350,8 @@ Reference: See [exception-handler-template](../templates/exception-handler-templ
 - **Returning raw error strings** - Always wrap in `ProblemDetails` at the API boundary.
 - **Catching generic `Exception` in services** - Let `DefaultExceptionHandler` handle the rest.
 - **Exposing stack traces in production** - Only include outside production.
-- **Relying on `DefaultExceptionHandler` to silence `OperationCanceledException`** - The VS debugger breaks at the throw site (inside EF Core) before the handler runs. Catch `OperationCanceledException` in the service method and return an empty/default result:
-  ```csharp
-  catch (OperationCanceledException)
-  {
-      logger.LogDebug("Search cancelled by client.");
-      return new PagedResponse<TDto>();
-  }
-  ```
+- **Catching `OperationCanceledException` in services or handlers** - Cancellation and request timeouts propagate; the exception handler maps them ([exception-handler-template](../templates/exception-handler-template.md) section Rules).
+- **Returning provider error text from a save** - Never put `ex.Message` in a `Result`; see [service-template](../templates/service-template.md) section Common Mistakes (Verified via Test Failures).
 - **Non-nullable `[FromBody]` on search endpoints** - An empty body (e.g. sent on rapid navigation or client cancellation) causes `BadHttpRequestException` before the service is reached. Make the parameter nullable and null-coalesce at the call site:
   ```csharp
   app.MapPost("/search", async ([FromBody] SearchRequest<TFilter>? request, ...) => {
@@ -442,7 +433,7 @@ group.MapGet("/{id:guid}", GetById)
 - [ ] Every handler uses `Result.Match<IResult>()` - no `IsSuccess`/`else` guards anywhere
 - [ ] Typed `Result<T>` handlers have all three branches (success, errors, none); non-generic `Result` handlers have two (success, errors)
 - [ ] `global using EF.AspNetCore;` present in `GlobalUsings.cs`
-- [ ] CRUD routes use the `DefaultRequest<T>` / `DefaultResponse<T>` envelope and search uses `SearchRequest<TFilter>` / `PagedResponse<T>`, both from `EF.Common.Contracts` - no locally redefined envelope on either side of the wire
+- [ ] CRUD routes use the `DefaultRequest<T>` / `DefaultResponse<T>` envelope (app-level, `Application.Models`) and search uses `SearchRequest<TFilter>` / `PagedResponse<T>` from `EF.Common.Contracts` - no locally redefined envelope on either side of the wire
 - [ ] Validation and business errors return `ProblemDetails`/`ValidationProblem`
 - [ ] Typed and exception errors expose separate `requestId`, W3C `traceId`, and `spanId` through one customizer
 - [ ] Swagger/Scalar is gated by `OpenApiSettings:Enable`

@@ -75,7 +75,7 @@ CANARIES = {
     "dotnet build src/UI/{Project}.Uno/{Project}.Uno.csproj -p:TargetFrameworkOverride=$(LatestStableTfm)-ios --no-restore -m:1": "support/execution-gates.md",  # enabled-target Uno validation commands; skills retain project policy and hazards
     "public record DefaultResponse<T>": "ai/contract-scaffolding.md",  # Phase-4 response wrapper shape; sibling of DefaultRequest<T>, templates re-emit it
     "HeaderPropagationValues.Headers not initialized": "patterns/infrastructure-wiring.md",  # runtime error anchoring the "no AddHeaderPropagation in ServiceDefaults" rule; drifts when the body is re-copied
-    "intentionally blocked to force use of the concurrency-safe path": "skills/data-persistence.md",  # SaveChangesAsync 1-param NotImplementedException rule; NotImplementedException is a scan hotspot
+    "Generated code always names the conflict strategy with the winner overload": "skills/data-persistence.md",  # SaveChangesAsync winner-overload rule; templates restate the call, not the rule
     "Body was inferred but the method does not allow inferred body parameters": "skills/api.md",  # runtime failure behind the [FromServices] endpoint-param non-negotiable
     "NU1011": "skills/package-dependencies.md",  # CPM + floating-version restore-failure rule tied to the central-package-version mandate
     "Never rename a migration after it has been shared": "support/data-persistence-advanced.md",  # migration-immutability rule owned with the migration content
@@ -100,6 +100,19 @@ CANARIES = {
     "http.AddStandardResilienceHandler(o => o.Retry.DisableForUnsafeHttpMethods());": "patterns/infrastructure-wiring.md",  # ServiceDefaults no-unsafe-retry call; resilience.md states the policy by name only
     "No paid licenses by default.": "skills/package-dependencies.md",  # GR-04 license criterion + known exclusions; GROUND-RULES/ai/SKILL.md carry the short form
     "no coordinated omission": "templates/test-templates-quality.md",  # in-house LoadRunner shape (replaces NBomber); skills name LoadRunner only
+    "every caller lands in the anonymous partition": "skills/security.md",  # UseRateLimiter after UseAuthentication/UseAuthorization; host wiring and api.md carry the order and point here
+    "499 only when `HttpContext.RequestAborted` is cancelled": "templates/exception-handler-template.md",  # cancellation/timeout status mapping; api.md points to the mapping table
+    "Only the standard hedging pipeline snapshots the `HttpRequestMessage` for each attempt": "skills/resilience.md",  # one hedging shape; scale doc keeps the GET-only policy by name
+    "Branch on the `CanConnectAsync` result": "templates/health-check-template.md",  # SQL health check must use the bool, not an unconditional Healthy()
+    "Never seed code-defined jobs with `ICronTickerManager.AddAsync`": "skills/background-services.md",  # TickerQ cron lives on [TickerFunction]; trigger templates point here
+    "a live `Processing` lease means retry later": "skills/messaging.md",  # two-state inbox claim (Processing lease -> Completed with the effect)
+    "Compose interpolates only from `.env`": "support/compose-deployment.md",  # DockerCompose deployment owner (.env.base + images.env -> generated .env); iac/cicd/schema point here
+    "Generate no rule-object layer": "skills/domain-model.md",  # rules live on the aggregate (Valid/Transition, DomainResult.Combine); entity/structure-validator templates point here
+    "Never generate a parallel `docs/tech-design.md`": "templates/tech-design-template.md",  # docs/tech-design.html is the only design doc; diagrams doc carries source-plus-SVG rules only
+    "start only that lane's stores, and CI runs the assembly once per declared lane": "templates/test-templates-integration.md",  # test lane switch; aspire/e2e templates point to section Lane switch
+    "a prerequisite that is present but fails to start": "skills/testing.md",  # prerequisite rule: missing -> Inconclusive with enabling command, present-but-failing -> red; others point
+    "cb.Properties<decimal>().HavePrecision(18, 4)": "templates/ef-configuration-template.md",  # provider-neutral scalar conventions (decimal, UTC temporals); data-layer-wiring/data-persistence/SKILL point to section Model Conventions
+    "diagram-{NN}.{mmd,svg}": "support/tech-design-diagrams.md",  # diagram source+SVG naming under docs/diagrams/; the template's file table points here
 }
 roots = ["skills", "patterns", "ai", "support", "schemas", "profiles", "templates"]
 files = [p for r in roots for p in pathlib.Path(r).rglob("*.md")]
@@ -205,6 +218,27 @@ are pointers.
   control (resilience, caching, data persistence, gRPC) and point back for the policy.
 - Package license policy and known paid-license exclusions: [skills/package-dependencies.md](../skills/package-dependencies.md)
   section Minimize Third-Party Dependencies; **GR-04** carries the short form.
+- Edge and tenant rate limiting (pipeline placement, distributed limiter, single count per budget):
+  [skills/security.md](../skills/security.md) section Rate Limiting. The scale doc keeps the per-replica policy.
+- Exception-to-status mapping (412 without ETag, 499/504/500 cancellation split, generic 5xx detail):
+  [templates/exception-handler-template.md](../templates/exception-handler-template.md). The stale-`If-Match`
+  412 policy stays in [skills/data-persistence.md](../skills/data-persistence.md).
+- Read hedging registration: [skills/resilience.md](../skills/resilience.md) section Hedging.
+- Outbox claim/dispatch and inbox claim states: [skills/messaging.md](../skills/messaging.md).
+- TickerQ cron declaration and scheduler health: [skills/background-services.md](../skills/background-services.md).
+- `DockerCompose` deployment (file layout, service rules, Caddy edge, secrets, OpenObserve, VPS deploy workflow):
+  [support/compose-deployment.md](../support/compose-deployment.md). Bicep stays in [skills/iac.md](../skills/iac.md); the
+  generic release contract stays in [skills/cicd.md](../skills/cicd.md).
+- Domain rules (aggregate-owned `Valid()`/`Transition`, no rule-object layer):
+  [skills/domain-model.md](../skills/domain-model.md) section Domain Rules.
+- Technical design doc (`docs/tech-design.html` + css/js + maintenance file): [templates/tech-design-template.md](../templates/tech-design-template.md);
+  diagram format and validation: [support/tech-design-diagrams.md](../support/tech-design-diagrams.md).
+- EF scalar conventions (decimal precision, UTC temporals, no provider column types outside the forced branch):
+  [templates/ef-configuration-template.md](../templates/ef-configuration-template.md) section Model Conventions.
+- Test lane switch (lane resolution, per-lane stores, once-per-lane CI run):
+  [templates/test-templates-integration.md](../templates/test-templates-integration.md) section Lane switch.
+- Test prerequisite classification (missing -> `Inconclusive` with the enabling command; present but failing -> red):
+  [skills/testing.md](../skills/testing.md) section Never Silently Pass. Templates, gates, and troubleshooting point here.
 - Ontology projection (outputs, mapping, Fabric IQ ingestion, check semantics):
   [support/ontology-projection.md](../support/ontology-projection.md). The schema doc owns the optional fields,
   the interview owns the opt-in question, gates and checklists carry only the `--check` command.

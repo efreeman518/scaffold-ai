@@ -367,6 +367,8 @@ builder.Services
     .AddStandardResilienceHandler();
 ```
 
+Attach handlers with `AddHttpMessageHandler` only. Never clear a client's handler list (for example `ConfigureAdditionalHttpMessageHandlers((handlers, _) => handlers.Clear())`): it silently removes the resilience and service-discovery handlers registered by defaults.
+
 `appsettings.Development.json`:
 
 ```json

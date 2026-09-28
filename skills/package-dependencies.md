@@ -145,10 +145,12 @@ Apply this only when an approved dependency has no maintained package for every 
 
 ## Critical Domain Contracts
 
-### `EF.Domain`
+Full type list per package, including every package not summarized here (EF.Data.SqlServer, EF.Data.Encryption, EF.Audit.*, EF.Storage.Contracts, EF.Storage.S3, EF.Messaging.RabbitMq, EF.Cache, EF.Auth, EF.AspNetCore, EF.Host, EF.AI, EF.MSGraph, EF.IntegrationTesting, and the smaller utility packages): [../support/ef-packages-reference.md](../support/ef-packages-reference.md); capability-gated packages in [../support/ef-packages-optional.md](../support/ef-packages-optional.md).
+
+### `EF.Domain.Contracts` (identity and tenancy)
 
 ```csharp
-public interface IDomainId<TSelf> where TSelf : IDomainId<TSelf>
+public interface IDomainId<TSelf> where TSelf : struct, IDomainId<TSelf>
 {
     Guid Value { get; }
     static abstract TSelf From(Guid value);
@@ -160,38 +162,31 @@ public interface IEntityBase<TId> { TId Id { get; init; } }
 ```
 
 ```csharp
-public abstract class EntityBase<TId> : IEntityBase<TId>
-    where TId : IDomainId<TId>
-{
-    public TId Id { get; init; }     // typed domain ID, value set from Guid.CreateVersion7()
-    public byte[]? RowVersion { get; set; }
-}
-```
-
-```csharp
-public abstract class AuditableBase<TAuditIdType, TId> : EntityBase<TId>
-    where TId : IDomainId<TId>
-{
-    public DateTime CreatedDate { get; set; }
-    public TAuditIdType CreatedBy { get; set; }
-    public DateTime? UpdatedDate { get; set; }
-    public TAuditIdType? UpdatedBy { get; set; }
-}
-```
-
-```csharp
 public interface ITenantEntity<TTenantIdType> where TTenantIdType : struct
 {
     TTenantIdType TenantId { get; init; }
 }
 ```
 
+### `EF.Domain`
+
+```csharp
+public abstract class EntityBase<TId> : IEntityBase<TId>, IVersionedEntity
+    where TId : struct, IDomainId<TId>
+{
+    public TId Id { get; init; }     // typed domain ID, value set from Guid.CreateVersion7()
+    public long Version { get; set; } // concurrency token, incremented by DbContextBase.SaveChangesAsync
+}
+```
+
+`AuditableBase<TAuditIdType>` is Guid-keyed (`: EntityBase, IAuditable<TAuditIdType>`) with `CreatedDate`, `CreatedBy`, `UpdatedDate`, `UpdatedBy`. `RowVersion` is `[Obsolete]`; never map or read it.
+
 Critical invariants:
 - Entity IDs use `Guid.CreateVersion7()`.
-- Keep optimistic concurrency via `RowVersion`.
+- Optimistic concurrency uses `Version` (`RegisterVersionConcurrencyTokens()` in EF.Data).
 - Tenant entities implement `ITenantEntity<T>`.
 
-### `EF.Domain.Contracts`
+### `EF.Domain.Contracts` (results)
 
 ```csharp
 public record DomainError(string Error, string? Code = null);
@@ -202,9 +197,9 @@ public record DomainError(string Error, string? Code = null);
 - `Errors: IReadOnlyList<DomainError>`
 - map/bind/match/tap helpers for railway flow
 
-Also available:
-- `DomainException`
-- `[Mask]` attribute for redaction
+Also available in `EF.Domain`:
+- `DomainException` (`EF.Domain.Exceptions`)
+- `EF.Domain.Attributes.MaskAttribute` for audit redaction of modified entries (sensitive properties also need the `EF.Common` one: [../support/data-persistence-advanced.md](../support/data-persistence-advanced.md) section Testing expectations)
 
 ---
 
@@ -217,10 +212,12 @@ Also available:
 - tenant filter helpers
 - concurrency-aware `SaveChangesAsync(OptimisticConcurrencyWinner winner, ...)`
 
-`EntityBaseConfiguration<TEntity, TId>` standardizes:
+Also in `EF.Data`: `AuditInterceptor` (`EF.Data.Interceptors`), `DbContextScopedFactory`, `RegisterDomainIdConversions`, `RegisterVersionConcurrencyTokens`.
+
+The app-level `EntityBaseConfiguration<TEntity, TId>` (not a package type) standardizes:
 - key mapping (`Id`)
 - `ValueGeneratedNever()`
-- row-version configuration
+- concurrency token configuration
 
 ### `EF.Data.Contracts`
 
@@ -235,8 +232,7 @@ Also available:
 Other key types:
 - `OptimisticConcurrencyWinner` (`ClientWins`, `DBWins`, `Throw`)
 - `SplitQueryThresholdOptions`
-- `AuditInterceptor`
-- `DbContextScopedFactory`
+- `ReadIsolation` (`Default`, `ReadUncommitted`) for the paging overloads
 - queryable helpers (`IQueryableExtensions`)
 
 ---
@@ -261,7 +257,8 @@ Other key types:
 - `ResultExtensions.ToResult(...)` for domain->application conversion
 - expression/predicate helpers for EF-safe composition
 - `CollectionUtility` (non-domain sync helpers)
-- `NotFoundException`
+- `NotFoundException`, `ConflictException`, `ValidationException`, `PreconditionFailedException`, `PreconditionRequiredException` (`EF.Common.Exceptions`)
+- `MaskAttribute` (`EF.Common.Attributes`) honored by `SerializeToJson`
 
 ---
 
@@ -271,15 +268,14 @@ Add when `applicationStyle` is `cqrs` or `switch`.
 
 | Type | Used For |
 |---|---|
-| `IRequest<TResponse>` | Marker for commands and queries with a typed response |
-| `ICommand<TResponse>` | Write request marker |
-| `IQuery<TResponse>` | Read request marker |
-| `IRequestHandler<TRequest,TResponse>` | Single request handler contract |
+| `ICommand<TResponse>` | Write request marker (`EF.CQRS.Abstractions`) |
+| `IQuery<TResponse>` | Read request marker (`EF.CQRS.Abstractions`) |
+| `IRequestHandler<in TRequest,TResponse>` | Single request handler contract (`EF.CQRS.Abstractions`) |
 | `IRequestValidator<TRequest>` | Optional request validator contract |
 | `RequestValidationResult` | Validator result with one or more errors |
-| `IValidationResponseFactory<TResponse>` | Converts validation errors to the app response shape |
+| `IValidationFailureResponseFactory<out TResponse>` | `CreateFailure(IReadOnlyCollection<DomainError>)` converts validation errors to the app response shape |
 | `ValidationRequestHandlerDecorator<TRequest,TResponse>` | Decorates handlers with validation before execution |
-| `AddDecoratedRequestHandler<TRequest,TResponse,THandler>()` | Registers handler plus validation decorator |
+| `AddDecoratedRequestHandler<TRequest,TResponse,THandler>()` | Registers the handler wrapped in validation and logging decorators (`DecoratedRequestHandlerOptions`) |
 
 No MediatR, dispatcher, request bus, or generic `Send` API is part of this package. CQRS endpoints inject the specific `IRequestHandler<TRequest,TResponse>` they need.
 
@@ -290,11 +286,13 @@ No MediatR, dispatcher, request bus, or generic `Send` API is part of this packa
 ### `EF.BackgroundServices`
 
 ```csharp
+// namespace EF.BackgroundServices.Work
 public interface IBackgroundTaskQueue
 {
-    ValueTask QueueBackgroundWorkItem(Func<IServiceProvider, CancellationToken, ValueTask> workItem);
-    ValueTask QueueScopedBackgroundWorkItem<TScoped>(Func<TScoped, CancellationToken, ValueTask> workItem) where TScoped : notnull;
-    ValueTask<Func<IServiceProvider, CancellationToken, ValueTask>> DequeueAsync(CancellationToken cancellationToken);
+    int QueueBackgroundWorkItem(Func<CancellationToken, Task> workItem, bool throwOnNullWorkitem = false);
+    int QueueScopedBackgroundWorkItem<TScoped>(Func<TScoped, CancellationToken, Task> workItem,
+        bool throwOnNullWorkitem = false, CancellationToken cancellationToken = default);
+    Task<Func<CancellationToken, Task>?> DequeueAsync(CancellationToken cancellationToken);
 }
 ```
 
@@ -303,8 +301,9 @@ public interface IBackgroundTaskQueue
 ```csharp
 public interface IInternalMessageBus
 {
-    void AutoRegisterHandlers(IServiceProvider serviceProvider, params Assembly[] assemblies);
+    void AutoRegisterHandlers();
     void RegisterMessageHandler<T>(IMessageHandler<T> handler) where T : IMessage;
+    void UnregisterMessageHandler<T>(IMessageHandler<T> handler) where T : IMessage;
     void Publish<T>(InternalMessageBusProcessMode mode, ICollection<T> messages) where T : IMessage;
 }
 
@@ -337,15 +336,17 @@ Use package base classes for sender/publisher/processor implementations.
 - Main abstraction: `ICosmosDbRepository`
   - save/get/delete
   - paged query + projection
-  - stream query variants
+- `CosmosDbRepositoryBase` adds `GetStream` query variants
 
 ### `EF.Storage`
 
 `IBlobRepository` supports:
-- upload/download/delete/exists
+- container create/delete
+- blob paging and streaming lists
+- upload/download/delete (container and SAS URI overloads)
 - SAS URI generation
-- container client retrieval
-- blob leasing helpers
+
+`BlobRepositoryBase` also implements `IObjectStorageRepository` (EF.Storage.Contracts, including `ExistsAsync`) and adds `DistributedLockExecuteAsync` (blob lease).
 
 ### `EF.Table`
 
@@ -360,7 +361,7 @@ Use package base classes for sender/publisher/processor implementations.
 
 ### `EF.Grpc`
 
-Provides interceptors and registration helpers for consistent gRPC error handling.
+`ClientErrorInterceptor`, `ServiceErrorInterceptor`, and `AddGrpcClient2<TClient>()` for consistent gRPC error handling.
 
 ### `EF.FilterBuilder`
 
@@ -377,7 +378,7 @@ Durable, JSON-defined workflow orchestration engine. Add only when the requireme
 - `IFlowClient` subtypes: `IRequestResponseClient`, `IQueryClient`, `IMessageClient`, `IAgentClient`, `IFlowEngineClient`
 - `IDistributedLockProvider`, `IExecutionStateStore`, `IHumanTaskStore`, `IOutboxStore`, `ICircuitBreakerStore`
 - Pluggable backend packages: `EF.FlowEngine.StateStore.*`, `EF.FlowEngine.Locks.*`, `EF.FlowEngine.WorkflowRegistry.*`, `EF.FlowEngine.HumanTaskStore.*`, `EF.FlowEngine.Clients.*`
-- See [../support/ef-packages-reference.md](../support/ef-packages-reference.md) for full type list.
+- See [../support/ef-packages-optional.md](../support/ef-packages-optional.md) for full type list.
 
 ---
 

@@ -8,7 +8,7 @@ Durable, JSON-defined workflow orchestration. Load when `includeFlowEngine: true
 - [bootstrapper.md](bootstrapper.md)
 - [data-persistence.md](data-persistence.md)
 - [aspire.md](aspire.md)
-- [../support/ef-packages-reference.md](../support/ef-packages-reference.md) section Workflow Engine and section FlowEngine Data-Layout Variants
+- [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Workflow Engine and section FlowEngine Data-Layout Variants
 
 Package version: track `EF.FlowEngine` latest stable. The surface assumed below: interface-composition DbContext, `WorkflowDefinitionJsonOptions.Default`, `AddWorkflowJsonSeeding`, `AddAzureOpenAIAgentClient` factory overload.
 

@@ -16,8 +16,8 @@ This is a complete reference of all configuration sections used across the solut
   "AuthMode": "Scaffold",
 
   "ConnectionStrings": {
-    "{Project}DbContextTrxn": "Server=localhost,1433;Database={Project}Db;Integrated Security=True;TrustServerCertificate=True",
-    "{Project}DbContextQuery": "Server=localhost,1433;Database={Project}Db;Integrated Security=True;TrustServerCertificate=True;ApplicationIntent=ReadOnly",
+    "{Project}DbContextTrxn": "Host=localhost;Port=35432;Database={project}db;Username=postgres;Password={postgres-password}",
+    "{Project}DbContextQuery": "Host=localhost;Port=35432;Database={project}db;Username=postgres;Password={postgres-password}",
     "Redis1": "localhost:6379"
   },
 
@@ -169,8 +169,8 @@ This is a complete reference of all configuration sections used across the solut
 ```json
 {
   "ConnectionStrings": {
-    "{Project}DbContextTrxn": "Server=localhost,1433;Database={Project}Db;Integrated Security=True;TrustServerCertificate=True",
-    "{Project}DbContextQuery": "Server=localhost,1433;Database={Project}Db;Integrated Security=True;TrustServerCertificate=True"
+    "{Project}DbContextTrxn": "Host=localhost;Port=35432;Database={project}db;Username=postgres;Password={postgres-password}",
+    "{Project}DbContextQuery": "Host=localhost;Port=35432;Database={project}db;Username=postgres;Password={postgres-password}"
   },
   "OpenApiSettings": {
     "Enable": true
@@ -187,6 +187,7 @@ This is a complete reference of all configuration sections used across the solut
 ## Notes
 
 - Connection string names must match what the Bootstrapper expects: `{Project}DbContextTrxn` and `{Project}DbContextQuery`
+- Connection strings show the default `NonAzure` lane (PostgreSQL). The `Azure` lane uses the SQL Server form `Server=localhost,38433;Database={project}db;User Id=sa;Password={sql-password};TrustServerCertificate=True`, with `;ApplicationIntent=ReadOnly` on the Query string only. Supply real passwords through user secrets, never committed config
 - With Aspire, connection strings are **injected automatically** via `.WithReference(projectDb, connectionName: ...)` - no manual config needed in development
 - Redis connection string name (`Redis1`) must match the `RedisConnectionStringName` in `CacheSettings`
 - `CacheSettings` is an array - each entry creates a named FusionCache instance

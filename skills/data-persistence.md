@@ -1,6 +1,6 @@
 # Data Persistence (EF Core)
 
-> **When to read:** Phase 5a, when building EF Core DbContexts, entity configurations, repositories (Trxn/Query split), or updater helpers for SQL Server / Azure SQL.
+> **When to read:** Phase 5a, when building EF Core DbContexts, entity configurations, repositories (Trxn/Query split), or updater helpers for PostgreSQL (default `NonAzure` lane) or SQL Server / Azure SQL (`Azure` lane).
 > **Skip if:** Cosmos/Table/Blob-only persistence (use `azure-data-storage.md` instead); pure domain work; phases 5b+ where data access is already wired.
 
 ## Repository Shape Ownership
@@ -20,23 +20,24 @@ Load [../support/data-persistence-advanced.md](../support/data-persistence-advan
 
 ## Audit Strategy
 
-`AuditInterceptor<string, Guid?>` (from `EF.Data.Interceptors`) intercepts `SaveChangesAsync` on the transactional DbContext and publishes audit records via `IInternalMessageBus` (fire-and-forget). The interceptor does **not** block the save - it enqueues an `AuditMessage` to a background `System.Threading.Channels` consumer.
+`AuditInterceptor<string, Guid?>` (from `EF.Data.Interceptors`) intercepts `SaveChangesAsync` on the transactional DbContext and publishes `AuditEntry<string, Guid?>` lists via `IInternalMessageBus` onto the background task queue. Construct it with an explicit empty sink list, `new AuditInterceptor<string, Guid?>(bus, [])`: its optional `IEnumerable<IAuditLogRepository>` parameter otherwise receives every registered sink from DI and awaits each inside the save, and a relational sink on the same context recurses.
 
-**Pipeline:** `EF SaveChanges` -> `AuditInterceptor` captures changed entities -> publishes to `IInternalMessageBus` (returns immediately) -> background `AuditHandler` dequeues -> `IAuditLogRepository.AppendAsync()` -> Azure Table Storage (`{project}audit` table).
+**Pipeline:** `EF SaveChanges` -> `AuditInterceptor` captures changed entities -> publishes to `IInternalMessageBus` (returns immediately) -> background `AuditHandler` dequeues -> `IAuditLogRepository.AppendAsync()` (EF.Audit.Contracts) -> the lane's backend (relational `AuditLog` table on the default `NonAzure` lane; Azure Table `{project}audit` on `Azure`).
 
 **Key design points:**
-- `EntityBase` does **not** define audit properties (`CreatedAt`, `CreatedBy`, `UpdatedAt`, `UpdatedBy`). Do NOT inherit `AuditableBase<T>` unless audit fields must live on the entity itself.
-- Audit metadata is stored externally in Azure Table Storage, keyed by `PartitionKey` = tenant ID (or `"_system"`) and `RowKey` = reverse-ticks (newest-first).
+- `EntityBase` does **not** define audit properties (`CreatedDate`, `CreatedBy`, `UpdatedDate`, `UpdatedBy`). Do NOT inherit `AuditableBase<T>` unless audit fields must live on the entity itself.
+- Both sinks are app code over `EF.Audit.Contracts` (`EF.Audit.Data`/`.AzureTable` key on the write clock) and take `recordedUtc` from the UUIDv7 id, so a replay hits the same key: relational upserts on `(TenantId, RecordedUtc, Id)`; Azure Table uses `PartitionKey` `{tenantId}|{yyyyMMdd}`, `RowKey` `{DateTime.MaxValue.Ticks - recordedUtc.Ticks:D19}_{id:N}`. A null tenant maps to `_system`.
 - Fields tracked: `EntityType`, `EntityKey`, `Action` (Insert/Update/Delete), `RecordedUtc`, `Metadata` (serialized property changes).
-- **Fallback:** When Table Storage is unavailable (local dev without emulator), register `NoOpAuditLogRepository` - silently discards audit entries.
+- **Fallback:** an unprovisioned sink registers `NoOpAuditLogRepository` (discards entries).
 
 **Source files:**
 | File | Purpose |
 |------|--------|
 | `Bootstrapper/Registration/RegisterServices.Database.cs` | Registers `AuditInterceptor` on Trxn DbContext |
 | `Application.MessageHandlers/AuditHandler.cs` | Handles audit messages from internal bus |
-| `Application.Contracts/Storage/IAuditLogRepository.cs` | Repository contract |
-| `Infrastructure.Storage/AuditLogRepository.cs` | Azure Table Storage implementation |
+| `EF.Audit.Contracts.IAuditLogRepository` | Repository contract (package type; never redefine it in the app) |
+| `Infrastructure.Repositories/RelationalAuditLogRepository.cs` | Relational implementation (default lane) |
+| `Infrastructure.Storage/AuditLogRepository.cs` | Azure Table Storage implementation (`Azure` lane) |
 | `Infrastructure.Storage/NoOpAuditLogRepository.cs` | No-op fallback |
 
 ---
@@ -53,9 +54,7 @@ public abstract class {Project}DbContextBase(DbContextOptions options)
     {
         base.ConfigureConventions(cb);
 
-        cb.RegisterDomainIdConversions(typeof(TenantId).Assembly);
-        cb.Properties<Email>().HaveConversion<EmailValueConverter>().HaveMaxLength(320);
-        cb.Properties<Locale>().HaveConversion<LocaleValueConverter>().HaveMaxLength(20);
+        // IDs, value objects, decimal, UTC: ef-configuration-template section Model Conventions
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -63,8 +62,6 @@ public abstract class {Project}DbContextBase(DbContextOptions options)
         base.OnModelCreating(modelBuilder);
         modelBuilder.HasDefaultSchema("{project}");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof({Project}DbContextBase).Assembly);
-        ConfigureDefaultDataTypes(modelBuilder);
-        SetTableNames(modelBuilder);
         ConfigureTenantQueryFilters(modelBuilder);
     }
 }
@@ -136,16 +133,16 @@ Clamp every caller-supplied page size on the server. Offset paging is acceptable
 
 When `databaseProviders` contains more than one provider, keep one shared model and one provider-options branch. Provider selection, migrations assembly, history table, retry settings, and provider-only types belong in that branch; business repositories do not check the active provider. Generate a migration assembly and model-drift check per provider, then run the same integration/E2E behavior suite for every arm.
 
-SQL Server `rowversion` and PostgreSQL `xmin` are acceptable provider-specific tokens for a single-provider app. A multi-provider API that exposes one aggregate ETag should prefer an app-managed `long Version` concurrency token stamped in `SaveChanges`, because its type and HTTP representation stay stable across providers. Record this choice explicitly; do not pretend two native tokens form one provider-neutral contract.
+The concurrency token is the package `EntityBase.Version` (`long`), mapped with `IsConcurrencyToken()` and incremented by `DbContextBase.SaveChangesAsync`, so its type and ETag representation are the same on every provider. Do not map provider tokens (SQL Server `rowversion`, PostgreSQL `xmin`) or the `[Obsolete]` `RowVersion` member.
 
-Externally mutable aggregates use fail-on-conflict semantics. Missing required `If-Match` returns 428; a stale value returns 412 with the current ETag. `ClientWins` is allowed only for an explicitly recorded last-write-wins path. A broad `catch (Exception)` must not swallow `DbUpdateConcurrencyException` before the exception handler maps it.
+Externally mutable aggregates use fail-on-conflict semantics. Missing required `If-Match` returns 428; a stale value returns 412 with the current ETag, written by the endpoint filter or Result path before the save; a lost update detected at save (`DbUpdateConcurrencyException`) maps to 412 without an ETag in the exception handler, because `ExceptionHandlerMiddleware` clears response headers. `ClientWins` is allowed only for an explicitly recorded last-write-wins path. A broad `catch (Exception)` must not swallow `DbUpdateConcurrencyException` before the exception handler maps it.
 
 ### Set-Based Writes and Query Shape
 
-- `ExecuteUpdateAsync`/`ExecuteDeleteAsync` execute immediately in SQL and bypass the change tracker, `SaveChanges` interceptors (audit, outbox staging), domain methods, and the `RowVersion` check. Use them for set-based work where no invariant, audit record, or integration event is required: work and projection tables, retention purges, and system-owned columns on an aggregate table (a notification marker, a scheduler cursor). On an aggregate table the statement re-asserts its full candidate predicate in the `WHERE` so it acts as a compare-and-set against concurrent edits, and any side effect (deferred blob delete, outbox row) is staged in the same transaction. User-driven aggregate changes go through the root and `SaveChangesAsync`. Proof: TaskFlow `TaskItemSystemRepository`. When one must join a unit of work, open an explicit transaction and stage outbox rows explicitly ([messaging.md](messaging.md) section Transactional Producer: Outbox). Tenant query filters still apply because the statement is a LINQ query; prove it with a cross-tenant test per provider.
+- `ExecuteUpdateAsync`/`ExecuteDeleteAsync` execute immediately in SQL and bypass the change tracker, `SaveChanges` interceptors (audit, outbox staging), domain methods, and the `Version` concurrency check. Use them for set-based work where no invariant, audit record, or integration event is required: work and projection tables, retention purges, and system-owned columns on an aggregate table (a notification marker, a scheduler cursor). On an aggregate table the statement re-asserts its full candidate predicate in the `WHERE` so it acts as a compare-and-set against concurrent edits, and any side effect (deferred blob delete, outbox row) is staged in the same transaction. User-driven aggregate changes go through the root and `SaveChangesAsync`. Proof: TaskFlow `TaskItemSystemRepository`. When one must join a unit of work, open an explicit transaction and stage outbox rows explicitly ([messaging.md](messaging.md) section Transactional Producer: Outbox). Tenant query filters still apply because the statement is a LINQ query; prove it with a cross-tenant test per provider.
 - `AsSplitQuery()` is a per-query choice for multiple collection includes with measured cartesian growth, never a global default. Each split is a separate round trip with no shared snapshot outside a snapshot-isolation transaction, and paged split queries need a deterministic order with a unique tie-breaker.
 - Hot-path reads may use `EF.CompileAsyncQuery` or raw SQL after a benchmark. Raw SQL is parameterized through `FromSql`/`SqlQuery` interpolation; never concatenate values into `FromSqlRaw`.
-- `readNoLock: true` (`ConnectionNoLockInterceptor`, `READ UNCOMMITTED`) is a dirty read that can skip or duplicate rows while pages split. Limit it to approximate reads such as dashboard tiles. Cursor-paged feeds and any read feeding a decision pass `readNoLock: false`; on SQL Server prefer `READ_COMMITTED_SNAPSHOT` (the Azure SQL default) to avoid reader blocking.
+- `ReadIsolation.ReadUncommitted` (`READ UNCOMMITTED`; `ConnectionNoLockInterceptor` from EF.Data.SqlServer) is a dirty read that can skip or duplicate rows while pages split. Limit it to approximate reads such as dashboard tiles. Search, cursor-paged feeds, and any read feeding a decision pass `ReadIsolation.Default`; on SQL Server prefer `READ_COMMITTED_SNAPSHOT` (the Azure SQL default) to avoid reader blocking.
 
 ---
 
@@ -163,24 +160,24 @@ public abstract class EntityBaseConfiguration<TEntity, TId>(bool pkClusteredInde
     {
         builder.HasKey(e => e.Id).IsClustered(pkClusteredIndex);
         builder.Property(e => e.Id).ValueGeneratedNever();
-        builder.Property(e => e.RowVersion).IsRowVersion();
+        builder.Property(e => e.Version).IsConcurrencyToken();
+        builder.Ignore("RowVersion");   // [Obsolete] package member: ignored by name, never mapped
     }
 }
 ```
 
-> **CRITICAL:** Every project must create this abstract base. ALL entity configurations MUST inherit from it (and call `base.Configure(builder)`). Without it, `RowVersion` won't function as a concurrency token, and `Id` may be auto-generated. The `ValueGeneratedNever()` line is also load-bearing for **aggregate child inserts**: it lets EF save a NEW child added to a tracked parent through a navigation collection (the `{Root}Updater` path) as an `INSERT` rather than misinferring it as `Modified` and throwing `DbUpdateConcurrencyException`. A child config that skips the base config silently reintroduces that bug for that entity. See [../templates/updater-template.md](../templates/updater-template.md) section New children and EF Added state.
+> **CRITICAL:** Every project must create this abstract base. ALL entity configurations MUST inherit from it (and call `base.Configure(builder)`). Without it, `Version` won't function as a concurrency token, and `Id` may be auto-generated. The `ValueGeneratedNever()` line is also load-bearing for **aggregate child inserts**: it lets EF save a NEW child added to a tracked parent through a navigation collection (the `{Root}Updater` path) as an `INSERT` rather than misinferring it as `Modified` and throwing `DbUpdateConcurrencyException`. A child config that skips the base config silently reintroduces that bug for that entity. See [../templates/updater-template.md](../templates/updater-template.md) section New children and EF Added state.
 
 See [ef-configuration-template.md](../templates/ef-configuration-template.md) for entity-specific configuration patterns.
 
 ### Configuration Rules
 
 1. Keep PK non-clustered when clustered multi-tenant access index is used.
-2. Use explicit table names (class-name aligned).
+2. Every configuration calls `ToTable` (class-name aligned).
 3. Set delete behavior explicitly (`Restrict` for references, `Cascade` for owned children).
 4. Name indexes predictably (`IX_...` / `CIX_...`).
-5. Set `HasMaxLength(N)` for strings (avoid `nvarchar(max)`).
-6. Use default decimal precision; override only when domain requires it.
-7. Use `datetime2` for `DateTime` columns.
+5. Set `HasMaxLength(N)` for strings; leave one unbounded only for genuinely large text.
+6. Decimal precision and UTC temporals are provider-neutral conventions; name no provider column type ([ef-configuration-template.md](../templates/ef-configuration-template.md) section Model Conventions).
 
 ---
 
@@ -199,7 +196,7 @@ Load [../support/data-persistence-advanced.md](../support/data-persistence-advan
 
 ## SaveChangesAsync Rules
 
-`DbContextBase.SaveChangesAsync(CancellationToken)` **ALWAYS throws `NotImplementedException`** by design. The 1-param overload is intentionally blocked to force use of the concurrency-safe path.
+`DbContextBase.SaveChangesAsync(CancellationToken)` saves with no conflict strategy (audit fields and the `Version` increment still apply). Generated code always names the conflict strategy with the winner overload, so every write's concurrency choice is explicit in review.
 
 ```csharp
 // CORRECT -- always use the 2-param overload; fail visibly on a concurrent write
@@ -228,9 +225,9 @@ await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 
 - [ ] Both `{App}DbContextTrxn` and `{App}DbContextQuery` exist
 - [ ] Query context is configured for no-tracking reads
-- [ ] Domain ID and stable value-object converters are registered in `ConfigureConventions`, not per-property and not from an `OnModelCreating` reflection loop
+- [ ] Domain ID, stable value-object, decimal-precision, and UTC temporal conventions are registered in `ConfigureConventions`, not per-property and not from an `OnModelCreating` reflection loop
 - [ ] Each entity has explicit `IEntityTypeConfiguration<T>` inheriting `EntityBaseConfiguration<TEntity, TId>`
-- [ ] `EntityBaseConfiguration<TEntity, TId>` configures `HasKey`, `ValueGeneratedNever`, `IsRowVersion()`
+- [ ] `EntityBaseConfiguration<TEntity, TId>` configures `HasKey`, `ValueGeneratedNever`, `Version` as the concurrency token, and ignores `RowVersion`
 - [ ] Repositories are split for write and read concerns
 - [ ] Multi-provider apps have one provider-options branch, one migration assembly per provider, and the same real-database suite per arm
 - [ ] Caller page size is clamped; high-cardinality cursor sorts include a unique tie-breaker

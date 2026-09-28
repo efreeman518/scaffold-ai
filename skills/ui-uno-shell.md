@@ -414,6 +414,7 @@ Wrapper rules:
 - Map `.dat`, `.dll`, `.wasm`, and `.pdb` as binary/static files and verify `/_framework` plus `/_content` return 200 with non-empty bodies.
 - For path-prefixed hosting, call `UsePathBase` before static files/routing and generate or rewrite the served entry page's `<base href>` from `Request.PathBase` with a trailing slash. Verify prefixed framework/content assets and the OIDC callback from the public URL.
 - When Entra/MSAL is enabled for browser-WASM, publish same-origin `login-callback.htm` and verify it returns 200 at the exact registered redirect path in the wrapper's `Release` output.
+- Health comes from `MapDefaultEndpoints()` only. No health or diagnostic response returns filesystem paths (content root, web root, manifest location).
 - In Aspire, register the wrapper, not the Uno SDK project:
 
 ```csharp

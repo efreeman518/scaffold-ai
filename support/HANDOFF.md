@@ -28,7 +28,7 @@ testStatus:                # updated per sub-phase - keys match TestCategory val
   uiTests: not-started     # TestCategory=UI         - not-started | red | green
   presentationTests: not-started # TestCategory=Presentation - not-started | red | green
   endpointTests: not-started # TestCategory=Endpoint
-  integrationTests: not-started # TestCategory=Integration (Phase 5d; Testcontainers SQL / real external services)
+  integrationTests: not-started # TestCategory=Integration (Phase 5d; Testcontainers database / real external services)
 hostGates:                 # Phase 5c per-host status: not-started | scaffolded | partially-validated | validated | blocked
   scheduler: not-started
   functionApp: not-started

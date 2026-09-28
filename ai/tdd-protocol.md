@@ -72,7 +72,7 @@ concise.
 Process each entity in the dependency order established in Phase 4 (parents first, then children).
 
 1. **Write domain entity tests** in `tests/Test.Unit/Domain/{Entity}Tests.cs` from `test-templates-domain.md`.
-2. **Write domain rule tests** in `tests/Test.Unit/Domain/{Entity}RulesTests.cs`.
+2. **Write transition tests** in `tests/Test.Unit/Domain/{Entity}StatusTransitionTests.cs`.
 3. **Run RED**:
 
 ```powershell
@@ -80,9 +80,9 @@ dotnet test --filter "TestCategory=Unit"
 ```
 
    Expected: tests fail with assertions or `NotImplementedException`, not compile errors. Paste the observed failing output and count (rule 2) before writing any implementation.
-4. **Implement entity + rules**:
+4. **Implement entity**:
 
-- Replace `NotImplementedException` bodies in `Create()`, `Update()`, and rule methods.
+- Replace `NotImplementedException` bodies in `Create()`, `Update()`, and `Transition`.
 - Activate `{Entity}Builder.Build()` only after `Create()` works.
 
 5. **Run GREEN**:
@@ -147,7 +147,7 @@ dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint"
 
    - Place mock-based infrastructure tests in `Test.Unit` with `[TestCategory("Unit")]`.
    - Place WAF-based infrastructure tests in `Test.Endpoints` with `[TestCategory("Endpoint")]`.
-   - Service-level integration tests against real external services (Testcontainers SQL, real cache) belong in `Test.Integration` and run as part of Phase 5d's quality regression - not 5b's gate.
+   - Service-level integration tests against real external services (Testcontainers database, real cache) belong in `Test.Integration` and run as part of Phase 5d's quality regression - not 5b's gate.
 
    Re-run the same filter after writing them:
 
@@ -209,7 +209,7 @@ When implementing a real class that replaces a no-op stub:
 A vertical slice is TDD-complete when:
 
 - [ ] Entity tests exist and pass (5a)
-- [ ] Domain rule tests exist and pass (5a)
+- [ ] Transition tests exist and pass (5a)
 - [ ] Repository tests exist and pass (5a)
 - [ ] Service tests exist and pass (5b)
 - [ ] Endpoint tests exist and pass (5b)

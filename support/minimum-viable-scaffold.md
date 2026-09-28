@@ -5,7 +5,7 @@ The shortest path from "empty repo" to "passing API with one entity" using this 
 ## What MVS produces
 
 - A single .NET API host plus Aspire AppHost with one entity (CRUD + search), one DbContext pair (Trxn + Query), repositories, mapper, validator, service, endpoints, and unit + endpoint tests.
-- `scaffoldMode: api-only`. SQL runs as an Aspire-managed local container with `externalDependencyModes.sql: emulator`. No Gateway, Uno/Blazor/React UI, Function App, Scheduler, AI services, or messaging.
+- `scaffoldMode: api-only` on the default `NonAzure` lane. The relational database (PostgreSQL) runs as an Aspire-managed local container with `externalDependencyModes.sql: emulator`. No Gateway, Uno/Blazor/React UI, Function App, Scheduler, AI services, or messaging.
 - Dependencies outside MVS scope use explicit no-op or deployment-only modes. Relational persistence is not lazy optional: the default AppHost supplies SQL, or a non-Aspire variant must configure an explicit reachable SQL endpoint.
 - Auth runs in scaffold mode (config-driven principal). Live identity provider is deferred.
 
@@ -106,9 +106,9 @@ includeAzd: false
 includeAiServices: false
 includeKeyVault: false
 useAspire: true
-database: SQLServer
+database: PostgreSQL
 migrationLifecycle: preserved-append-only
-databaseProviders: [SqlServer]
+databaseProviders: [PostgreSql]
 caching: None
 includeArchitectureTests: false
 includeE2ETests: false
@@ -128,9 +128,9 @@ entities:
         maxLength: 200
         required: true
 aspireResources:
-  - name: sql
-    service: SQL Server
-    appHostApi: AddSqlServer
+  - name: postgres
+    service: PostgreSQL
+    appHostApi: AddPostgres
     localMode: RunAsContainer
     publishMode: connection-string
     connectionNames: [SampleDbContextTrxn, SampleDbContextQuery]

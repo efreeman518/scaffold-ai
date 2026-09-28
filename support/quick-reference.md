@@ -3,7 +3,7 @@
 High-signal lookup for structure, dependencies, DI patterns, and common routes/config keys during scaffolding.
 
 > **File naming conventions** are in [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md#file-naming-conventions).
-> **Tech-design diagrams** (`docs/tech-design.md`, `docs/tech-design.html`) follow the source-plus-SVG pattern - see [tech-design-diagrams.md](tech-design-diagrams.md).
+> **Tech-design diagrams** (`docs/tech-design.html`, the only design doc) follow the source-plus-SVG pattern - see [tech-design-diagrams.md](tech-design-diagrams.md).
 
 ---
 
@@ -30,13 +30,13 @@ High-signal lookup for structure, dependencies, DI patterns, and common routes/c
 
 | Package | Primary Purpose |
 |---|---|
-| `EF.Domain` | entities, tenant contracts, domain result primitives |
-| `EF.Domain.Contracts` | DTO/domain result contracts |
+| `EF.Domain` | entity bases, domain exceptions, mask attribute |
+| `EF.Domain.Contracts` | typed IDs, tenant contracts, `DomainResult` / `DomainError` |
 | `EF.Data` | EF repo/config base abstractions |
-| `EF.Common` | `Result`, helpers, predicates |
-| `EF.Common.Contracts` | request context, paging/search contracts |
+| `EF.Common` | `ResultExtensions`, helpers, predicates, app-facing exceptions |
+| `EF.Common.Contracts` | `Result`, request context, paging/search contracts, DTO base contract |
 | `EF.BackgroundServices` | internal message bus, handlers, background queue |
-| `EF.Host` | host startup/task abstractions |
+| `EF.Host` | `AddAzureAppConfiguration` host/configuration extensions |
 
 ---
 
@@ -58,10 +58,10 @@ Rules:
 
 | Type | Purpose |
 |---|---|
-| `EntityBase` | common Id + rowversion base entity |
+| `EntityBase` | common Id + `Version` concurrency base entity |
 | `ITenantEntity<TTenantId>` | tenant ownership contract |
 | `DomainResult<T>` | domain-level success/failure monad |
-| `EntityBaseConfiguration<TEntity, TId>` | base EF configuration rules |
+| `EntityBaseConfiguration<TEntity, TId>` | app-level base EF configuration (not a package type) |
 | `RepositoryBase<TContext, TAuditId, TTenantId>` | common repository operations |
 | `IRequestContext<TAuditId, TTenantId>` | scoped audit/tenant/role context |
 | `IInternalMessageBus` | internal publish/subscribe pipeline |
@@ -146,10 +146,12 @@ Tools below are the **recommended human-facing inspectors** for each local Aspir
 
 **Connection-string defaults** (full forms in [../skills/aspire.md](../skills/aspire.md) -> *Local Explorer Tooling*):
 
+- PostgreSQL host (default lane): `Host=localhost;Port=35432;Database={project}db;Username=postgres;Password={postgres-password}`
+- RabbitMQ (default lane): the `rabbitmq` resource connection string from the Aspire dashboard; `WithManagementPlugin()` adds the management UI endpoint
 - Azurite: `UseDevelopmentStorage=true` (or the full `DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;...` string)
 - Service Bus SDK: `Endpoint=sb://localhost;...;UseDevelopmentEmulator=true;`
 - Service Bus admin client: `Endpoint=sb://localhost:5300;...;UseDevelopmentEmulator=true;`
-- SQL host: `Server=localhost,38433;Database={project}db;User Id=sa;Password={sql-password};Encrypt=True;TrustServerCertificate=True;`
+- SQL host (Azure lane): `Server=localhost,38433;Database={project}db;User Id=sa;Password={sql-password};Encrypt=True;TrustServerCertificate=True;`
 
 ---
 

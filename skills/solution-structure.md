@@ -83,11 +83,11 @@ src/
 tests/
 |-- Test.Unit/                        # pure domain/application unit tests
 |-- Test.UI/                          # fast headless UI model/presentation tests; no app head reference
-|-- Test.Integration/                 # component: one class vs one real store (standalone Testcontainers SQL/Azurite/Redis)
+|-- Test.Integration/                 # component: one class vs one real store (standalone Testcontainers per selected store)
 |-- Test.Integration.{Project}.FlowEngine/ # when FlowEngine definition validation is in scope
 |-- Test.Aspire/                      # mesh: full AppHost graph over HTTP (lazy-started; Docker-gated)
 |-- Test.Endpoints/                   # WebApplicationFactory in-memory; per-endpoint contract tests
-|-- Test.E2E/                         # WebApplicationFactory + Testcontainers SQL; multi-endpoint workflow chains
+|-- Test.E2E/                         # WebApplicationFactory + Testcontainers database; multi-endpoint workflows
 |-- Test.Architecture/                # NetArchTest layering rules
 |-- Test.PlaywrightUI/                # browser-driven UI tests against hosted stack (Aspire/docker-compose)
 |-- Test.Mobile/                      # Appium mobile lane when Uno native testing is in scope
@@ -201,8 +201,6 @@ dotnet_diagnostic.MSTEST0049.severity = warning
 Pair `warning` with `TreatWarningsAsErrors` (opt in via `Directory.Build.props` once the codebase is warning-clean). The acknowledge-and-silence alternative (`severity = none` with a comment saying why) is only for a reference app that deliberately does not want token flow. The anti-pattern is leaving a default-`info` analyzer unaddressed. Both the `TreatWarningsAsErrors` policy and the generation-time gate that verifies no residual analyzer debt are owned by [../support/execution-gates.md](../support/execution-gates.md) (sections Compiler-Warning Policy and Analyzer-Cleanliness Gate).
 
 **Shell redirects:** scaffolded shell-agnostic scripts use `> /dev/null`, never `> NUL`. From git-bash, `> NUL` creates a real on-disk file named `NUL` that Win32 then can't open, breaking `git add -A`. Reserve `> nul` (lowercase) for files that only run under `cmd.exe`.
-
-Note: Domain rules and specifications live in `Domain.Model/Rules/` (or `Domain.Model/Specifications/`). A separate `Domain.Rules` project is not required.
 
 Note: `src/Packages/` exists only when `packageStrategy` is `local` or `hybrid` (set in `.scaffold/resource-implementation.yaml`). Generate one packable project per entry in `localPackageLayers`, matching the layer set in [`../support/ef-packages-reference.md`](../support/ef-packages-reference.md). Each project sets `IsPackable=true` and `<PackageId>=<packagePrefix>.<Layer>` so it can later be published to a feed and consumed via `<PackageReference>` without restructuring. When `applicationStyle` is `cqrs` or `switch`, include `<packagePrefix>.CQRS` in this local/feed layer set. When `packageStrategy: feed`, omit the `Packages/` folder entirely - the contracts come from `customNugetFeeds`.
 
@@ -326,7 +324,7 @@ Adjust optional dependencies per enabled features without inverting layer direct
 
 ## EF.Packages Source Reference
 
-The private EF.* NuGet packages (`EF.Domain`, `EF.Application`, `EF.Infrastructure`, `EF.Data`, `EF.Utility`, `EF.InternalMessageBus`) have full source available at:
+The private EF.* NuGet packages (package list: [../support/ef-packages-reference.md](../support/ef-packages-reference.md)) have full source available at:
 
 **[https://github.com/efreeman518/EF.Packages](https://github.com/efreeman518/EF.Packages)**
 
@@ -334,14 +332,14 @@ Use this repo as the **authoritative source of truth** for all EF.* types, APIs,
 
 | Type | Package | Purpose |
 |---|---|---|
-| `EntityBase` | EF.Domain | Base entity with `Id` (init, V7 GUID) and `RowVersion` (nullable byte[]) |
+| `EntityBase` | EF.Domain | Base entity with `Id` (init, V7 GUID) and `long Version` (concurrency token) |
 | `AuditableBase<T>` | EF.Domain | EntityBase + audit properties (rarely used when AuditInterceptor is active) |
 | `DomainResult<T>` | EF.Domain.Contracts | Railway-oriented domain operation result |
-| `Result` / `Result<T>` | EF.Domain.Contracts | Application-layer operation results |
+| `Result` / `Result<T>` | EF.Common.Contracts | Application-layer operation results |
 | `RepositoryBase<TCtx,TAudit,TTenant>` | EF.Data | Base repository with CRUD + concurrency |
-| `DbContextBase` | EF.Data | Base context - `SaveChangesAsync(ct)` throws `NotImplementedException` by design |
-| `IRequestContext` | EF.Utility | Tenant, Roles, CorrelationId, AuditId (NO `.UserId`) |
-| `IInternalMessageBus` | EF.InternalMessageBus | Synchronous `Publish()` (NOT async) |
+| `DbContextBase` | EF.Data | Base context - tenant filter, audit fields, `Version` increment; generated writes use `SaveChangesAsync(OptimisticConcurrencyWinner, ct)` |
+| `IRequestContext<TAuditIdType, TTenantIdType>` | EF.Common.Contracts | Tenant, Roles, CorrelationId, AuditId (NO `.UserId`) |
+| `IInternalMessageBus` | EF.BackgroundServices (`EF.BackgroundServices.InternalMessageBus`) | Synchronous `Publish()` (NOT async) |
 
 ---
 

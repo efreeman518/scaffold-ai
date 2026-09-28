@@ -217,6 +217,19 @@ databaseProviders: [SqlServer]
 caching: FusionCache+Redis
 includeKeyVault: false
 deployTarget: ContainerApps
+deployTargets: [ContainerApps]
+hostingLanes: [Azure]              # explicit opt-in: this fixture regresses the Azure lane
+hostingLaneDefaults:
+  Azure:
+    databaseProvider: SqlServer
+    messagingProvider: ServiceBus
+    storageProvider: AzureBlob
+    readModelProvider: Cosmos
+    auditProvider: AzureTable
+    searchProvider: Sql
+    aiProvider: None
+    dataProtectionPersistence: AzureBlob
+    deploymentTarget: ContainerApps
 tenantIdType: Guid
 customNugetFeeds:
   - https://nuget.pkg.github.com/{owner}/index.json
@@ -334,6 +347,19 @@ databaseProviders: [SqlServer]
 caching: FusionCache+Redis
 includeKeyVault: false
 deployTarget: ContainerApps
+deployTargets: [ContainerApps]
+hostingLanes: [Azure]              # explicit opt-in: this fixture regresses the Azure lane
+hostingLaneDefaults:
+  Azure:
+    databaseProvider: SqlServer
+    messagingProvider: ServiceBus
+    storageProvider: AzureBlob
+    readModelProvider: Cosmos
+    auditProvider: AzureTable
+    searchProvider: Sql
+    aiProvider: None
+    dataProtectionPersistence: AzureBlob
+    deploymentTarget: ContainerApps
 tenantIdType: Guid
 entities:
   - name: WorkItem

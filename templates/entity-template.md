@@ -40,9 +40,9 @@ public readonly record struct {Entity}Id(Guid Value) : IDomainId<{Entity}Id>
 
 > **EntityBase properties (inherited, do NOT redefine):**
 > - `{Entity}Id Id { get; init; }` - typed domain ID, client-generated via `Guid.CreateVersion7()` (set by the app, not the store; EF `ValueGeneratedNever()`), init-only
-> - `byte[]? RowVersion { get; set; }` - nullable, configured via `.IsRowVersion()` in EF config
+> - `long Version { get; set; }` - concurrency token, configured via `.IsConcurrencyToken()` in EF config (the `[Obsolete]` `RowVersion` is never used)
 >
-> `EntityBase<TId>` is the generic base where `TId : IDomainId<TId>`. The typed `Id` property replaces the raw `Guid Id`.
+> `EntityBase<TId>` is the generic base where `TId : struct, IDomainId<TId>`. The typed `Id` property replaces the raw `Guid Id`.
 >
 > **Do NOT inherit `AuditableBase<T>`** unless audit fields must live on the entity itself. The default pattern uses `AuditInterceptor` on the `DbContext` to manage audit metadata externally.
 
@@ -217,7 +217,7 @@ public DomainResult<{Entity}> Update(string? name = null)
 
 ### Lifecycle status is a guarded `Transition`, never a settable `Update` field
 
-When the domain spec declares a `stateMachine` for an entity, the status is **not** a parameter on `Update()`. Expose a dedicated `Transition(target)` that enforces allowed moves and keeps dependent fields aligned (e.g. a completion timestamp). A free-form `Update(status, ...)` lets callers jump to any state and bypass the lifecycle. Use an explicit transition matrix; for compound/guarded transitions, back it with a `{Entity}StatusTransitionRule` (see [domain-rules-template.md](domain-rules-template.md)).
+When the domain spec declares a `stateMachine` for an entity, the status is **not** a parameter on `Update()`. Expose a dedicated `Transition(target)` that enforces allowed moves and keeps dependent fields aligned (e.g. a completion timestamp). A free-form `Update(status, ...)` lets callers jump to any state and bypass the lifecycle. Use an explicit transition matrix inside the aggregate; no separate rule class.
 
 ```csharp
 public DomainResult<{Entity}> Transition({Entity}Status target)

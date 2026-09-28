@@ -112,7 +112,8 @@ public static class {Entity}Endpoints
         return result.Match<IResult>(
             response => TypedResults.Created(httpContext.Request.Path, response),
             errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
-                errors: errors, includeStackTrace: _problemDetailsIncludeStackTrace)));
+                errors: errors, statusCodeOverride: StatusCodes.Status400BadRequest,
+                includeStackTrace: _problemDetailsIncludeStackTrace)));
     }
 
     private static async Task<IResult> Update(
@@ -131,7 +132,8 @@ public static class {Entity}Endpoints
         return result.Match(
             response => response.Item is null ? Results.NotFound(id) : TypedResults.Ok(response),
             errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
-                errors: errors, includeStackTrace: _problemDetailsIncludeStackTrace)));
+                errors: errors, statusCodeOverride: StatusCodes.Status400BadRequest,
+                includeStackTrace: _problemDetailsIncludeStackTrace)));
     }
 
     private static async Task<IResult> Delete(
@@ -143,7 +145,8 @@ public static class {Entity}Endpoints
         return result.Match<IResult>(
             () => TypedResults.NoContent(),
             errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
-                errors: errors, includeStackTrace: _problemDetailsIncludeStackTrace)));
+                errors: errors, statusCodeOverride: StatusCodes.Status400BadRequest,
+                includeStackTrace: _problemDetailsIncludeStackTrace)));
     }
 }
 ```
@@ -171,7 +174,8 @@ private static async Task<IResult> {ActionName}(
     return result.Match<IResult>(
         response => TypedResults.Ok(response),
         errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
-            errors: errors, includeStackTrace: _problemDetailsIncludeStackTrace)),
+            errors: errors, statusCodeOverride: StatusCodes.Status400BadRequest,
+            includeStackTrace: _problemDetailsIncludeStackTrace)),
         () => TypedResults.NotFound(id));
 }
 ```

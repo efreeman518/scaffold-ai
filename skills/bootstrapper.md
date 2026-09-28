@@ -10,7 +10,7 @@ The **Bootstrapper project** is the centralized DI registration hub. It wires up
 ## Project Structure
 
 > Reference patterns: [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) (API Startup), [../patterns/data-layer-wiring.md](../patterns/data-layer-wiring.md) (DB Wiring).
-> Base types (`IStartupTask`, `RunStartupTasks()`): [../support/ef-packages-reference.md](../support/ef-packages-reference.md).
+> `IStartupTask` and `RunStartupTasks()` are app-level Bootstrapper types generated below, not package types ([../support/ef-packages-reference.md](../support/ef-packages-reference.md) section App-Level Types (NOT in EF.Packages)).
 > `StaticLogging`: from `EF.Common` package (used in Program.cs for early logger).
 
 ```

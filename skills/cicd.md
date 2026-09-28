@@ -105,7 +105,7 @@ on:
       includeIntegration:
         type: boolean
         default: false
-        description: "Run Test.Integration component tests (standalone Testcontainers SQL/Azurite; requires Docker)"
+        description: "Run Test.Integration component tests (standalone lane Testcontainers; requires Docker)"
       includeAspireMesh:
         type: boolean
         default: false
@@ -113,7 +113,7 @@ on:
       includeE2E:
         type: boolean
         default: false
-        description: "Run Test.E2E workflow tests (WebApplicationFactory + Testcontainers SQL; requires Docker)"
+        description: "Run Test.E2E workflow tests (WebApplicationFactory + Testcontainers PostgreSQL; requires Docker)"
       includePlaywright:
         type: boolean
         default: false
@@ -223,7 +223,7 @@ The self-modifying prohibition is general, not EF-specific: **routine maintenanc
 
 ### Runner Disk for Container-Backed Test Tiers
 
-The `Integration`, `Aspire`, and `E2E` tiers pull the emulator/container image set: SQL Server (**two** tags once the Service Bus emulator's bundled SQL sidecar is counted - see [aspire.md](aspire.md) -> *Emulator Image Pinning*; `Test.E2E` adds its own Testcontainers SQL), plus Azurite, the Service Bus emulator, and Redis. A GitHub-hosted `ubuntu-latest` runner has ~14 GB free and can overflow mid-pull. **The failure is misleading:** Docker reports `no space left on device` deep in the pull log, but the test surfaces it as an AppHost resource-wait `System.TimeoutException` (the SQL container never reaches healthy). Check the pull log for the disk error before chasing the timeout.
+The `Integration`, `Aspire`, and `E2E` tiers pull the lane's image set: PostgreSQL, RabbitMQ, SeaweedFS (S3), and Redis by default; the `Azure` lane pulls SQL Server (**two** tags with the Service Bus SQL sidecar - [aspire.md](aspire.md) -> *Emulator Image Pinning*), Azurite, and the Service Bus emulator. A GitHub-hosted `ubuntu-latest` runner has ~14 GB free and can overflow mid-pull. **The failure is misleading:** Docker reports `no space left on device` deep in the pull log, but the test surfaces it as an AppHost resource-wait `System.TimeoutException` (the database container never reaches healthy). Check the pull log for the disk error before chasing the timeout.
 
 Reclaim space before the container-backed steps, gated to the same dispatch inputs so normal PR runs (unit/endpoint/arch only) skip it:
 
@@ -240,7 +240,7 @@ Reclaim space before the container-backed steps, gated to the same dispatch inpu
     swap-storage: false
 ```
 
-Aligning the Service Bus SQL sidecar tag with the `sql` resource (aspire.md, same section) also shrinks the pull - the two SQL containers then share layers instead of pulling two majors.
+On the `Azure` lane, aligning the Service Bus SQL sidecar tag with the `sql` resource (aspire.md, same section) shrinks the pull - the two SQL containers then share layers instead of pulling two majors.
 
 ### Test Category Policy
 
@@ -258,7 +258,7 @@ Treat Aspire, Playwright, and WasmUI projects as resource-heavy. Keep their work
 | `Architecture` | Auto (PR) | none |
 | `Integration` | Manual (`includeIntegration`) | Docker (component vs one standalone Testcontainer) |
 | `Aspire` | Manual (`includeAspireMesh`) | Docker (full AppHost mesh; disk reclaim) |
-| `E2E` | Manual (`includeE2E`) | Docker (multi-endpoint chains, Testcontainers SQL) |
+| `E2E` | Manual (`includeE2E`) | Docker (multi-endpoint chains, lane database) |
 | `PlaywrightUI` | Manual (`includePlaywright`) | hosted stack + browser install (own job) |
 | `MobileUI` | Manual (`includeMobile`) | `tests/Test.Mobile/run-mobile-tests.ps1`; Android SDK + emulator + Appium + UiAutomator2; fail-fast prerequisites (own job) |
 | `Load` | Manual (`includeLoad`) | heavy; in-house `LoadRunner` via `dotnet test --filter TestCategory=Load` |
@@ -317,6 +317,8 @@ Live AI smoke (`LiveAI`) runs against Azure AI Foundry inside the `Aspire` mesh 
 ---
 
 ## `cd.yml` (Build, Push, Deploy)
+
+A `DockerCompose` target applies this contract in its own workflow: [../support/compose-deployment.md](../support/compose-deployment.md) section Deploy Workflow.
 
 ### Trigger default: `workflow_dispatch` only
 

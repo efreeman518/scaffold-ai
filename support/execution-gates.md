@@ -67,8 +67,8 @@ Exit criteria:
 - [ ] Every entity from `.scaffold/resource-implementation.yaml` has: interface, DTO, entity shell, builders
 - [ ] All no-op stubs satisfy their interfaces
 - [ ] `RegisterServices.cs` wires all no-op stubs
-- [ ] `tests/Test.Support/` contains `WebApplicationFactoryBase` (thin adapter over `EfWebApplicationFactoryBase`), `JsonTestOptions`, `InMemoryDbBuilder`, `TestConstants`, and `Builders/{Entity}Builder` shells; `LocalSqlSettings` lives in the AppHost project; unit tests are flat classes (no shared unit-test base)
-- [ ] `tests/Test.Endpoints/CustomApiFactory.cs` and `tests/Test.E2E/SqlApiFactory.cs` inherit/use the shared `WebApplicationFactoryBase` (no duplicated swap-out plumbing); `tests/Test.Integration/Infrastructure/*ContainerFixture` + `IntegrationTestSetup` (component) and `tests/Test.Aspire/AspireTestHost` + `AspireMeshLifecycle` (mesh) all compile
+- [ ] `tests/Test.Support/` contains `WebApplicationFactoryBase` (thin adapter over `EfWebApplicationFactoryBase`), `JsonTestOptions`, `TestConstants`, and `Builders/{Entity}Builder` shells; `LocalSqlSettings` lives in the AppHost project; unit tests are flat classes (no shared unit-test base)
+- [ ] `tests/Test.Endpoints/CustomApiFactory.cs` and `tests/Test.E2E/DbApiFactory.cs` inherit/use the shared `WebApplicationFactoryBase` (no duplicated swap-out plumbing); `tests/Test.Integration/Infrastructure/*ContainerFixture` + `IntegrationTestSetup` (component) and `tests/Test.Aspire/AspireTestHost` + `AspireMeshLifecycle` (mesh) all compile
 - [ ] `{Entity}DtoBuilder` returns valid DTOs
 - [ ] No domain logic in entity shells (only `throw new NotImplementedException`)
 - [ ] `<packagePrefix>.*` shared base types are consumed from feed packages or `src/Packages/<packagePrefix>.*` projects per `packageStrategy` - never reimplemented in application/domain/host layers
@@ -89,8 +89,8 @@ dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint"
 
 Exit criteria:
 - [ ] Domain entities exist with real logic (shells replaced)
-- [ ] Domain rule tests pass
-- [ ] Repository tests pass with `InMemoryDbBuilder`
+- [ ] Transition tests pass for each state-machine entity
+- [ ] Repository tests pass
 - [ ] `{Entity}Builder.Build()` activated (returns valid entities)
 - [ ] No-op repository stubs replaced with real implementations in `RegisterServices.cs`
 - [ ] DbContext files compile with EF configurations
@@ -244,7 +244,7 @@ For Uno WASM, clean both target `bin` and target `obj` before a validation rebui
 dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --filter TestCategory=WasmUI -m:1
 ```
 
-The `WasmUI` harness is default-on. It starts Aspire in testing mode when Docker is present and marks tests `Assert.Inconclusive` only when `{APP}_WASM_TESTS_ENABLED=false` or Docker preflight proves no compatible runtime is available. Missing WASM/browser tooling and AppHost/resource/browser startup failures after Docker succeeds are red with diagnostics.
+The `WasmUI` harness is default-on. It starts Aspire in testing mode when Docker is present and classifies `Assert.Inconclusive` versus red by the prerequisite rule ([../skills/testing.md](../skills/testing.md#never-silently-pass-applies-to-every-tier)); `{APP}_WASM_TESTS_ENABLED=false` is its opt-out, and AppHost/resource/browser startup failures are red with diagnostics.
 
 If targeting Android (`<tfm>-android`):
 - [ ] Android Studio or SDK command-line tools installed with Platform-Tools, Emulator, one recent platform, and one AVD
@@ -388,7 +388,7 @@ Unit, service, endpoint, and integration tests already exist from Phases 5a/5b/5
 - E2E Playwright tests (if comprehensive profile + UI enabled)
 
 **Also in this phase:**
-- IaC (Bicep), CI/CD pipeline YAML, Dockerfile, coverage settings
+- IaC (deployment definitions per `deployTargets` entry: Bicep for `ContainerApps`, `deploy/compose/` for `DockerCompose`), CI/CD pipeline YAML, Dockerfile, coverage settings
 
 Required profile gate (full regression):
 - `minimal`: Unit + Endpoint
@@ -416,16 +416,24 @@ Then run Stryker from `tests/Test.Mutation`:
 dotnet tool run dotnet-stryker
 ```
 
-IaC (if enabled):
+IaC (if enabled), for each declared deployment target:
 
 ```powershell
+# ContainerApps (Azure lane)
 az bicep build --file infra/main.bicep
+# DockerCompose (NonAzure lane): render with the committed templates only
+Push-Location deploy/compose
+Get-Content .env.example, images.env.example | Set-Content .env
+docker compose -f docker-compose.yml config -q
+docker compose -f docker-compose.yml -f docker-compose.override.local.yml config -q
+Remove-Item .env
+Pop-Location
 ```
 
 Delivery checks:
 - [ ] Full test suite passes (regression - not first-time creation for unit/endpoint/integration)
 - [ ] Architecture tests enforce layering rules
-- [ ] `az bicep build --file infra/main.bicep` succeeds *(if IaC enabled)*
+- [ ] The IaC command for each declared deployment target succeeds *(if IaC enabled)*
 - [ ] Aspire <-> IaC names/connection strings are aligned
 - [ ] Every configured migration provider has a non-destructive pending-model-change/parity check
 - [ ] Browser-WASM delivery uses clean published `Release` output and passes the static-host contract in [../skills/ui-uno-platforms.md](../skills/ui-uno-platforms.md) section Published Release artifact and static-host contract
@@ -552,11 +560,7 @@ dotnet test .\{SolutionName}.slnx --no-build -m:1
 
 Plus a manual walk-through of [final-scaffold-checklist.md](final-scaffold-checklist.md) covering: solution structure shape, no-op stub coverage, host startup smoke checks, and HANDOFF.md completeness.
 
-If IaC is part of scope:
-
-```powershell
-az bicep build --file infra/main.bicep
-```
+If IaC is part of scope, run the IaC commands in section 5d - Quality Gates + Delivery for each declared deployment target.
 
 ---
 

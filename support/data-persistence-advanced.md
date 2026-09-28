@@ -63,18 +63,17 @@ public class DesignTimeDbContextFactoryQuery : IDesignTimeDbContextFactory<{Proj
 
 ## JSON Columns (`ToJson()`) Troubleshooting
 
-`ToJson()` with owned types is the preferred pattern for structured data stored as JSON in SQL Server. EF Core may still fail to generate migrations for complex graphs with nested collections or dictionaries.
+`ToJson()` with owned types is the preferred pattern for structured data stored in JSON columns. EF Core may still fail to generate migrations for complex graphs with nested collections or dictionaries.
 
 Projection trap: materializing a primitive collection inside a `ToJson()`-owned type via `.ToList()` NREs in the SQL Server shaper at shaper-build time (even on empty tables), while translating fine on Npgsql - write `new List<T>(x.Items)` instead of `x.Items.ToList()` in projections, and cover the projection on the deployed provider (see [testing.md](../skills/testing.md)).
 
-Fallback: use a serializer-backed value conversion to `nvarchar(max)` with a custom `ValueComparer`.
+Fallback: use a serializer-backed value conversion to an unbounded string (no `HasMaxLength`; each provider picks its large-text type) with a custom `ValueComparer`.
 
 ```csharp
 builder.Property(e => e.ComplexData)
     .HasConversion(
         v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
         v => JsonSerializer.Deserialize<ComplexType>(v, (JsonSerializerOptions?)null)!)
-    .HasColumnType("nvarchar(max)")
     .Metadata.SetValueComparer(
         new ValueComparer<ComplexType>(
             (a, b) => JsonSerializer.Serialize(a, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(b, (JsonSerializerOptions?)null),
@@ -172,7 +171,7 @@ Container image upgrades can change the database's expected persistence root wit
 
 **Canonical owner for migration execution.** Exactly one process owns schema: `src/Host/{App}.DatabaseMigrator`, a console host in the solution (plus a Dockerfile when the app deploys containers). Runtime hosts (API, Scheduler, Functions, workers, Gateway) never call `Database.MigrateAsync`, create schemas, or patch tables at startup. Scaled-out instances race DDL, runtime identities would need broad permissions, and startup failure modes become uncontrollable.
 
-Runner primitives ship in EF.Data (`EF.Data.Migrations` namespace): `AddDatabaseMigrationRunner()`, `AddEfCoreMigrationTarget<TContext>(logicalName, order)`, `DatabaseMigrationRunner.RunAsync()`. Each target resolves `IDbContextFactory<TContext>` - register target contexts with `AddDbContextFactory` (the `Add{App}MigrationDbContexts` helper's job), never plain `AddDbContext`.
+Runner primitives ship in EF.Data (`EF.Data.Migrations` namespace): `AddDatabaseMigrationRunner()`, `AddEfCoreMigrationTarget<TContext>(name, order)`, `DatabaseMigrationRunner.RunAsync()`. Each target resolves `IDbContextFactory<TContext>` - register target contexts with `AddDbContextFactory` (the `Add{App}MigrationDbContexts` helper's job), never plain `AddDbContext`.
 
 Sub-phase split: Phase 5a creates the initial migration files (the schema artifact); the migrator host project and the AppHost `WaitForCompletion` wiring are generated in 5b with the rest of runtime orchestration.
 
@@ -278,13 +277,13 @@ Give the domain a UTF8 byte budget matching the column (e.g. `RULE_SECURE_PROPER
 
 ### EF has no fluent Always Encrypted mapping
 
-There is no `.IsEncrypted()`. The CMK/CEK creation and `ALTER COLUMN ... ENCRYPTED WITH` are raw SQL that must run inside the migration. Do **not** re-derive the T-SQL - `EF.Data` ships a `MigrationSupport` helper. In the migration's `Up`, after `CreateTable`, call a private `ConfigureAlwaysEncrypted(migrationBuilder)`:
+There is no `.IsEncrypted()`. The CMK/CEK creation and `ALTER COLUMN ... ENCRYPTED WITH` are raw SQL that must run inside the migration. Do **not** re-derive the T-SQL - `EF.Data.SqlServer` ships a `MigrationSupport` helper (`using EF.Data.SqlServer;`). In the migration's `Up`, after `CreateTable`, call a private `ConfigureAlwaysEncrypted(migrationBuilder)`:
 
 ```csharp
 var support = new MigrationSupport(migrationBuilder, new DefaultAzureCredential());
 support.CreateColumnMasterKey(urlAkvCmk, "CMK_WITH_AKV");
 support.CreateColumnEncryptionKey(urlAkvCmk, "CMK_WITH_AKV", "CEK_WITH_AKV");
-// varbinary has no collation -> collate: null. encType per field: DETERMINISTIC (queryable) or RANDOMIZED (default).
+// varbinary has no collation -> collate: null. encType per field: DETERMINISTIC (queryable, the helper default) or RANDOMIZED.
 support.AlterColumnEncryption("CEK_WITH_AKV", "[schema].[Table]", "[SecureDeterministic] varbinary(200)", collate: null, encType: "DETERMINISTIC");
 support.AlterColumnEncryption("CEK_WITH_AKV", "[schema].[Table]", "[SecureRandom] varbinary(200)", collate: null, encType: "RANDOMIZED");
 ```
@@ -345,11 +344,13 @@ Must report `No changes` (same rooting as the Mapping-Foundation Neutrality Gate
 
 Full encrypt/decrypt E2E needs a real AKV key and **cannot run locally** (no emulator). Do not attempt or claim local E2E of encryption. The runnable checks are: the **domain length/validation test** (value fits `RULE_SECURE_PROPERTY_MAX_BYTES`) and the **model-drift check** above. State this plainly rather than pretending encryption was exercised locally.
 
+Column encryption does not cover the audit trail: `AuditInterceptor` writes property values in clear text unless the property is masked. Every encrypted or sensitive property carries both `EF.Domain.Attributes.MaskAttribute` (read for modified entries) and `EF.Common.Attributes.MaskAttribute` (read by `SerializeToJson` for added entries), and a test asserts its audit entry is masked on create and update.
+
 ### Key rotation
 
 CMK/CEK rotation is an operational task on top of the secret-rotation workflow in [../skills/security.md](../skills/security.md). Rotate the CMK in Key Vault, re-wrap the CEK, then retire the old CMK version; record the rotation owner in the Security-branch decision.
 
-**TaskFlow proof:** `src/Infrastructure/TaskFlow.Infrastructure.Data/Migrations/*_InitialCreate.cs` (`ConfigureAlwaysEncrypted`), `Configurations/TaskItemConfiguration.cs` (varbinary + UTF8 converter), `src/Host/TaskFlow.Bootstrapper/Registration/RegisterServices.Database.cs` (provider registration, `Column Encryption Setting`), `src/Host/Aspire/AppHost/AppHost.cs` (opt-in gate, `AKVCMKURL`), `infra/main.bicep` (CMK key, purge protection, Crypto User RBAC), `tests/Test.Unit/Domain/TaskItemTests.cs` (domain length test). Decision recorded as D-019 (Branch Security).
+**TaskFlow proof:** none for Always Encrypted. TaskFlow records it as the superseded SQL Server-only alternative (D-019) and ships the provider-neutral replacement (D-023): application-layer AES-256-GCM with an HMAC blind index in `src/Infrastructure/TaskFlow.Infrastructure.Data/Configurations/TaskItemConfiguration.cs`, proved by `tests/Test.Unit/Infrastructure/ColumnEncryptionTests.cs` and `tests/Test.Integration/ColumnEncryptionIntegrationTests.cs`.
 
 ---
 

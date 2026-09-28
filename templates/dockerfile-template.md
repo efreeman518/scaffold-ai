@@ -122,6 +122,7 @@ Two provider-driven escalations are hard rules, silent until runtime:
 - **Non-root:** Chiseled images run as non-root by default.
 - **Health probes:** Configure orchestrator liveness against `/healthz/live` and readiness against `/healthz/ready`; `/healthz` is the operator aggregate and must not be used for liveness.
 - **No secrets in image:** Use Aspire/Container Apps environment injection for connection strings.
+- **Private feed restore (`packageStrategy: feed`/`hybrid`):** pass the feed credential as a BuildKit secret, never a build arg or copied file: `RUN --mount=type=secret,id=nuget_credentials,required=true env "NuGetPackageSourceCredentials_<feedKey>=$(cat /run/secrets/nuget_credentials)" dotnet restore ...`, built with `docker buildx build --secret id=nuget_credentials,env=NuGetPackageSourceCredentials_<feedKey>`. `<feedKey>` is the `nuget.config` source key. Proof: TaskFlow `src/Host/TaskFlow.Api/Dockerfile`, `.github/workflows/build-images.yml`.
 - Adjust COPY lines to match your actual solution project structure - add or remove projects as needed.
 
 ## Verification Checklist

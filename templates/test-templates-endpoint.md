@@ -32,11 +32,11 @@ If the test base evolves to wrap `HttpClient` in an extension method (e.g. `clie
 
 ## Shared WebApplicationFactoryBase (in Test.Support)
 
-The plumbing for swapping the production DbContext + interceptors + pooled factories with a test-mode store ships in the `EF.IntegrationTesting` package as `EF.IntegrationTesting.AspNetCore.EfWebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>`. `Test.Support` carries only a thin app adapter, `WebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>`, and both `Test.Endpoints` (in-memory) and `Test.E2E` (Testcontainers SQL) derive specializations that only declare which options to use.
+The plumbing for swapping the production DbContext + interceptors + pooled factories with a test-mode store ships in the `EF.IntegrationTesting` package as `EF.IntegrationTesting.AspNetCore.EfWebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>`. `Test.Support` carries only a thin app adapter, `WebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>`, and both `Test.Endpoints` (in-memory) and `Test.E2E` (Testcontainers database) derive specializations that declare the store and the lane.
 
 The adapter pins every mode-selecting config key (auth mode, provider toggles) explicitly - a Development-environment test host loads the developer's **user secrets**, which override both appsettings files and can flip test topology on one machine while CI stays green. Test factories extend base configuration; they never replace it wholesale, or the pinned keys silently vanish in derived factories.
 
-> **Phase 4 generates this file.** The adapter is part of the contract-scaffolding output (see [../ai/contract-scaffolding.md](../ai/contract-scaffolding.md), `### 4. Test Infrastructure`) so the solution builds and both `Test.Endpoints` and `Test.E2E` compile before Phase 5 begins. The package base's descriptor removal no-ops when a descriptor is absent - at Phase 4 the host registers no DbContext yet; the swap takes effect in 5b.
+> **Phase 4 generates this file.** The adapter is part of the contract-scaffolding output (see [../ai/contract-scaffolding.md](../ai/contract-scaffolding.md), `### 4. Test Infrastructure`) so the solution builds and both `Test.Endpoints` and `Test.E2E` compile before Phase 5 begins; the swap takes effect in 5b.
 
 `tests/Test.Support/WebApplicationFactoryBase.cs`:
 
@@ -78,11 +78,11 @@ public abstract class WebApplicationFactoryBase<TProgram, TTrxnContext, TQueryCo
 
 **Critical details:**
 
-1. **Typed options per context.** Use `new DbContextOptionsBuilder<{App}DbContextTrxn>().UseInMemoryDatabase(name).Options` - do NOT use generic `DbContextOptions` when multiple contexts exist. `DbContextBase` constructors take `DbContextOptions` (non-generic base), but EF validates the generic type at runtime.
-2. Derived factories provide only the test-mode store (override the abstract `BuildTrxnOptions()` / `BuildQueryOptions()`); `ConfigureTestConfiguration(IConfigurationBuilder)` is the hook for app-specific test configuration.
+1. **Typed options per context** (`DbContextOptionsFactory.BuildInMemoryOptions<{App}DbContextTrxn>(...)`). `DbContextBase` constructors take non-generic `DbContextOptions`, but EF validates the generic type at runtime.
+2. Derived factories provide only the test-mode store (override the `protected virtual` `BuildTrxnOptions()` / `BuildQueryOptions()`, or `ConnectionString`, which throws unless overridden, plus `BuildOptionsFor<TContext>(connectionString)` to build both contexts through one helper); `ConfigureTestConfiguration(IConfigurationBuilder)` is the hook for app-specific test configuration.
 3. Do not hand-roll descriptor-removal or reflection-creation plumbing in the app - it ships in `EF.IntegrationTesting` (see [../support/ef-packages-reference.md](../support/ef-packages-reference.md) section Testing).
 
-## SqlAggregateSeeder (in Test.Support)
+## DbAggregateSeeder (in Test.Support)
 
 **Conditional - generate on first need, not by default.** When the API can create every row a test acts
 on (dev-seam auth supplies user/tenant), seed through the API - that is the reference pattern, and this
@@ -92,7 +92,7 @@ creates (a real user in a real tenant owning the aggregate), do not duplicate th
 drifts per-test and reintroduces the user/tenant FK bugs the dev seam fixes. Provide this one shared
 seeder in `Test.Support` that persists the full FK chain in dependency order through the live DbContext.
 
-`tests/Test.Support/SqlAggregateSeeder.cs`:
+`tests/Test.Support/DbAggregateSeeder.cs`:
 
 ```csharp
 namespace Test.Support;
@@ -102,7 +102,7 @@ namespace Test.Support;
 /// transactional DbContext, so workflow/E2E tests start from a row the API will accept. Builders
 /// construct the domain objects; this seeder owns insert order and FK wiring. Idempotent per id.
 /// </summary>
-public sealed class SqlAggregateSeeder(IDbContextFactory<{App}DbContextTrxn> factory)
+public sealed class DbAggregateSeeder(IDbContextFactory<{App}DbContextTrxn> factory)
 {
     public async Task<SeededContext> SeedAsync(CancellationToken ct = default)
     {
@@ -139,30 +139,60 @@ integration tier ([test-templates-integration.md](test-templates-integration.md)
 
 ## Test.Endpoints derived factory (in-memory)
 
+The endpoint tier needs no container. It pins the lane explicitly - a Development host otherwise resolves whatever the developer's environment selects - and gives each of that lane's external data planes an inert endpoint plus a no-op replacement. Pin a lane whose registration opens no connection. The reference app pins `Azure` (lazy SDK clients) because its `NonAzure` Redis Data Protection store connects at registration; a single-lane `NonAzure` app pins `NonAzure`, which requires that registration to stay connection-free.
+
 `tests/Test.Endpoints/CustomApiFactory.cs`:
 
 ```csharp
 public sealed class CustomApiFactory : WebApplicationFactoryBase<Program, {App}DbContextTrxn, {App}DbContextQuery>
 {
+    private static readonly Dictionary<string, string?> InertLane = new()
+    {
+        ["Hosting:Lane"] = "Azure",
+        ["DataProtectionKeysFileUrl"] = "https://{app}test.blob.core.windows.net/data-protection/keys.xml",
+        ["ConnectionStrings:BlobStorage1"] = "https://{app}test.blob.core.windows.net/",
+        ["ConnectionStrings:TableStorage1"] = "https://{app}test.table.core.windows.net/",
+        ["ConnectionStrings:CosmosDb1"] = "https://{app}test.documents.azure.com:443/",
+        ["ServiceBus1:fullyQualifiedNamespace"] = "{app}test.servicebus.windows.net"
+    };
+
     private readonly string _dbName = $"TestDb_{Guid.NewGuid()}";
 
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        // Program reads these while registering services, so they go in as host settings.
+        foreach (var (key, value) in InertLane) builder.UseSetting(key, value);
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IObjectStorageRepository>();
+            services.AddSingleton<IObjectStorageRepository, NoOpObjectStorageRepository>();
+            services.RemoveAll<IAuditLogRepository>();
+            services.AddSingleton<IAuditLogRepository, NoOpAuditLogRepository>();
+            services.RemoveAll<IIntegrationEventTransport>();
+            services.AddSingleton<IIntegrationEventTransport, NoOpEventTransport>();
+            services.RemoveAll<I{Entity}ViewRepository>();
+            services.AddSingleton<I{Entity}ViewRepository, NoOp{Entity}ViewRepository>();
+        });
+    }
+
+    protected override void ConfigureTestConfiguration(IConfigurationBuilder config) =>
+        config.AddInMemoryCollection(InertLane);
+
+    // The concurrency-version interceptor is part of the ETag contract, not of the database provider.
     protected override DbContextOptions BuildTrxnOptions() =>
-        new DbContextOptionsBuilder<{App}DbContextTrxn>().UseInMemoryDatabase(_dbName).Options;
+        DbContextOptionsFactory.BuildInMemoryOptions<{App}DbContextTrxn>(
+            _dbName, options => options.AddInterceptors(/* the hosts' version stamp interceptor */));
 
     protected override DbContextOptions BuildQueryOptions() =>
-        new DbContextOptionsBuilder<{App}DbContextQuery>().UseInMemoryDatabase(_dbName).Options;
+        DbContextOptionsFactory.BuildInMemoryOptions<{App}DbContextQuery>(
+            _dbName, options => options.AddInterceptors(/* the hosts' version stamp interceptor */));
 }
 ```
 
-That's the entire file. The pooled-context swap, interceptor removal, factory plumbing, and reflection-based context creation are inherited.
+> **`NonAzure` pin:** `Hosting:Lane=NonAzure` with inert `Redis1`, `Storage:S3:*`, and `Messaging:RabbitMq:ConnectionString` values, and a no-op for every store the in-memory contexts cannot serve.
 
-## Test.E2E derived factory (Testcontainers SQL)
-
-`tests/Test.E2E/SqlApiFactory.cs` is identical except the options use `UseSqlServer(connectionString, sql => sql.UseCompatibilityLevel(170))` and the class manages a static Testcontainers SQL lifecycle (`StartContainerAsync` / `StopContainerAsync`). Full template: [test-templates-e2e.md](test-templates-e2e.md) section SqlApiFactory.
-
-## Multi-resource Integration tier
-
-When a test needs the **full distributed app over HTTP** (the API + audit pipeline across resources, Service Bus -> Function handoffs), do not extend `WebApplicationFactoryBase` - use the lazy `AspireTestHost` mesh fixture in `Test.Aspire` from [test-templates-aspire.md](test-templates-aspire.md). For **one class vs one real store** (repository vs SQL, audit repo vs Azurite), use the standalone Testcontainers fixtures in `Test.Integration` from [test-templates-integration.md](test-templates-integration.md). The WAF base is for HTTP-in-API-out testing.
+The pooled-context swap, interceptor removal, factory plumbing, and reflection-based context creation are inherited. `Test.E2E` derives `DbApiFactory` from the same base on a real database container: [test-templates-e2e.md](test-templates-e2e.md) section DbApiFactory. Full distributed-app tests use `AspireTestHost` ([test-templates-aspire.md](test-templates-aspire.md)); one-class-vs-one-store tests use the `Test.Integration` fixtures ([test-templates-integration.md](test-templates-integration.md)). The WAF base is for HTTP-in-API-out testing.
 
 ---
 
@@ -323,7 +353,7 @@ public class {Entity}EndpointsTests : EndpointTestBase
 
 ### File: `tests/Test.Endpoints/Middleware/DefaultExceptionHandlerTests.cs`
 
-**Generate this whenever [exception-handler-template](exception-handler-template.md) is generated - it is not optional.** The handler decides by environment whether the client receives `exception.ToString()` (full stack trace, internal type names, file paths) or `exception.Message`. That is an information-disclosure control, so both arms need a test that fails if the environment gate is inverted, widened, or dropped. The handler is a plain class, so test it directly against a `DefaultHttpContext` - no host boot, no HTTP.
+**Generate this whenever [exception-handler-template](exception-handler-template.md) is generated - it is not optional.** The handler decides by environment whether the client receives `exception.ToString()` (full stack trace, internal type names, file paths) or, for a 5xx, a fixed generic detail. That is an information-disclosure control, so both arms need a test that fails if the environment gate is inverted, widened, or dropped. The handler is a plain class, so test it directly against a `DefaultHttpContext` - no host boot, no HTTP.
 
 ```csharp
 using Microsoft.AspNetCore.Http;
@@ -338,8 +368,8 @@ using {Host}.Api.Middleware;
 namespace Test.Endpoints.Middleware;
 
 /// <summary>
-/// Pins the environment gate on <c>ProblemDetails.Detail</c>. Development/Staging may return the full
-/// exception; Production must return only the message. Also covers the HasStarted guard, which exists so a
+/// Pins the environment gate on <c>ProblemDetails.Detail</c>. Development may return the full exception;
+/// every other environment returns a fixed generic detail for a 5xx. Also covers the HasStarted guard, which exists so a
 /// second write cannot mask the original exception.
 /// </summary>
 [TestClass]
@@ -362,10 +392,28 @@ public sealed class DefaultExceptionHandlerTests
             .ReturnsAsync(true);
     }
 
+    [TestMethod]
+    public async Task Given_DevelopmentEnvironment_When_ExceptionHandled_Then_DetailCarriesStackTrace()
+    {
+        // Arrange
+        var exception = CaptureThrownException();
+        var handler = CreateHandler(Environments.Development);
+
+        // Act
+        var handled = await handler.TryHandleAsync(
+            NewHttpContext(), exception, TestContext.CancellationToken);
+
+        // Assert
+        Assert.IsTrue(handled);
+        Assert.IsNotNull(_written);
+        Assert.AreEqual(exception.ToString(), _written!.Detail);
+        StringAssert.Contains(_written.Detail!, nameof(CaptureThrownException));  // a real stack frame leaked
+    }
+
     [DataTestMethod]
-    [DataRow(Environments.Development)]
     [DataRow(Environments.Staging)]
-    public async Task Given_NonProductionEnvironment_When_ExceptionHandled_Then_DetailCarriesStackTrace(
+    [DataRow(Environments.Production)]
+    public async Task Given_DeployedEnvironment_When_ServerFaultHandled_Then_DetailIsGeneric(
         string environmentName)
     {
         // Arrange
@@ -379,26 +427,10 @@ public sealed class DefaultExceptionHandlerTests
         // Assert
         Assert.IsTrue(handled);
         Assert.IsNotNull(_written);
-        Assert.AreEqual(exception.ToString(), _written!.Detail);
-        StringAssert.Contains(_written.Detail!, nameof(CaptureThrownException));  // a real stack frame leaked
-    }
-
-    [TestMethod]
-    public async Task Given_ProductionEnvironment_When_ExceptionHandled_Then_DetailOmitsStackTrace()
-    {
-        // Arrange
-        var exception = CaptureThrownException();
-        var handler = CreateHandler(Environments.Production);
-
-        // Act
-        var handled = await handler.TryHandleAsync(
-            NewHttpContext(), exception, TestContext.CancellationToken);
-
-        // Assert
-        Assert.IsTrue(handled);
-        Assert.IsNotNull(_written);
-        Assert.AreEqual(exception.Message, _written!.Detail);
-        Assert.IsFalse(_written.Detail!.Contains(nameof(CaptureThrownException), StringComparison.Ordinal),
+        Assert.AreEqual(StatusCodes.Status500InternalServerError, _written!.Status);
+        Assert.IsFalse(_written.Detail!.Contains(exception.Message, StringComparison.Ordinal),
+            "A deployed 5xx must not expose exception text");
+        Assert.IsFalse(_written.Detail.Contains(nameof(CaptureThrownException), StringComparison.Ordinal),
             "Production ProblemDetails must not expose stack frames");
         Assert.IsFalse(_written.Detail.Contains(exception.GetType().FullName!, StringComparison.Ordinal),
             "Production ProblemDetails must not expose internal type names");
@@ -470,7 +502,7 @@ public sealed class DefaultExceptionHandlerTests
 }
 ```
 
-Add one `[DataTestMethod]` over the *Exception-to-Status Mapping* table in [exception-handler-template](exception-handler-template.md) as each mapping is added - one `DataRow` per exception type asserting `context.Response.StatusCode`. Keep correlation assertions (`requestId` separate from W3C `traceId`/`spanId`) in whichever test already boots a real host; they need the registered `CustomizeProblemDetails` callback, which this class replaces with a mock.
+Add one `[DataTestMethod]` over the *Exception-to-Status Mapping* table in [exception-handler-template](exception-handler-template.md) as each mapping is added - one `DataRow` per exception type asserting `context.Response.StatusCode`. Cover `OperationCanceledException` twice: with a cancelled `RequestAborted` (set `context.RequestAborted` from a cancelled source) it is 499, and with a live one it is 500. Keep correlation assertions (`requestId` separate from W3C `traceId`/`spanId`) in whichever test already boots a real host; they need the registered `CustomizeProblemDetails` callback, which this class replaces with a mock.
 
 ---
 
@@ -580,31 +612,4 @@ Add a `Given_RetiredAlias_When_Get_Then_NotFound` case for any probe path the ap
 
 ---
 
-## Test Configuration
-
-### File: `tests/Test.Endpoints/appsettings-test.json`
-
-```json
-{
-  "TestSettings": {
-    "DBSource": "UseInMemoryDatabase",
-    "DBName": "Test.Endpoints.TestDB"
-  }
-}
-```
-
----
-
-## Contention/Concurrency Scenario (Optional)
-
-For high-contention domains (inventory, reservations, financial flows), add:
-
-```csharp
-[TestCategory("Endpoint")]
-[TestMethod]
-public async Task Given_ConcurrentUpdates_When_Executed_Then_OptimisticConcurrencyEnforced()
-{
-    // Run parallel operations against the same entity
-    // Assert: no duplicate side effects, concurrency behavior enforced
-}
-```
+High-contention domains (inventory, reservations, financial flows) prove concurrency against the real database: `{Entity}_ConcurrentUpdates_OptimisticConcurrencyEnforced` in [test-templates-e2e.md](test-templates-e2e.md) section E2E test coverage matrix.

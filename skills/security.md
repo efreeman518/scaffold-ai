@@ -19,7 +19,7 @@ services.AddRateLimiter(options =>
     // Fixed window per-tenant
     options.AddPolicy("PerTenant", context =>
         RateLimitPartition.GetFixedWindowLimiter(
-            context.User?.FindFirst("tenant_id")?.Value ?? "anonymous",
+            context.User?.FindFirst("userTenantId")?.Value ?? "anonymous",
             _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 100,
@@ -44,8 +44,19 @@ services.AddRateLimiter(options =>
 ### Pipeline Registration
 
 ```csharp
-app.UseRateLimiter();  // After UseRouting, before UseAuthorization
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseRateLimiter();
 ```
+
+Run the rate limiter after `UseAuthentication()` and `UseAuthorization()` whenever any partition reads a claim: before authentication `context.User` is anonymous, so every caller lands in the anonymous partition and one tenant can exhaust everyone's budget. Only an unauthenticated per-IP edge limiter may run earlier.
+
+### Distributed Limiter
+
+- A request is counted by exactly one limiter per budget. The global limiter returns `RateLimitPartition.GetNoLimiter` for endpoints whose metadata carries `EnableRateLimitingAttribute`, so a named policy is never double counted.
+- A limiter shared across replicas uses the app's existing Redis connection. Do not add the `RedisRateLimiting` package: it is not on the **GR-04** allowlist.
+- Never cache a faulted connection: connect with `AbortOnConnectFail = false` and never hold a failed connect task in a `Lazy<T>`, which turns one startup blip into a permanent outage of the limiter.
+- When the store is unavailable, fail open and increment an alert metric so the lost control is visible ([../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits).
 
 ### Testing
 
@@ -141,8 +152,8 @@ Phase 2 maps `hostingLaneDefaults.<active>.dataProtectionPersistence` to runtime
 
 | Arm | Required input | Provisioning rule |
 |---|---|---|
-| `AzureBlob` | Either an absolute `DataProtectionKeysFileUrl`, or the named `BlobStorage1` endpoint/connection string injected by Aspire or deployment configuration | Infrastructure creates the production container. A local Azurite connection may create its test container on first use. Endpoint authentication uses `DefaultAzureCredential`; connection-string authentication uses the connection string. |
-| `Redis` | Named `Redis1` connection string | Reuse a registered `IConnectionMultiplexer` when the app exposes one; otherwise record the extra eager connection as a bounded shortcut. |
+| `Redis` (`NonAzure` default) | Named `Redis1` connection string | Reuse a registered `IConnectionMultiplexer` when the app exposes one; otherwise record the extra eager connection as a bounded shortcut. |
+| `AzureBlob` (`Azure` lane default) | Either an absolute `DataProtectionKeysFileUrl`, or the named `BlobStorage1` endpoint/connection string injected by Aspire or deployment configuration | Infrastructure creates the production container. A local Azurite connection may create its test container on first use. Endpoint authentication uses `DefaultAzureCredential`; connection-string authentication uses the connection string. |
 | `None` | None | Development and isolated tests only. Log that keys do not survive restart or work across replicas. Do not use as a scaled deployment default. |
 
 Key persistence and key encryption are independent. `DataProtectionEncryptionKeyUrl`, when supplied, adds Azure Key Vault protection after persistence is selected. It is required only when the deployment policy requires at-rest key encryption, and it is rejected by a strict zero-Azure NonAzure lane. Do not require a Key Vault URL merely because Azure Blob persistence was selected.

@@ -75,19 +75,19 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 - [ ] **Checkpoint:** `dotnet build`, each enabled host responds, `dotnet test -m:1` passes; per-host gate status recorded in `HANDOFF.md`
 
 ### Phase 5d - Quality + Delivery
-- [ ] Service-level Integration tests against real external services (Testcontainers SQL, real cache) - `Test.Integration`, `TestCategory=Integration` (balanced + comprehensive profiles)
-- [ ] Multi-endpoint E2E workflow tests against Testcontainers SQL - `Test.E2E`, `TestCategory=E2E` (comprehensive profile)
+- [ ] Service-level Integration tests against real external services (Testcontainers database, broker, cache) - `Test.Integration`, `TestCategory=Integration` (balanced + comprehensive profiles)
+- [ ] Multi-endpoint E2E workflow tests against the Testcontainers database - `Test.E2E`, `TestCategory=E2E` (comprehensive profile)
 - [ ] Architecture tests (NetArchTest layering rules)
 - [ ] Load tests (if comprehensive profile)
 - [ ] Benchmarks (if comprehensive profile)
 - [ ] Mutation tests (if comprehensive profile or `includeMutationTests: true`)
 - [ ] Browser UI Playwright tests against hosted stack (if comprehensive profile + UI enabled) - `Test.PlaywrightUI`, C# MSTest + `Microsoft.Playwright.MSTest`
-- [ ] IaC templates (Bicep)
+- [ ] IaC for each declared deployment target (Bicep for `ContainerApps`, `deploy/compose/` for `DockerCompose`)
 - [ ] CI/CD pipeline
 - [ ] Dockerfile
 - [ ] Vulnerability audit (`dotnet list package --vulnerable --include-transitive`)
 - [ ] Full regression: `dotnet test -m:1` (all categories; serialize resource-heavy projects)
-- [ ] **Checkpoint:** full test suite passes; `az bicep build` succeeds (if IaC enabled)
+- [ ] **Checkpoint:** full test suite passes; the 5d IaC commands succeed for each declared target (if IaC enabled)
 
 ### Phase 5e - Integration (Auth + AI)
 

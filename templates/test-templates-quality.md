@@ -60,6 +60,8 @@ public class ApplicationDependencyTests : BaseTest
 }
 ```
 
+A custom rule that scans method bodies (an IL-scanning `ICustomRule`, for example "no direct `SaveChangesAsync` call") recurses into nested compiler-generated types: async and iterator state machines and closures hold the real body, so a scan of the declared method alone passes every `async` violation. Pair it with an async positive control, a known violating `async` method the rule must report.
+
 ### File: `tests/Test.Architecture/AggregateBoundaryTests.cs` (GR-15)
 
 Enforces the aggregate boundary: an **owned child** (1:N owned entity or M:N junction with no life outside its root - e.g. a comment or checklist item on a task, or the join entity) gets **no** standalone Create/Update/Delete CQRS command/handler, no transactional repository contract, and no write method on its read service. This is the automated gate behind [../skills/domain-model.md](../skills/domain-model.md) section Aggregate Roots vs Internal Children - it catches the anemic-child anti-pattern (a `Create{Child}Handler` that never loads its root) that prose alone does not.
@@ -399,65 +401,150 @@ No load-test package: commercial-license load tools are excluded by **GR-04**, a
 The runner lives in `Test.Support` so `Test.Unit`, which normal CI runs, can test it; `Test.Load` scenarios are manual.
 
 ```csharp
-public sealed record LoadResult(int Offered, int Failed, int Dropped, TimeSpan P50, TimeSpan P95, TimeSpan P99)
+using System.Collections.Concurrent;
+using System.Diagnostics;
+
+namespace Test.Support;
+
+/// <summary>
+/// Outcome of a <see cref="LoadRunner"/> run. Latency percentiles cover successful requests only; failed and
+/// dropped requests count toward <see cref="ErrorRate"/>, and <see cref="FailureReasons"/> says why they failed.
+/// </summary>
+public sealed record LoadResult(
+    int Offered, int Succeeded, int Failed, int Dropped, TimeSpan Elapsed,
+    TimeSpan P50, TimeSpan P95, TimeSpan P99, TimeSpan Max, IReadOnlyDictionary<string, int> FailureReasons)
 {
+    /// <summary>Fraction of offered requests that failed or were dropped; zero when nothing was offered.</summary>
     public double ErrorRate => Offered == 0 ? 0 : (double)(Failed + Dropped) / Offered;
+
+    /// <summary>Successful requests per second of wall-clock run time.</summary>
+    public double Throughput => Elapsed <= TimeSpan.Zero ? 0 : Succeeded / Elapsed.TotalSeconds;
+
+    /// <inheritdoc />
+    public override string ToString() =>
+        $"offered={Offered} succeeded={Succeeded} failed={Failed} dropped={Dropped} errorRate={ErrorRate:P2} " +
+        $"throughput={Throughput:F1}/s p50={P50.TotalMilliseconds:F0}ms p95={P95.TotalMilliseconds:F0}ms " +
+        $"p99={P99.TotalMilliseconds:F0}ms max={Max.TotalMilliseconds:F0}ms elapsed={Elapsed.TotalSeconds:F1}s" +
+        (FailureReasons.Count == 0 ? "" : " failures=" + string.Join(", ", FailureReasons.Select(r => $"{r.Key}:{r.Value}")));
 }
 
+/// <summary>
+/// In-house open-model load runner. No commercial-license load package is needed for the shape of load test
+/// this repo asserts on: fixed-rate scheduling, percentile latency, and a bounded-concurrency drop count.
+/// </summary>
 public static class LoadRunner
 {
+    /// <summary>Failure reason recorded when the operation returns <see langword="false"/>.</summary>
+    public const string UnsuccessfulResult = "unsuccessful-result";
+
     // Open model: requests start on a fixed schedule so a slow server cannot throttle the offered load,
     // and latency is measured from the scheduled start (no coordinated omission). A request that finds
     // maxInFlight exhausted is dropped and counted as an error - the system did not keep up.
+    // Task.Delay resolution is about 15.6 ms on Windows, so above roughly 60 requests per second the loop
+    // releases requests in small bursts; latency stays measured from each request's scheduled start.
     public static async Task<LoadResult> RunAsync(
         Func<CancellationToken, Task<bool>> operation, int ratePerSecond, TimeSpan duration,
         int maxInFlight, CancellationToken ct)
     {
-        var offered = (int)(ratePerSecond * duration.TotalSeconds);
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ratePerSecond);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxInFlight);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(duration, TimeSpan.Zero);
+
+        // Rounded, not truncated: 0.29 s at 100/s is 29 requests, not the 28 a truncated double product gives.
+        // A run that offers nothing proves nothing.
+        var product = Math.Round(ratePerSecond * duration.TotalSeconds, MidpointRounding.AwayFromZero);
+        if (product < 1 || product > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(duration), duration,
+                $"{ratePerSecond}/s for {duration} offers {product} requests; it must offer between 1 and {int.MaxValue}.");
+        }
+
+        var offered = (int)product;
         var interval = TimeSpan.FromSeconds(1.0 / ratePerSecond);
         var latencies = new TimeSpan?[offered];
+        var reasons = new ConcurrentDictionary<string, int>(StringComparer.Ordinal);
         var failed = 0;
         var dropped = 0;
         using var gate = new SemaphoreSlim(maxInFlight);
         var inFlight = new List<Task>(offered);
         var clock = Stopwatch.StartNew();
 
-        for (var i = 0; i < offered; i++)
+        try
         {
-            var scheduled = interval * i;
-            var wait = scheduled - clock.Elapsed;
-            if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
-            if (!gate.Wait(0)) { dropped++; continue; }
-
-            var index = i;
-            inFlight.Add(Task.Run(async () =>
+            for (var i = 0; i < offered; i++)
             {
-                try
-                {
-                    if (!await operation(ct)) Interlocked.Increment(ref failed);
-                }
-                catch (Exception ex) when (ex is HttpRequestException
-                    || (ex is TaskCanceledException && !ct.IsCancellationRequested)) // client timeout
-                {
-                    Interlocked.Increment(ref failed);
-                }
-                finally
-                {
-                    latencies[index] = clock.Elapsed - scheduled;
-                    gate.Release();
-                }
-            }, ct));
+                // A run behind schedule never reaches the delay, so cancellation is checked on every iteration.
+                ct.ThrowIfCancellationRequested();
+                var scheduled = interval * i;
+                var wait = scheduled - clock.Elapsed;
+                if (wait > TimeSpan.Zero) await Task.Delay(wait, ct);
+                if (!gate.Wait(0)) { dropped++; continue; }
+                inFlight.Add(RunOneAsync(i, scheduled));
+            }
+        }
+        finally
+        {
+            // Every started request settles before the gate is disposed, including when the run is cancelled.
+            await Task.WhenAll(inFlight);
         }
 
-        await Task.WhenAll(inFlight);
+        ct.ThrowIfCancellationRequested();
+        var elapsed = clock.Elapsed;
         var sorted = latencies.OfType<TimeSpan>().Order().ToArray();
-        return new LoadResult(offered, failed, dropped,
-            Percentile(sorted, 0.50), Percentile(sorted, 0.95), Percentile(sorted, 0.99));
+        return new LoadResult(offered, sorted.Length, failed, dropped, elapsed,
+            Percentile(sorted, 0.50), Percentile(sorted, 0.95), Percentile(sorted, 0.99),
+            sorted.Length == 0 ? TimeSpan.Zero : sorted[^1], reasons);
+
+        async Task RunOneAsync(int index, TimeSpan scheduled)
+        {
+            // Leave the scheduling loop before the operation's synchronous part runs.
+            await Task.Yield();
+            try
+            {
+                if (await operation(ct))
+                {
+                    latencies[index] = clock.Elapsed - scheduled;
+                }
+                else
+                {
+                    Fail(UnsuccessfulResult);
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // The run itself was cancelled; RunAsync rethrows after every request settles.
+            }
+            catch (Exception ex)
+            {
+                // Any exception is a failed request, never an aborted run; its type is kept as the reason.
+                Fail(ex.GetType().Name);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+
+        void Fail(string reason)
+        {
+            Interlocked.Increment(ref failed);
+            reasons.AddOrUpdate(reason, 1, static (_, count) => count + 1);
+        }
     }
 
-    // Nearest-rank percentile; an empty sample reports zero and the error-rate assertion fails instead.
-    public static TimeSpan Percentile(TimeSpan[] sorted, double p) =>
-        sorted.Length == 0 ? TimeSpan.Zero : sorted[Math.Max(0, (int)Math.Ceiling(p * sorted.Length) - 1)];
+    // Nearest-rank percentile over an ascending sample; an empty sample reports zero and the error-rate
+    // assertion fails instead.
+    public static TimeSpan Percentile(IReadOnlyList<TimeSpan> sorted, double p)
+    {
+        ArgumentNullException.ThrowIfNull(sorted);
+        if (!(p > 0 && p <= 1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(p), p, "Percentile must be greater than 0 and at most 1.");
+        }
+
+        return sorted.Count == 0 ? TimeSpan.Zero : sorted[Math.Max(0, (int)Math.Ceiling(p * sorted.Count) - 1)];
+    }
 }
 ```
 
@@ -490,7 +577,7 @@ public class {Entity}LoadTests
 }
 ```
 
-Keep runner checks in `Test.Unit` - percentile (`Percentile([1..100 ms], 0.95) == 95 ms`), failure counting, and saturation drops - so a broken runner cannot pass every load gate. Warm up each scenario (run it briefly and discard the result) before the measured run so cold-start work is not counted. A single client machine saturates before a scaled-out service does: when the client's own CPU or socket count is the bottleneck, the run is inconclusive, not a pass. Distributed load generation beyond one runner is a deployment-environment concern.
+Keep runner checks in `Test.Unit` - percentile (`Percentile([1..100 ms], 0.95) == 95 ms`), failure counting, saturation drops, an unexpected exception counted as a failure with its type as the reason, a pre-cancelled run that throws without invoking the operation, offered-count rounding (0.29 s at 100/s offers 29), percentiles over successful requests only, and argument validation - so a broken runner cannot pass every load gate. Warm up each scenario (run it briefly and discard the result) before the measured run so cold-start work is not counted. A single client machine saturates before a scaled-out service does: when the client's own CPU or socket count is the bottleneck, the run is inconclusive, not a pass. Distributed load generation beyond one runner is a deployment-environment concern.
 
 ---
 
@@ -656,9 +743,9 @@ Add `**/StrykerOutput/` to `.gitignore`.
 
 The Integration (`Test.Integration` component), Aspire (`Test.Aspire` mesh), and E2E (`Test.E2E`) tiers are scaffolded during Phase 5a/5b - not Phase 5d. The patterns live in their own templates:
 
-- [test-templates-integration.md](test-templates-integration.md) - component: `SqlContainerFixture` / `AzuriteContainerFixture` + `IntegrationTestSetup`, `{Entity}RepositoryIntegrationTests`, `AuditLogRepositoryAzuriteTests`, `DomainEventPipelineTests`.
-- [test-templates-aspire.md](test-templates-aspire.md) - mesh: `AspireTestHost` (lazy) + `AspireMeshLifecycle`, `ApiAuditPipelineTests`, `FunctionAuditPipelineTests`.
-- [test-templates-e2e.md](test-templates-e2e.md) - `SqlApiFactory`, `{Entity}WorkflowTests` (full CRUD + paged search + child-aggregate workflows against Testcontainers SQL).
+- [test-templates-integration.md](test-templates-integration.md) - component: `DbContainerFixture` + per-store fixtures + `IntegrationTestSetup`, repository, audit, RabbitMQ transport, and projection tests.
+- [test-templates-aspire.md](test-templates-aspire.md) - mesh: `AspireTestHost` (lazy) + `AspireMeshLifecycle`, `OutboxMeshTests`, Azure-arm audit pipelines.
+- [test-templates-e2e.md](test-templates-e2e.md) - `DbApiFactory`, `{Entity}WorkflowTests` (full CRUD + paged search + child-aggregate workflows against the lane's database).
 
 Phase 5d treats these tiers as **regression scope**, not generation scope: run them as part of the final quality gate (`dotnet test --filter "TestCategory=Integration|TestCategory=E2E" -m:1`) but do not re-generate fixtures here. If a sub-phase skipped its tier earlier (e.g., `api-only` scaffold), load the matching template on-demand and back-fill.
 

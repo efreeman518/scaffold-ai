@@ -26,6 +26,9 @@ internal sealed class DefaultExceptionHandler(
     IHostEnvironment environment,
     IProblemDetailsService problemDetailsService) : IExceptionHandler
 {
+    private const int StatusClientClosedRequest = 499;   // nginx convention
+    private const string ServerErrorDetail = "An unexpected error occurred.";
+
     public async ValueTask<bool> TryHandleAsync(
         HttpContext httpContext,
         Exception exception,
@@ -35,16 +38,26 @@ internal sealed class DefaultExceptionHandler(
         // a ProblemDetails body would throw a second exception and mask the original.
         if (httpContext.Response.HasStarted) return true;
 
+        // Only a cancellation the caller caused is a 499. A downstream timeout or an internal token
+        // also surfaces as OperationCanceledException and must stay visible as a server failure.
+        if (exception is OperationCanceledException && httpContext.RequestAborted.IsCancellationRequested)
+        {
+            logger.LogInformation("Request cancelled by the client.");
+            httpContext.Response.StatusCode = StatusClientClosedRequest;
+            return true;
+        }
+
         var (statusCode, title) = exception switch
         {
+            // A lost update between load and save. No ETag here: the middleware clears it.
             Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException
-                => (StatusCodes.Status409Conflict, "Concurrency conflict"),
+                => (StatusCodes.Status412PreconditionFailed, "Precondition failed"),
             UnauthorizedAccessException
                 => (StatusCodes.Status403Forbidden, "Forbidden"),
-            OperationCanceledException
-                => (499, "Client closed request"),   // 499 = nginx convention
-            ArgumentException or FormatException
+            BadHttpRequestException
                 => (StatusCodes.Status400BadRequest, "Bad request"),
+            OperationCanceledException when HasTimeoutInChain(exception)
+                => (StatusCodes.Status504GatewayTimeout, "Gateway timeout"),
             _
                 => (StatusCodes.Status500InternalServerError, "Internal server error")
         };
@@ -56,8 +69,8 @@ internal sealed class DefaultExceptionHandler(
         {
             Status = statusCode,
             Title = title,
-            Detail = environment.IsDevelopment() || environment.IsStaging()
-                ? exception.ToString()
+            Detail = environment.IsDevelopment() ? exception.ToString()
+                : statusCode >= StatusCodes.Status500InternalServerError ? ServerErrorDetail
                 : exception.Message,
             Instance = httpContext.Request.Path
         };
@@ -68,6 +81,16 @@ internal sealed class DefaultExceptionHandler(
             HttpContext = httpContext,
             ProblemDetails = problemDetails
         });
+    }
+
+    private static bool HasTimeoutInChain(Exception exception)
+    {
+        for (var inner = exception.InnerException; inner is not null; inner = inner.InnerException)
+        {
+            if (inner is TimeoutException) return true;
+        }
+
+        return false;
     }
 }
 ```
@@ -108,22 +131,25 @@ app.UseExceptionHandler();
 
 | Exception Type | HTTP Status | Title |
 |---|---|---|
-| `DbUpdateConcurrencyException` | 409 Conflict | Concurrency conflict |
+| `OperationCanceledException` while `HttpContext.RequestAborted` is cancelled | 499 (no body) | - |
+| `DbUpdateConcurrencyException` | 412 Precondition Failed (no ETag) | Precondition failed |
 | `UnauthorizedAccessException` | 403 Forbidden | Forbidden |
-| `OperationCanceledException` | 499 | Client closed request |
-| `ArgumentException` / `FormatException` | 400 Bad Request | Bad request |
-| All others | 500 Internal Server Error | Internal server error |
+| `BadHttpRequestException` | 400 Bad Request | Bad request |
+| `OperationCanceledException` with a `TimeoutException` in the inner chain | 504 Gateway Timeout | Gateway timeout |
+| All others, including any other `OperationCanceledException` | 500 Internal Server Error | Internal server error |
 
 ## Rules
 
 - **Safety net only** - business validation errors must use `Result<T>` / `DomainResult<T>`, never exceptions.
-- Stack traces: include full `exception.ToString()` in Development/Staging; show only `exception.Message` in Production.
+- Detail: full `exception.ToString()` in Development only. Outside Development a 5xx carries the fixed generic `ServerErrorDetail`, never exception text; SQL, connection, and internal messages belong in the log.
+- 499 only when `HttpContext.RequestAborted` is cancelled. Any other cancellation is a server-side timeout or fault: 504 when a `TimeoutException` is in the chain, otherwise 500.
+- A 412 from this handler never carries an ETag: `ExceptionHandlerMiddleware` clears the ETag and cache headers before any handler runs, so a header set here never reaches the client. The stale-`If-Match` 412 with the current ETag comes from the endpoint filter/Result path ([../skills/data-persistence.md](../skills/data-persistence.md) section Provider Branch and Concurrency Discipline).
+- Beyond the rows above, only app-owned exception types map to 4xx. Framework `ArgumentException`, `FormatException`, `InvalidOperationException`, and `KeyNotFoundException` stay 500 unless an app type wraps them: the same type thrown by a library is a server fault, not the caller's mistake.
 - Always log at `Error` level with structured placeholders.
 - Return `true` to indicate the exception is handled and prevent further pipeline propagation.
 - Write through `IProblemDetailsService` so the same correlation customizer applies to exception and typed endpoint errors.
-- Add new exception mappings as needed (e.g., `HttpRequestException` -> 502 for downstream failures).
 - **Always check `httpContext.Response.HasStarted` before writing the response body.** Writing to an already-started response throws a second exception and masks the original.
-- **`OperationCanceledException` from EF Core is best caught in the service method**, not here. The VS debugger breaks at the throw site before this handler runs, so the handler alone cannot suppress break-on-exception dialogs. Catch it in the service and return an empty/default result; let this handler remain a true last-resort fallback.
+- Services and handlers never catch `OperationCanceledException`: cancellation and request timeouts propagate to this handler, which maps them. An empty result for a cancelled read hides timeouts and can be cached as a real answer.
 
 ## Verification Checklist
 
@@ -131,7 +157,7 @@ app.UseExceptionHandler();
 - [ ] `UseExceptionHandler()` called in pipeline before routing
 - [ ] `AddProblemDetails(...)` registered with separate `requestId`, W3C `traceId`, and `spanId`
 - [ ] Typed errors and exception errors both exercise the correlation contract
-- [ ] Stack traces gated by environment (not exposed in Production), **proved by both arms of `tests/Test.Endpoints/Middleware/DefaultExceptionHandlerTests.cs`** - generate it from [test-templates-endpoint.md](test-templates-endpoint.md) section Exception Handler Tests
+- [ ] Exception text gated by environment (stack trace in Development only, fixed generic 5xx detail elsewhere), **proved by both arms of `tests/Test.Endpoints/Middleware/DefaultExceptionHandlerTests.cs`** - generate it from [test-templates-endpoint.md](test-templates-endpoint.md) section Exception Handler Tests
 - [ ] All mapped exceptions return correct HTTP status codes
 - [ ] Logging uses structured placeholders, not string interpolation
 - [ ] No business logic errors handled here - those use `Result<T>` pattern
