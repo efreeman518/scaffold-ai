@@ -134,8 +134,7 @@ internal sealed class TenantBoundaryValidator : ITenantBoundaryValidator
 Supporting files in `Application.Services/Rules/`:
 
 - **`ValidationHelper`** - static class with the actual boundary logic; uses `[LoggerMessage]` extensions for structured logging.
-- **`TenantBoundaryLoggingExtensions`** - `[LoggerMessage]` source-generated extensions (`LogValidationFailure`, `LogTenantFilterManipulation`, `LogTenantChangeAttempt`).
-- **`TenantRules`** - simple static rule methods (e.g., `PreventTenantChange` without logging for domain-level use).
+- **`TenantBoundaryLoggingExtensions`** - `[LoggerMessage]` source-generated extensions (`LogTenantFilterManipulation`, `LogTenantChangeAttempt`, `LogTenantBoundaryMismatch`).
 
 ---
 

@@ -43,7 +43,6 @@ Expected file layout when scaffolding is complete. All paths are relative to the
 | Tenant boundary interface | `src/Application/{Project}.Application.Contracts/ITenantBoundaryValidator.cs` *(multi-tenant only)* |
 | Validation helper | `src/Application/{Project}.Application.Services/Rules/ValidationHelper.cs` *(multi-tenant only)* |
 | Tenant logging extensions | `src/Application/{Project}.Application.Services/Rules/TenantBoundaryLoggingExtensions.cs` *(multi-tenant only)* |
-| Tenant rules | `src/Application/{Project}.Application.Services/Rules/TenantRules.cs` *(multi-tenant only)* |
 | Message handler | `src/Application/{Project}.Application.MessageHandlers/TodoItemCreatedEventHandler.cs` |
 | Application style switch | `src/Application/{Project}.Application.Contracts/ApplicationStyle.cs` *(when applicationStyle: switch)* |
 | CQRS requests | `src/Application/{Project}.Application.Cqrs/Features/{EntityPlural}/{Entity}Requests.cs` *(when applicationStyle: cqrs or switch)* |
@@ -69,9 +68,8 @@ Default scaffold and TaskFlow reference app keep DTOs and mappers in `Applicatio
 | Test support - shared WAF base | `tests/Test.Support/WebApplicationFactoryBase.cs` (thin adapter over `EfWebApplicationFactoryBase` from EF.IntegrationTesting) |
 | Test support - JSON options | `tests/Test.Support/JsonTestOptions.cs` |
 | Test support - shared constants | `tests/Test.Support/TestConstants.cs` (`LocalSqlSettings.cs` lives in the AppHost project) |
-| Test support - utilities | `tests/Test.Support/InMemoryDbBuilder.cs` (unit tests are flat classes - no shared unit-test base) |
 | Test support - builders | `tests/Test.Support/Builders/{Entity}Builder.cs`, `{Entity}DtoBuilder.cs` (one of each per entity) |
-| Unit (domain) | `tests/Test.Unit/Domain/{Entity}Tests.cs`, `{Entity}RulesTests.cs` |
+| Unit (domain) | `tests/Test.Unit/Domain/{Entity}Tests.cs`, `{Entity}StatusTransitionTests.cs` (state machine only) |
 | Unit (mapper, per entity) | `tests/Test.Unit/Mappers/{Entity}MapperTests.cs` |
 | Unit (mapper parity, consolidated) | `tests/Test.Unit/Mappers/MapperProjectionParityTests.cs` |
 | Unit (services) | `tests/Test.Unit/Services/{Entity}ServiceTests.cs` |

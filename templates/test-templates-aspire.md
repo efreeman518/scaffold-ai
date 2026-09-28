@@ -354,7 +354,7 @@ Never sweep old stopped containers unless the developer explicitly asks for mach
 
 ### Required-mesh opt-out + Docker preflight
 
-The required mesh tier is default-on so Test Explorer discovers it. Only explicit opt-out and a failed Docker-compatible runtime preflight are inconclusive for required mesh infrastructure. The thin MSTest adapter translates both - `AspireTestHostContext` returns the Docker reason and never depends on MSTest - and `EnsureStartedAsync` (above) runs the `{APP}_RUN_ASPIRE_TESTS=false` check and the shared Docker preflight, so a mesh class's `[ClassInitialize]` is only `AspireTestHost.EnsureStartedAsync(context)`. It never catches AppHost startup/readiness failures as availability; those dump diagnostics and propagate red.
+The required mesh tier is default-on so Test Explorer discovers it. Inconclusive versus red follows the prerequisite rule in [../skills/testing.md](../skills/testing.md#never-silently-pass-applies-to-every-tier). The thin MSTest adapter translates the opt-out and Docker preflight - `AspireTestHostContext` returns the Docker reason and never depends on MSTest - and `EnsureStartedAsync` (above) runs the `{APP}_RUN_ASPIRE_TESTS=false` check and the shared Docker preflight, so a mesh class's `[ClassInitialize]` is only `AspireTestHost.EnsureStartedAsync(context)`. It never catches AppHost startup/readiness failures as availability; those dump diagnostics and propagate red.
 
 ### Optional Azure LiveAI eligibility before host creation
 
@@ -486,7 +486,7 @@ RabbitMQ replay and malformed-body handling are proven in the component tier (`R
 
 ## Other mesh tests (generate when the host is enabled)
 
-- **`FunctionAuditPipelineTests`** (`Azure` arm, `includeFunctions`): the `ApiAuditPipelineTests` shape against the `{app}functions` resource. An explicit `{APP}_RUN_FUNCTIONS_TESTS=false` opts out before graph construction. Otherwise `AspireTestHost.EnsureFuncToolAvailable()` must fail red with the install step when `func` is absent. Functions has the longest cold-start; its coarse MSTest `[Timeout]` must exceed the configurable global startup budget plus assertion time (for a 900 s startup default, use at least 1200 s).
+- **`FunctionAuditPipelineTests`** (`Azure` arm, `includeFunctions`): the `ApiAuditPipelineTests` shape against the `{app}functions` resource. An explicit `{APP}_RUN_FUNCTIONS_TESTS=false` opts out before graph construction; when `AspireTestHost.EnsureFuncToolAvailable()` finds no `func`, the class is `Inconclusive` with the Core Tools install command, and a Functions host that fails to start is red ([../skills/testing.md](../skills/testing.md#never-silently-pass-applies-to-every-tier) prerequisite rule). Functions has the longest cold-start; its coarse MSTest `[Timeout]` must exceed the configurable global startup budget plus assertion time (for a 900 s startup default, use at least 1200 s).
 - **Blazor-mesh smoke** (`includeBlazorUI`): `tests/Test.Aspire/BlazorMeshSmokeTests`. Opt the Blazor resource into the graph via `{APP}_INCLUDE_BLAZOR=true` and hit one page that round-trips through the API (Gateway routing + Refit + tenant header). Calls `AspireTestHost.EnsureStartedAsync` from `[ClassInitialize]`.
 
 ---
@@ -532,7 +532,7 @@ RabbitMQ replay and malformed-body handling are proven in the component tier (`R
 - [ ] `Parameters:*` passed via `configureBuilder.hostSettings.Configuration`; env vars scoped + restored.
 - [ ] Multi-resource pipeline tests assert against the **downstream persistent effect** (inbox, audit, or projection row), not the bus/queue; lane-specific classes call `RequireLaneOrInconclusive`.
 - [ ] Every mesh test carries `[TestCategory("Aspire")]` (not `Integration`); `--filter TestCategory=Integration` boots **no** graph.
-- [ ] Required mesh infrastructure is inconclusive only for `{APP}_RUN_ASPIRE_TESTS=false` or failed Docker preflight; AppHost/container/start/readiness failures dump diagnostics and fail.
+- [ ] Mesh classification follows the testing.md prerequisite rule: opt-out, failed Docker preflight, or a missing tool is inconclusive with its enabling command; AppHost/container/start/readiness failures dump diagnostics and fail.
 - [ ] Azure `LiveAI` checks the app's shared provider-selection predicate before `AspireTestHost.EnsureStartedAsync`; missing optional Azure configuration is inconclusive without booting the graph, while eligible-provider failures stay red per `skills/ai-integration.md`.
 - [ ] Docker preflight begins concurrent stdout/stderr drains before waiting for `docker info` and kills the process tree on timeout.
 - [ ] Test-booted containers are **ephemeral** (AppHost gates persistent lifetime + data volume on `!IsAspireTesting()`); cleanup is `DisposeAsync` only - no `docker rm` sweep by image, name prefix, or the generic `com.microsoft.dotnet.aspire.container.name` label.

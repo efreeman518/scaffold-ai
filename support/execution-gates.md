@@ -67,7 +67,7 @@ Exit criteria:
 - [ ] Every entity from `.scaffold/resource-implementation.yaml` has: interface, DTO, entity shell, builders
 - [ ] All no-op stubs satisfy their interfaces
 - [ ] `RegisterServices.cs` wires all no-op stubs
-- [ ] `tests/Test.Support/` contains `WebApplicationFactoryBase` (thin adapter over `EfWebApplicationFactoryBase`), `JsonTestOptions`, `InMemoryDbBuilder`, `TestConstants`, and `Builders/{Entity}Builder` shells; `LocalSqlSettings` lives in the AppHost project; unit tests are flat classes (no shared unit-test base)
+- [ ] `tests/Test.Support/` contains `WebApplicationFactoryBase` (thin adapter over `EfWebApplicationFactoryBase`), `JsonTestOptions`, `TestConstants`, and `Builders/{Entity}Builder` shells; `LocalSqlSettings` lives in the AppHost project; unit tests are flat classes (no shared unit-test base)
 - [ ] `tests/Test.Endpoints/CustomApiFactory.cs` and `tests/Test.E2E/DbApiFactory.cs` inherit/use the shared `WebApplicationFactoryBase` (no duplicated swap-out plumbing); `tests/Test.Integration/Infrastructure/*ContainerFixture` + `IntegrationTestSetup` (component) and `tests/Test.Aspire/AspireTestHost` + `AspireMeshLifecycle` (mesh) all compile
 - [ ] `{Entity}DtoBuilder` returns valid DTOs
 - [ ] No domain logic in entity shells (only `throw new NotImplementedException`)
@@ -89,8 +89,8 @@ dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint"
 
 Exit criteria:
 - [ ] Domain entities exist with real logic (shells replaced)
-- [ ] Domain rule tests pass
-- [ ] Repository tests pass with `InMemoryDbBuilder`
+- [ ] Transition tests pass for each state-machine entity
+- [ ] Repository tests pass
 - [ ] `{Entity}Builder.Build()` activated (returns valid entities)
 - [ ] No-op repository stubs replaced with real implementations in `RegisterServices.cs`
 - [ ] DbContext files compile with EF configurations
@@ -244,7 +244,7 @@ For Uno WASM, clean both target `bin` and target `obj` before a validation rebui
 dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --filter TestCategory=WasmUI -m:1
 ```
 
-The `WasmUI` harness is default-on. It starts Aspire in testing mode when Docker is present and marks tests `Assert.Inconclusive` only when `{APP}_WASM_TESTS_ENABLED=false` or Docker preflight proves no compatible runtime is available. Missing WASM/browser tooling and AppHost/resource/browser startup failures after Docker succeeds are red with diagnostics.
+The `WasmUI` harness is default-on. It starts Aspire in testing mode when Docker is present and classifies `Assert.Inconclusive` versus red by the prerequisite rule ([../skills/testing.md](../skills/testing.md#never-silently-pass-applies-to-every-tier)); `{APP}_WASM_TESTS_ENABLED=false` is its opt-out, and AppHost/resource/browser startup failures are red with diagnostics.
 
 If targeting Android (`<tfm>-android`):
 - [ ] Android Studio or SDK command-line tools installed with Platform-Tools, Emulator, one recent platform, and one AVD

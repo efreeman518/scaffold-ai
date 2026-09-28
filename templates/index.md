@@ -17,7 +17,6 @@ Quick lookup: "I need to scaffold X" -> load these files.
 | Entity class | `entity-template.md` | `skills/domain-model.md` |
 | EF configuration | `ef-configuration-template.md` | `skills/data-persistence.md` |
 | Repository (read/write) | `repository-template.md` | `skills/data-persistence.md` |
-| Domain rules | `domain-rules-template.md` | `skills/domain-model.md` |
 | DTOs + Mappers | `data-mapping-template.md` | `skills/application-layer.md` |
 | Service + interface | `service-template.md` | `skills/application-layer.md` |
 | Endpoint | `endpoint-template.md` | `skills/api.md` |
@@ -129,17 +128,17 @@ Generate when any of `Test.Aspire`, the `WasmUI` bridge tier, or `Test.Mobile` i
 
 | Artifact | Template | Required Reference |
 |---|---|---|
-| Technical design doc (`docs/tech-design.md` + `docs/tech-design.html` viewer) | `tech-design-template.md` | `support/tech-design-diagrams.md` (source-plus-SVG pattern + viewer controls) |
+| Technical design doc (`docs/tech-design.html` only) | `tech-design-template.md` | `support/tech-design-diagrams.md` (source-plus-SVG pattern + viewer controls) |
 
 ## Phase-to-Template Mapping
 
 | Phase | Templates to Load |
 |---|---|
 | **4 - Contracts** | Solution structure + contracts (see `ai/contract-scaffolding.md`) - also emits `tests/Test.Support/WebApplicationFactoryBase`, `tests/Test.Endpoints/CustomApiFactory`, `tests/Test.E2E/DbApiFactory`, `tests/Test.Support/Hosting/TestDatabaseContainer`, `tests/Test.Integration/Infrastructure/*ContainerFixture` + `IntegrationTestSetup` (component), `tests/Test.Aspire/AspireTestHost` + `AspireMeshLifecycle` (mesh) shells - profile-gated tiers (`Test.E2E`, `Test.Aspire`) only when generated per the `skills/testing.md` Capability-Gated table |
-| **5a - Foundation (TDD)** | `entity-template`, `ef-configuration-template`, `repository-template`, `domain-rules-template`, `appsettings-template`, **`updater-template` (required when entity has child collections)**, **`test-templates-domain`**, **`test-templates-repository`**, **`test-templates-integration`** (balanced+) |
+| **5a - Foundation (TDD)** | `entity-template`, `ef-configuration-template`, `repository-template`, `appsettings-template`, **`updater-template` (required when entity has child collections)**, **`test-templates-domain`**, **`test-templates-repository`**, **`test-templates-integration`** (balanced+) |
 | **5b - App Core + Runtime (TDD for app/API, tests-after for runtime)** | `data-mapping-template`, `service-template`, `endpoint-template`, `structure-validator-template`, `exception-handler-template`, `message-handler-template` (if events), `health-check-template`, **`test-templates-service`**, **`test-templates-endpoint`**, **`test-templates-e2e`** (balanced+), `test-templates-integration` (audit-repo + projection pipeline tests), `test-templates-aspire` (mesh API/Function audit pipelines, comprehensive); `cqrs-handler-template`, `cqrs-endpoint-template`, `cqrs-validation-template`, `test-templates-cqrs` (when `applicationStyle: cqrs` or `switch`) |
 | **5c - Optional Hosts** | `uno-ui-client-layer`, `uno-mvux-model-template`, `uno-xaml-page-template`, `test-templates-presentation` (Uno); `skills/ui-react.md` (React); host-specific templates per enabled host; **`flowengine-trigger-template`** (when `includeFlowEngine: true` and Functions or Scheduler enabled) |
-| **5d - Quality + Delivery** | **`test-templates-quality`** (architecture + Playwright + Load + Benchmarks + Mutation; Integration / E2E tiers are scaffolded earlier - 5d runs them as regression), `dockerfile-template`, **`flowengine-test-template`** (when `includeFlowEngine: true`), **`tech-design-template`** (generates `docs/tech-design.md` + `docs/tech-design.html`; see [../support/tech-design-diagrams.md](../support/tech-design-diagrams.md) for the render gate), **`local-test-stack-template`** (when `Test.Aspire`/`WasmUI`/`Test.Mobile` tiers exist) |
+| **5d - Quality + Delivery** | **`test-templates-quality`** (architecture + Playwright + Load + Benchmarks + Mutation; Integration / E2E tiers are scaffolded earlier - 5d runs them as regression), `dockerfile-template`, **`flowengine-test-template`** (when `includeFlowEngine: true`), **`tech-design-template`** (generates `docs/tech-design.html` only; see [../support/tech-design-diagrams.md](../support/tech-design-diagrams.md) for the render gate), **`local-test-stack-template`** (when `Test.Aspire`/`WasmUI`/`Test.Mobile` tiers exist) |
 | **5e - Integration (Auth + AI)** | `ai-search-template`, `agent-template` (when AI in scope) |
 
 > **Note:** Use the Phase Router in `START-AI.md` and the Phase 5 file table in `ai/SKILL.md` for authoritative per-phase file lists. This index is a human/AI quick-reference for "I need to scaffold X -> load template Y".

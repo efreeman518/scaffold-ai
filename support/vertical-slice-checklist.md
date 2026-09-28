@@ -29,12 +29,11 @@ Use this when adding a new entity to an **already-scaffolded** solution. Skip fu
 2. `ai/placeholder-tokens.md`
 3. Backend templates: `entity-template.md`, `ef-configuration-template.md`, `repository-template.md`, `data-mapping-template.md`, `service-template.md`, `endpoint-template.md`, `structure-validator-template.md`
 4. If `applicationStyle` is `cqrs` or `switch`: `cqrs-handler-template.md`, `cqrs-endpoint-template.md`, `cqrs-validation-template.md`, `test-templates-cqrs.md`
-5. If domain rules needed: `domain-rules-template.md`
-6. **If child collections (1:N owned or M:N junction): `updater-template.md` is required** - the repository's `UpdateFromDto` delegates to a DbContext extension method that uses `CollectionUtility.SyncCollectionWithResult` to add/update/remove children in one call. Without this, aggregate edits silently drop client-side removals.
-7. Test templates per profile (see section Test Slice below): `test-templates-domain.md`, `test-templates-repository.md`, `test-templates-service.md`, `test-templates-endpoint.md`, and for balanced+ profiles `test-templates-integration.md` + `test-templates-e2e.md`
-8. If Uno UI enabled: `uno-mvux-model-template.md`, `uno-xaml-page-template.md`, `uno-ui-client-layer.md`, `test-templates-presentation.md`
-9. If Blazor UI enabled: `skills/ui-blazor.md` - add a Refit method group, entity list page, and entity new/edit page
-10. If React UI enabled: `skills/ui-react.md` - add API hooks, entity list page, detail/edit page, and form components
+5. **If child collections (1:N owned or M:N junction): `updater-template.md` is required** - the repository's `UpdateFromDto` delegates to a DbContext extension method that uses `CollectionUtility.SyncCollectionWithResult` to add/update/remove children in one call. Without this, aggregate edits silently drop client-side removals.
+6. Test templates per profile (see section Test Slice below): `test-templates-domain.md`, `test-templates-repository.md`, `test-templates-service.md`, `test-templates-endpoint.md`, and for balanced+ profiles `test-templates-integration.md` + `test-templates-e2e.md`
+7. If Uno UI enabled: `uno-mvux-model-template.md`, `uno-xaml-page-template.md`, `uno-ui-client-layer.md`, `test-templates-presentation.md`
+8. If Blazor UI enabled: `skills/ui-blazor.md` - add a Refit method group, entity list page, and entity new/edit page
+9. If React UI enabled: `skills/ui-react.md` - add API hooks, entity list page, detail/edit page, and form components
 
 ### Slice Execution Order
 
@@ -135,8 +134,6 @@ For entity `{Entity}`:
 |---|---|---|---|
 | Domain | `src/Domain/{Project}.Domain.Model/Entities/{Entity}.cs` | [entity-template.md](../templates/entity-template.md) | yes |
 | Domain (optional) | `src/Domain/{Project}.Domain.Model/Enums/{Entity}Status.cs` | - | if flags/status enum used |
-| Domain (optional) | `src/Domain/{Project}.Domain.Model/Rules/{Entity}Rules.cs` | [domain-rules-template.md](../templates/domain-rules-template.md) | if rules/state machine/policy matrix used |
-| Domain (optional) | `src/Domain/{Project}.Domain.Model/Rules/{Entity}*TransitionRule.cs` | [domain-rules-template.md](../templates/domain-rules-template.md) | if state transitions are constrained |
 | Data | `src/Infrastructure/{Project}.Infrastructure.Data/EntityConfigurations/{Entity}Configuration.cs` | [ef-configuration-template.md](../templates/ef-configuration-template.md) | yes |
 | Data | `src/Infrastructure/{Project}.Infrastructure.Repositories/{Entity}RepositoryTrxn.cs` | [repository-template.md](../templates/repository-template.md) | bespoke writes only (else generic pair) |
 | Data | `src/Infrastructure/{Project}.Infrastructure.Repositories/{Entity}RepositoryQuery.cs` | [repository-template.md](../templates/repository-template.md) | bespoke reads only (else generic pair) |
@@ -184,7 +181,7 @@ dotnet ef migrations add Add{Entity} --project src/Infrastructure/{Project}.Infr
 | File Path | Template | Profile |
 |---|---|---|
 | `tests/Test.Unit/Domain/{Entity}Tests.cs` | [test-templates-domain.md](../templates/test-templates-domain.md) | all |
-| `tests/Test.Unit/Domain/{Entity}RulesTests.cs` (when rules exist) | [test-templates-domain.md](../templates/test-templates-domain.md) | all |
+| `tests/Test.Unit/Domain/{Entity}StatusTransitionTests.cs` (state machine only) | [test-templates-domain.md](../templates/test-templates-domain.md) | all |
 | `tests/Test.Unit/Services/{Entity}ServiceTests.cs` | [test-templates-service.md](../templates/test-templates-service.md) | all |
 | `tests/Test.Unit/Repositories/{Entity}RepositoryTrxnTests.cs` | [test-templates-repository.md](../templates/test-templates-repository.md) | all |
 | `tests/Test.Unit/Repositories/{Entity}RepositoryQueryTests.cs` | [test-templates-repository.md](../templates/test-templates-repository.md) | all |

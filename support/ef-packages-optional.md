@@ -150,7 +150,7 @@ Add when the app calls Microsoft Graph APIs.
 
 ### Durable Audit (EF.Audit.Contracts, EF.Audit.Data, EF.Audit.AzureTable)
 
-`AuditInterceptor` appends to every registered `IAuditLogRepository`; pick one backend.
+`AuditInterceptor` appends to every registered `IAuditLogRepository`; pick one backend. Both packaged backends key on the write clock, so the scaffold implements its sinks app-side ([../skills/data-persistence.md](../skills/data-persistence.md) section Audit Strategy).
 
 | Type | Package | Used For |
 |---|---|---|

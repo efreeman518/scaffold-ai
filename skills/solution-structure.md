@@ -202,8 +202,6 @@ Pair `warning` with `TreatWarningsAsErrors` (opt in via `Directory.Build.props` 
 
 **Shell redirects:** scaffolded shell-agnostic scripts use `> /dev/null`, never `> NUL`. From git-bash, `> NUL` creates a real on-disk file named `NUL` that Win32 then can't open, breaking `git add -A`. Reserve `> nul` (lowercase) for files that only run under `cmd.exe`.
 
-Note: Domain rules and specifications live in `Domain.Model/Rules/` (or `Domain.Model/Specifications/`). A separate `Domain.Rules` project is not required.
-
 Note: `src/Packages/` exists only when `packageStrategy` is `local` or `hybrid` (set in `.scaffold/resource-implementation.yaml`). Generate one packable project per entry in `localPackageLayers`, matching the layer set in [`../support/ef-packages-reference.md`](../support/ef-packages-reference.md). Each project sets `IsPackable=true` and `<PackageId>=<packagePrefix>.<Layer>` so it can later be published to a feed and consumed via `<PackageReference>` without restructuring. When `applicationStyle` is `cqrs` or `switch`, include `<packagePrefix>.CQRS` in this local/feed layer set. When `packageStrategy: feed`, omit the `Packages/` folder entirely - the contracts come from `customNugetFeeds`.
 
 ---

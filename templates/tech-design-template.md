@@ -1,12 +1,12 @@
-# Tech Design Template - `docs/tech-design.md` + `docs/tech-design.html`
+# Tech Design Template - `docs/tech-design.html`
 
-Scaffold output: `docs/tech-design.md` and `docs/tech-design.html` in the target project, with rendered SVGs under `docs/assets/tech-design-diagrams/`. Diagrams follow the source-plus-SVG pattern in [../support/tech-design-diagrams.md](../support/tech-design-diagrams.md).
+Scaffold output: `docs/tech-design.html`, the single canonical design document, with rendered SVGs under `docs/assets/tech-design-diagrams/`. Never generate a parallel `docs/tech-design.md`; README links to the HTML for architecture detail. Diagrams follow the source-plus-SVG pattern in [../support/tech-design-diagrams.md](../support/tech-design-diagrams.md).
 
-Reference example: <https://github.com/efreeman518/scaffold-proof/blob/main/docs/tech-design.html> (TaskFlow keeps only the HTML document).
+Reference example: <https://github.com/efreeman518/scaffold-proof/blob/main/docs/tech-design.html>.
 
 ## What This Template Owns
 
-- The **format**: doc shell, TOC pattern, heading numbering, GitHub anchor rules.
+- The **format**: doc shell, TOC pattern, heading numbering, stable heading `id`s.
 - The **HTML viewer**: self-contained CSS + vanilla JS with sticky TOC + scroll-spy, click-to-zoom modal with pan, smooth scroll, keyboard shortcuts.
 
 ## What It Does NOT Own
@@ -16,64 +16,10 @@ Reference example: <https://github.com/efreeman518/scaffold-proof/blob/main/docs
 ## Generation Rules
 
 1. Every diagram embeds an `.svg` from `docs/assets/tech-design-diagrams/` - never an inline `mermaid` fence. Filenames follow `{NN}-{kebab-name}.{mmd,svg}` (see [../support/tech-design-diagrams.md](../support/tech-design-diagrams.md) section Filename Convention).
-2. Section headings use the numbered form (`## 2. {Section}`) so GitHub's auto-slugger produces `#2-{section}`.
-3. The HTML viewer references the **same** SVGs as the markdown - no second render pass.
-4. Replace `{ProjectName}` and other placeholders per [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md).
-5. Run the render gate every time a `.mmd` file is added or edited. Run the final-doc validation before declaring the doc done.
-6. When AI or hosted UI test lanes are generated, include durable rationale: explicit `AiServices:Provider` selection with `None` as default, selected-provider validation without endpoint/runtime inference, the optional LiveAI classification owned by [../skills/ai-integration.md](../skills/ai-integration.md), required-infrastructure false opt-outs and Docker preflight, post-preflight failures staying red with diagnostics, Uno Skia canvas bridge rationale, one cumulative startup deadline, bounded Playwright runner design, and Aspire-hosted UI URL resolution. Document env var or Aspire-resolved URL only; no fixed localhost fallback URLs in `docs/tech-design.md` or `docs/tech-design.html`. Put exact commands and pass conditions in README/test README; keep this doc as architecture/test rationale.
-
-## Markdown Doc Shell (`docs/tech-design.md`)
-
-```md
-# {ProjectName} - Technical Design Document
-
-> **Audience**: Developers onboarding to the project
-> **Last updated**: {YYYY-MM}
-
----
-
-## Table of Contents
-
-1. [Overview](#1-overview)
-2. [{Section title}](#2-{slug})
-3. [{Section title}](#3-{slug})
-N. [{Section title}](#n-{slug})
-
----
-
-## 1. Overview
-
-{One-paragraph elevator pitch.}
-
-### Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| ... | ... |
-
-### Design Principles
-
-{Pull from `.scaffold/DESIGN-DECISIONS.md`.}
-
----
-
-## 2. {Section title}
-
-{Intro paragraph.}
-
-<!-- Mermaid source: assets/tech-design-diagrams/{NN}-{kebab-name}.mmd -->
-![{Title}](assets/tech-design-diagrams/{NN}-{kebab-name}.svg)
-
-> **Diagram legend:** {...}
-
----
-
-## N. {Section title}
-
-...
-```
-
-Cross-section references use the same slug form: `[See Section 11: Audit Strategy](#11-audit-strategy)`.
+2. Section headings are numbered (`<h2 id="2-{slug}">2. {Section}</h2>`); keep `id`s stable, since README and cross-section links (`<a href="#11-audit-strategy">`) target them.
+3. Replace `{ProjectName}` and other placeholders per [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md).
+4. Run the render gate every time a `.mmd` file is added or edited. Run the final-doc validation before declaring the doc done.
+5. When AI or hosted UI test lanes are generated, include durable rationale: explicit `AiServices:Provider` selection with `None` as default, selected-provider validation without endpoint/runtime inference, the optional LiveAI classification owned by [../skills/ai-integration.md](../skills/ai-integration.md), required-infrastructure false opt-outs and Docker preflight, post-preflight failures staying red with diagnostics, Uno Skia canvas bridge rationale, one cumulative startup deadline, bounded Playwright runner design, and Aspire-hosted UI URL resolution. Document env var or Aspire-resolved URL only; no fixed localhost fallback URLs in `docs/tech-design.html`. Put exact commands and pass conditions in README/test README; keep this doc as architecture/test rationale.
 
 ## HTML Viewer Shell (`docs/tech-design.html`)
 
@@ -383,14 +329,14 @@ The script is intentionally compact (~80 lines of JS, no dependencies). Drop it 
 
 ## When to Generate
 
-`docs/tech-design.md` is a Phase 5d deliverable. Generate it after `test-templates-quality` is in place and the scaffold satisfies the applicable [final acceptance criteria](../support/final-scaffold-checklist.md). The doc reflects the *shipped* topology - sections whose backing code is not generated are dropped, not stubbed.
+`docs/tech-design.html` is a Phase 5d deliverable. Generate it after `test-templates-quality` is in place and the scaffold satisfies the applicable [final acceptance criteria](../support/final-scaffold-checklist.md). The doc reflects the *shipped* topology - sections whose backing code is not generated are dropped, not stubbed.
 
 Generation order per session:
 
 1. Decide the section list from the actual scaffold output (entities, hosts, integrations, design decisions).
 2. Sketch each `.mmd` source per section need.
 3. Run the **render gate** (see [../support/tech-design-diagrams.md](../support/tech-design-diagrams.md) section Render Gate) to produce `.svg` siblings.
-4. Write `docs/tech-design.md` using the markdown shell above, embedding the rendered SVGs.
-5. Write `docs/tech-design.html` using the HTML viewer shell, mirroring the TOC.
-6. Run the **final-doc validation** - Mermaid-runtime grep, `git diff --check`, SVG-reference check, TOC anchor check.
-7. Spot-check the GitHub render after pushing and open `tech-design.html` from disk to confirm zoom/scroll-spy/shortcuts work offline.
+4. Write `docs/tech-design.html` from the viewer shell, embedding the rendered SVGs.
+5. Run the **final-doc validation** ([../support/tech-design-diagrams.md](../support/tech-design-diagrams.md) section Final Doc Validation), then open the file from disk to confirm zoom/scroll-spy/shortcuts work offline.
+
+Later changes edit `docs/tech-design.html` in place, patching only the affected sections.

@@ -149,13 +149,12 @@ Do not scatter these rules across endpoints/handlers.
 
 Keep structural validation centralized under `Application.Services/Rules/`:
 
-- `StructureValidators` - generic `ValidateCreate<T>`, `ValidateUpdate<T>`, `ValidateUpdateId<T>` constrained on `ITenantEntityDto` / `IEntityBaseDto`
+- `StructureValidators` - generic `ValidateCreate<T>` and `ValidateUpdate<T>` constrained on `ITenantEntityDto` / `IEntityBaseDto`
 - Per-entity `{Entity}StructureValidator` - delegates common checks to `StructureValidators`, then adds entity-specific field validation using `DomainConstants`
 - `ValidationHelper` - **[multi-tenant only]** static class with `EnsureGlobalAdmin`, `EnsureTenantBoundary`, `PreventTenantChange`
 - `ServiceErrorMessages` - static factory methods for formatted error strings (`PayloadRequired`, `ItemNotFound`, `TenantMismatch`, etc.)
 - `ErrorConstants` - shared string constants in `Application.Contracts` (`ERROR_ITEM_NOTFOUND`, `ERROR_NAME_EXISTS`, etc.)
 - `TenantBoundaryLoggingExtensions` - **[multi-tenant only]** `[LoggerMessage]` source-generated extensions for structured tenant-violation logging
-- `TenantRules` - **[multi-tenant only]** simple static rule methods (e.g., `PreventTenantChange`)
 
 Example (generic base):
 

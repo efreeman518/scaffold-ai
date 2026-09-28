@@ -3,7 +3,7 @@
 High-signal lookup for structure, dependencies, DI patterns, and common routes/config keys during scaffolding.
 
 > **File naming conventions** are in [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md#file-naming-conventions).
-> **Tech-design diagrams** (`docs/tech-design.md`, `docs/tech-design.html`) follow the source-plus-SVG pattern - see [tech-design-diagrams.md](tech-design-diagrams.md).
+> **Tech-design diagrams** (`docs/tech-design.html`, the only design doc) follow the source-plus-SVG pattern - see [tech-design-diagrams.md](tech-design-diagrams.md).
 
 ---
 

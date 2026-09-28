@@ -172,7 +172,6 @@ public class {Entity} : EntityBase<{Entity}Id>, ITenantEntity<TenantId>
 ### 4. Test Infrastructure
 
 **Test.Support:**
-- `InMemoryDbBuilder.cs` - fluent in-memory/SQLite DB builder
 - `Utility.cs` - config builder + random string helper
 - `TestConstants.cs` - `DefaultTenantId`, `SystemUserId`
 - `JsonTestOptions.cs` - shared `JsonSerializerOptions` mirroring the API host's `ConfigureHttpJsonOptions` (case-insensitive + `JsonStringEnumConverter`). Required so endpoint / E2E tests deserialize string enums consistently. See [test-templates-endpoint.md](../templates/test-templates-endpoint.md) section Shared JSON Options.
@@ -354,7 +353,7 @@ Developer reviews the scaffolded shape against the verification checklist below.
 - [ ] `dotnet build` succeeds from solution root
 - [ ] Every entity from `.scaffold/resource-implementation.yaml` has: DTO, entity shell, builders, and a repository contract per `repositoryContractStyle` - generic-coverable entities resolve the open-generic `IRepositoryTrxn<TEntity, TId>` / `IRepositoryQuery<TEntity, TId>` (no per-entity interface); bespoke entities have a per-aggregate contract that extends the generic pair (`per-entity` style emits both interfaces for every entity)
 - [ ] All no-op stubs satisfy their interfaces (no abstract/unimplemented methods)
-- [ ] `tests/Test.Support/` contains `WebApplicationFactoryBase` (thin adapter over `EfWebApplicationFactoryBase`), `JsonTestOptions`, `InMemoryDbBuilder`, `TestConstants`, and `Builders/{Entity}Builder` shells; `LocalSqlSettings` lives in the AppHost project; unit tests are flat classes (no shared unit-test base)
+- [ ] `tests/Test.Support/` contains `WebApplicationFactoryBase` (thin adapter over `EfWebApplicationFactoryBase`), `JsonTestOptions`, `TestConstants`, and `Builders/{Entity}Builder` shells; `LocalSqlSettings` lives in the AppHost project; unit tests are flat classes (no shared unit-test base)
 - [ ] `tests/Test.Endpoints/CustomApiFactory.cs` and `tests/Test.E2E/DbApiFactory.cs` derive from `WebApplicationFactoryBase<Program, {App}DbContextTrxn, {App}DbContextQuery>` (do not duplicate the swap-out logic)
 - [ ] `tests/Test.Support/Hosting/TestDatabaseContainer.cs`, `tests/Test.Integration/Infrastructure/DbContainerFixture.cs` + the lane's other store fixtures + `IntegrationTestSetup.cs` (component) and `tests/Test.Aspire/AspireTestHost.cs` + `AspireMeshLifecycle.cs` (mesh) exist (even when no tests reference them yet - Phase 5 fills them)
 - [ ] Test data `{Entity}DtoBuilder` returns valid DTOs

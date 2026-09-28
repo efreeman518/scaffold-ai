@@ -107,6 +107,10 @@ CANARIES = {
     "Never seed code-defined jobs with `ICronTickerManager.AddAsync`": "skills/background-services.md",  # TickerQ cron lives on [TickerFunction]; trigger templates point here
     "a live `Processing` lease means retry later": "skills/messaging.md",  # two-state inbox claim (Processing lease -> Completed with the effect)
     "Compose interpolates only from `.env`": "support/compose-deployment.md",  # DockerCompose deployment owner (.env.base + images.env -> generated .env); iac/cicd/schema point here
+    "Generate no rule-object layer": "skills/domain-model.md",  # rules live on the aggregate (Valid/Transition, DomainResult.Combine); entity/structure-validator templates point here
+    "Never generate a parallel `docs/tech-design.md`": "templates/tech-design-template.md",  # docs/tech-design.html is the only design doc; diagrams doc carries source-plus-SVG rules only
+    "start only that lane's stores, and CI runs the assembly once per declared lane": "templates/test-templates-integration.md",  # test lane switch; aspire/e2e templates point to section Lane switch
+    "a prerequisite that is present but fails to start": "skills/testing.md",  # prerequisite rule: missing -> Inconclusive with enabling command, present-but-failing -> red; others point
 }
 roots = ["skills", "patterns", "ai", "support", "schemas", "profiles", "templates"]
 files = [p for r in roots for p in pathlib.Path(r).rglob("*.md")]
@@ -223,6 +227,14 @@ are pointers.
 - `DockerCompose` deployment (file layout, service rules, Caddy edge, secrets, OpenObserve, VPS deploy workflow):
   [support/compose-deployment.md](../support/compose-deployment.md). Bicep stays in [skills/iac.md](../skills/iac.md); the
   generic release contract stays in [skills/cicd.md](../skills/cicd.md).
+- Domain rules (aggregate-owned `Valid()`/`Transition`, no rule-object layer):
+  [skills/domain-model.md](../skills/domain-model.md) section Domain Rules.
+- Technical design doc (`docs/tech-design.html` only): [templates/tech-design-template.md](../templates/tech-design-template.md);
+  diagram format and validation: [support/tech-design-diagrams.md](../support/tech-design-diagrams.md).
+- Test lane switch (lane resolution, per-lane stores, once-per-lane CI run):
+  [templates/test-templates-integration.md](../templates/test-templates-integration.md) section Lane switch.
+- Test prerequisite classification (missing -> `Inconclusive` with the enabling command; present but failing -> red):
+  [skills/testing.md](../skills/testing.md) section Never Silently Pass. Templates, gates, and troubleshooting point here.
 - Ontology projection (outputs, mapping, Fabric IQ ingestion, check semantics):
   [support/ontology-projection.md](../support/ontology-projection.md). The schema doc owns the optional fields,
   the interview owns the opt-in question, gates and checklists carry only the `--check` command.

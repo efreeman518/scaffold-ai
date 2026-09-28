@@ -22,13 +22,13 @@ Load [../support/data-persistence-advanced.md](../support/data-persistence-advan
 
 `AuditInterceptor<string, Guid?>` (from `EF.Data.Interceptors`) intercepts `SaveChangesAsync` on the transactional DbContext and publishes `AuditEntry<string, Guid?>` lists via `IInternalMessageBus` onto the background task queue. Construct it with an explicit empty sink list, `new AuditInterceptor<string, Guid?>(bus, [])`: its optional `IEnumerable<IAuditLogRepository>` parameter otherwise receives every registered sink from DI and awaits each inside the save, and a relational sink on the same context recurses.
 
-**Pipeline:** `EF SaveChanges` -> `AuditInterceptor` captures changed entities -> publishes to `IInternalMessageBus` (returns immediately) -> background `AuditHandler` dequeues -> `IAuditLogRepository.AppendAsync()` (EF.Audit.Contracts) -> the lane's backend (relational through EF.Audit.Data on the default `NonAzure` lane; Azure Table `{project}audit` table on the `Azure` lane).
+**Pipeline:** `EF SaveChanges` -> `AuditInterceptor` captures changed entities -> publishes to `IInternalMessageBus` (returns immediately) -> background `AuditHandler` dequeues -> `IAuditLogRepository.AppendAsync()` (EF.Audit.Contracts) -> the lane's backend (relational `AuditLog` table on the default `NonAzure` lane; Azure Table `{project}audit` on `Azure`).
 
 **Key design points:**
 - `EntityBase` does **not** define audit properties (`CreatedDate`, `CreatedBy`, `UpdatedDate`, `UpdatedBy`). Do NOT inherit `AuditableBase<T>` unless audit fields must live on the entity itself.
-- Audit metadata is stored outside the entity: a relational `AuditLog` table in the application database by default (an app `RelationalAuditLogRepository` over the Trxn context, or EF.Audit.Data); on the `Azure` lane, Azure Table Storage keyed by `PartitionKey` = tenant ID (or `"_system"`) and `RowKey` = reverse-ticks (newest-first).
+- Both sinks are app code over `EF.Audit.Contracts` (`EF.Audit.Data`/`.AzureTable` key on the write clock) and take `recordedUtc` from the UUIDv7 id, so a replay hits the same key: relational upserts on `(TenantId, RecordedUtc, Id)`; Azure Table uses `PartitionKey` `{tenantId}|{yyyyMMdd}`, `RowKey` `{DateTime.MaxValue.Ticks - recordedUtc.Ticks:D19}_{id:N}`. A null tenant maps to `_system`.
 - Fields tracked: `EntityType`, `EntityKey`, `Action` (Insert/Update/Delete), `RecordedUtc`, `Metadata` (serialized property changes).
-- **Fallback:** When the selected sink is not provisioned (local dev without its store), register `NoOpAuditLogRepository` - silently discards audit entries.
+- **Fallback:** an unprovisioned sink registers `NoOpAuditLogRepository` (discards entries).
 
 **Source files:**
 | File | Purpose |
@@ -65,7 +65,6 @@ public abstract class {Project}DbContextBase(DbContextOptions options)
         modelBuilder.HasDefaultSchema("{project}");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof({Project}DbContextBase).Assembly);
         ConfigureDefaultDataTypes(modelBuilder);
-        SetTableNames(modelBuilder);
         ConfigureTenantQueryFilters(modelBuilder);
     }
 }
@@ -177,7 +176,7 @@ See [ef-configuration-template.md](../templates/ef-configuration-template.md) fo
 ### Configuration Rules
 
 1. Keep PK non-clustered when clustered multi-tenant access index is used.
-2. Use explicit table names (class-name aligned).
+2. Every configuration calls `ToTable` (class-name aligned).
 3. Set delete behavior explicitly (`Restrict` for references, `Cascade` for owned children).
 4. Name indexes predictably (`IX_...` / `CIX_...`).
 5. Set `HasMaxLength(N)` for strings (avoid `nvarchar(max)`).

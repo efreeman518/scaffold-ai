@@ -1,33 +1,26 @@
 # Tech Design Diagrams - Format, Source-Plus-SVG, and Viewer Controls
 
-Canonical rules for the **GitHub-facing technical design doc** the scaffold generates at `docs/tech-design.md` and its sibling viewer `docs/tech-design.html`. Reference shape: <https://github.com/efreeman518/scaffold-proof/blob/main/docs/tech-design.html>.
+Canonical rules for the technical design doc the scaffold generates at `docs/tech-design.html`, the single canonical design document (no parallel `docs/tech-design.md`). Reference shape: <https://github.com/efreeman518/scaffold-proof/blob/main/docs/tech-design.html>.
 
 The scaffold owns the **format and viewer controls**, not the diagram list. Which diagrams to include is a per-project decision driven by `.scaffold/domain-specification.yaml`, `.scaffold/resource-implementation.yaml`, and what the app actually generates.
 
 ## Why Source-Plus-SVG
 
-GitHub's live Mermaid runtime rejects diagram variants the local Mermaid CLI accepts - C4, `block-beta`, complex `erDiagram`, styled `graph` with `classDef`, and newer syntax. Committing both the `.mmd` source and a rendered `.svg` makes the doc render deterministically on GitHub *and* keeps the source editable.
+A live Mermaid runtime needs a CDN, and GitHub's renderer rejects variants the local Mermaid CLI accepts (C4, `block-beta`, complex `erDiagram`, `classDef` styling). Committing the `.mmd` source and a rendered `.svg` renders deterministically offline and keeps the source editable.
 
 ## Scope
 
 | Applies | Does not apply |
 |---|---|
-| `docs/tech-design.md`, `docs/tech-design.html`, and any peer **GitHub-rendered** architecture/topology docs under `docs/` | Scaffold-internal artifacts under `.scaffold/` (e.g. `DESIGN-DECISIONS.md`, `implementation-plan.md`). Inline `mermaid` fences are fine there - those are working artifacts, not GitHub-rendered docs. |
+| `docs/tech-design.html` and any peer **GitHub-rendered** architecture/topology docs under `docs/` | Scaffold-internal artifacts under `.scaffold/` (e.g. `DESIGN-DECISIONS.md`, `implementation-plan.md`). Inline `mermaid` fences are fine there - those are working artifacts, not GitHub-rendered docs. |
 
-If a diagram source is a basic `flowchart` / `sequenceDiagram` / `stateDiagram` with **no** `classDef` styling and **no** `block-beta` / C4 / `classDiagram-v2`, an inline fence in `docs/` is acceptable. When in doubt, render to SVG.
+If a diagram source is a basic `flowchart` / `sequenceDiagram` / `stateDiagram` with **no** `classDef` styling and **no** `block-beta` / C4 / `classDiagram-v2`, an inline fence in a peer Markdown doc is acceptable. When in doubt, render to SVG.
 
 ## Source-Plus-Rendered Pattern
 
 1. **Editable source** - `docs/assets/tech-design-diagrams/*.mmd`, one diagram per file.
 2. **Rendered asset** - matching `docs/assets/tech-design-diagrams/*.svg` checked in.
-3. **`docs/tech-design.md`** references the SVG, not a Mermaid fence:
-
-   ```md
-   <!-- Mermaid source: assets/tech-design-diagrams/{name}.mmd -->
-   ![{Title}](assets/tech-design-diagrams/{name}.svg)
-   ```
-
-4. **`docs/tech-design.html`** wraps the same SVG in the diagram-container shell (see Viewer Controls below):
+3. **`docs/tech-design.html`** wraps the SVG in the diagram-container shell (see Viewer Controls below):
 
    ```html
    <figure class="diagram" data-title="{Title}">
@@ -35,7 +28,7 @@ If a diagram source is a basic `flowchart` / `sequenceDiagram` / `stateDiagram` 
    </figure>
    ```
 
-5. **Do not** include a live Mermaid runtime in generated HTML:
+4. **Do not** include a live Mermaid runtime in generated HTML:
    - no `mermaid@...` CDN `<script>`
    - no `class="mermaid"` blocks
    - no `mermaid.initialize(...)` call
@@ -46,38 +39,7 @@ If a diagram source is a basic `flowchart` / `sequenceDiagram` / `stateDiagram` 
 
 ## Document Format
 
-`docs/tech-design.md` opens with a short header and a Table of Contents whose anchors match the GitHub auto-slug for each section heading.
-
-```md
-# {ProjectName} - Technical Design Document
-
-> **Audience**: Developers onboarding to the project
-> **Last updated**: {YYYY-MM}
-
----
-
-## Table of Contents
-
-1. [Overview](#1-overview)
-2. [{Section title}](#2-{slug})
-...
-
----
-
-## 1. Overview
-
-...
-
-## 2. {Section title}
-
-...
-```
-
-Heading rules:
-
-- Section headings use the numbered form (`## 2. C4 Architecture Diagrams`). GitHub's slugger turns it into `#2-c4-architecture-diagrams`, which is what the TOC entries point at.
-- Sub-section numbering (`### 2.1`, `### 2.2`) follows the same rule for inline cross-section links like `[Section 11: Audit Strategy](#11-audit-strategy)`.
-- Section count and titles are **project-driven**. Pull section needs from the entity list, resource list, and design decisions - not from a fixed scaffold template.
+Each section is `<h2 id="{N}-{slug}">{N}. {Title}</h2>`; the sidebar TOC links `#{N}-{slug}`. The `id` is the title lowercased, spaces -> hyphens, leading number kept (`2. C4 Architecture Diagrams` -> `2-c4-architecture-diagrams`). Keep `id`s stable once published. Section count and titles are **project-driven** - pull them from the entity list, resource list, and design decisions, not a fixed template.
 
 ## Viewer Controls (`docs/tech-design.html`)
 
@@ -136,15 +98,16 @@ Resolve `<latest-stable>` when generating the project and record it in the proje
 Run before declaring the tech-design docs done. All checks must exit clean.
 
 ```powershell
-# 1. No live Mermaid in either doc
-rg -n -e '```mermaid' -e 'class="mermaid"' -e 'mermaid\.initialize' -e 'mermaid@' docs\tech-design.md docs\tech-design.html
+# 1. No live Mermaid runtime and no stale Markdown-twin links (no hits expected)
+rg -n -e 'class="mermaid"' -e 'mermaid\.initialize' -e 'mermaid@' docs\tech-design.html
+rg -n 'tech-design\.md' README.md docs
 
 # 2. Whitespace/CRLF damage on the SVG payload
 git diff --check
 
-# 3. Every .md SVG reference resolves on disk
+# 3. Every SVG reference resolves on disk
 powershell -NoProfile -Command '& {
-  $bad=@(); Select-String -Path docs\tech-design.md -Pattern "assets/tech-design-diagrams/[^)]+\.svg" -AllMatches |
+  $bad=@(); Select-String -Path docs\tech-design.html -Pattern "assets/tech-design-diagrams/[\w-]+\.svg" -AllMatches |
     ForEach-Object { $_.Matches } | ForEach-Object {
       $rel="docs/" + $_.Value
       if (-not (Test-Path $rel)) { $bad += $_.Value }
@@ -153,11 +116,10 @@ powershell -NoProfile -Command '& {
 }'
 ```
 
-Also verify every TOC anchor resolves: every `[N. ...](#n-...)` link in the body must match a `## N. ...` heading. The auto-slug rule is lowercase, spaces -> hyphens, leading numbers preserved (`## 2. C4 Architecture Diagrams` -> `#2-c4-architecture-diagrams`).
+Also verify every TOC and cross-section `href="#..."` matches an `id` in the body.
 
 ## Expected Result
 
-- `docs/tech-design.md` renders cleanly on GitHub - no Mermaid parser failures, no "Unable to render rich display" banners.
 - `.mmd` source remains editable; rerunning the render gate regenerates the `.svg` deterministically.
 - `docs/tech-design.html` opens directly from the filesystem with a sticky TOC, scroll-spy highlight, click-to-zoom modal with pan, and a `?` shortcuts panel - no external CDN.
-- Markdown and HTML share the same SVG assets, so a diagram edit only requires one `.mmd` change + one render-gate run.
+- A diagram edit requires one `.mmd` change + one render-gate run.

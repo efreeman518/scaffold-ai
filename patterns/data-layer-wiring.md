@@ -173,8 +173,7 @@ public abstract class {App}DbContextBase(DbContextOptions options)
             typeof({App}DbContextBase).Assembly);
 
         ConfigureDefaultDataTypes(modelBuilder);                                 // 4. Global type defaults
-        SetTableNames(modelBuilder);                                             // 5. Table naming convention
-        ConfigureTenantQueryFilters(modelBuilder);                               // 6. Tenant filters
+        ConfigureTenantQueryFilters(modelBuilder);                               // 5. Tenant filters
     }
 ```
 
@@ -225,18 +224,7 @@ public abstract class {App}DbContextBase(DbContextOptions options)
     }
 ```
 
-**Singular table names (class name = table name, skip owned types):**
-
-```csharp
-    private static void SetTableNames(ModelBuilder modelBuilder)
-    {
-        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
-        {
-            if (entityType.IsOwned()) continue;     // owned types share parent table
-            entityType.SetTableName(entityType.ClrType.Name);  // singular, matches class name
-        }
-    }
-```
+Table names come from each configuration's `ToTable` ([../templates/ef-configuration-template.md](../templates/ef-configuration-template.md)); the base context runs no table-naming loop.
 
 ---
 

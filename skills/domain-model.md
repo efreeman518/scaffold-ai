@@ -170,20 +170,6 @@ public interface IRequestContext<out TAuditIdType, out TTenantIdType>
 
 > **WARNING:** There is NO `.UserId` property - use `AuditId` for user identification.
 
-## Domain.Shared Exceptions
-
-`InvalidEntityException`, `NotFoundException`, and `BusinessRuleException` in `Domain.Shared/Exceptions/`.
-
-```csharp
-namespace Domain.Shared.Exceptions;
-
-public class InvalidEntityException(string message) : Exception(message)
-{
-    public InvalidEntityException(string message, Exception innerException)
-        : base(message, innerException) { }
-}
-```
-
 ## DomainConstants (Domain.Shared)
 
 Centralize all validation limit constants in `Domain.Shared/Constants/DomainConstants.cs`. Reference these in entity `Valid()` methods and in EF `MaxLength` configuration - single source of truth.
@@ -208,7 +194,7 @@ if (Name.Length < DomainConstants.RULE_DEFAULT_NAME_LENGTH_MIN)
 
 ## Domain Rules
 
-Use the specification pattern for reusable business validation. Canonical placement: `src/Domain/{Project}.Domain.Model/Rules/`. Co-locate with the domain model. See [domain-rules-template.md](../templates/domain-rules-template.md) for full implementation.
+A rule lives on the aggregate method that changes the guarded state: `Valid()` for field invariants, a guarded `Transition` for lifecycle moves ([entity-template.md](../templates/entity-template.md); reference `TaskItem.TransitionStatus`). Merge independent checks with `DomainResult.Combine`. Generate no rule-object layer (`IRule`, rule classes, `Domain.Model/Rules/`). Rules are pure; a rule that needs stored data (uniqueness, cross-aggregate counts) belongs in the application service.
 
 ## Domain Services
 
@@ -244,7 +230,6 @@ After generating domain entities, confirm:
 - [ ] Entity factory folds each VO's `Create()` `DomainResult` into the aggregate `Valid()` error list (one pass, no short-circuit); a non-validating `From()` handles EF/materialization - see [entity-template.md](../templates/entity-template.md)
 - [ ] `Valid()` uses `DomainConstants` for length/range limits, not magic numbers
 - [ ] `DomainConstants.cs` exists in `Domain.Shared/Constants/` with all validation limits
-- [ ] `InvalidEntityException` exists in `Domain.Shared/Exceptions/`
 - [ ] Shared entities (Tag, etc.) are `sealed class` with `IEquatable<T>` and `Normalize` helper
 - [ ] Cross-references: Entity properties align with [data-mapping-template.md](../templates/data-mapping-template.md), EF config covers all relationships per [ef-configuration-template.md](../templates/ef-configuration-template.md)
 
