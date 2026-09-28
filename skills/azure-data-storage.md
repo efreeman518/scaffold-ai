@@ -48,7 +48,7 @@ public class {Project}{Store}RepositorySettings : {Store}RepositorySettingsBase 
 |---|---|---|
 | Blob | `BlobRepositorySettingsBase` | `BlobServiceClientName` |
 | Table | `TableRepositorySettingsBase` | `TableServiceClientName` |
-| Cosmos DB | `CosmosDbRepositorySettingsBase` | `CosmosDbId` |
+| Cosmos DB | `CosmosDbRepositorySettingsBase` | `CosmosClient`, `CosmosDbId` |
 
 ### Repository Wrapper
 
@@ -95,7 +95,7 @@ private static void Add{Store}Services(IServiceCollection services, IConfigurati
 
 Blob and Table share an `AzureStorage` resource with emulator support. Cosmos DB uses its own resource.
 
-> **Dependency alignment:** Resolve the latest stable `Microsoft.Extensions.Azure` when using `IAzureClientFactory<T>` alongside `EF.Host`. Keep the concrete version in `Directory.Packages.props`; restore and build must reject an incompatible transitive family.
+> **Dependency alignment:** Resolve the latest stable `Microsoft.Extensions.Azure` when using `IAzureClientFactory<T>` alongside `EF.Storage` / `EF.Table`. Keep the concrete version in `Directory.Packages.props`; restore and build must reject an incompatible transitive family.
 
 > **Cosmos DB dependency:** When adding Cosmos, resolve the latest stable compatible `Newtonsoft.Json` explicitly in `Directory.Packages.props`; do not preserve an older transitive version from copied guidance.
 

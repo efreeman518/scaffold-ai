@@ -75,7 +75,7 @@ CANARIES = {
     "dotnet build src/UI/{Project}.Uno/{Project}.Uno.csproj -p:TargetFrameworkOverride=$(LatestStableTfm)-ios --no-restore -m:1": "support/execution-gates.md",  # enabled-target Uno validation commands; skills retain project policy and hazards
     "public record DefaultResponse<T>": "ai/contract-scaffolding.md",  # Phase-4 response wrapper shape; sibling of DefaultRequest<T>, templates re-emit it
     "HeaderPropagationValues.Headers not initialized": "patterns/infrastructure-wiring.md",  # runtime error anchoring the "no AddHeaderPropagation in ServiceDefaults" rule; drifts when the body is re-copied
-    "intentionally blocked to force use of the concurrency-safe path": "skills/data-persistence.md",  # SaveChangesAsync 1-param NotImplementedException rule; NotImplementedException is a scan hotspot
+    "Generated code always names the conflict strategy with the winner overload": "skills/data-persistence.md",  # SaveChangesAsync winner-overload rule; templates restate the call, not the rule
     "Body was inferred but the method does not allow inferred body parameters": "skills/api.md",  # runtime failure behind the [FromServices] endpoint-param non-negotiable
     "NU1011": "skills/package-dependencies.md",  # CPM + floating-version restore-failure rule tied to the central-package-version mandate
     "Never rename a migration after it has been shared": "support/data-persistence-advanced.md",  # migration-immutability rule owned with the migration content

@@ -79,7 +79,7 @@ public abstract class WebApplicationFactoryBase<TProgram, TTrxnContext, TQueryCo
 **Critical details:**
 
 1. **Typed options per context.** Use `new DbContextOptionsBuilder<{App}DbContextTrxn>().UseInMemoryDatabase(name).Options` - do NOT use generic `DbContextOptions` when multiple contexts exist. `DbContextBase` constructors take `DbContextOptions` (non-generic base), but EF validates the generic type at runtime.
-2. Derived factories provide only the test-mode store (override the abstract `BuildTrxnOptions()` / `BuildQueryOptions()`); `ConfigureTestConfiguration(IConfigurationBuilder)` is the hook for app-specific test configuration.
+2. Derived factories provide only the test-mode store (override the `protected virtual` `BuildTrxnOptions()` / `BuildQueryOptions()`, or `ConnectionString`, which throws unless overridden); `ConfigureTestConfiguration(IConfigurationBuilder)` is the hook for app-specific test configuration.
 3. Do not hand-roll descriptor-removal or reflection-creation plumbing in the app - it ships in `EF.IntegrationTesting` (see [../support/ef-packages-reference.md](../support/ef-packages-reference.md) section Testing).
 
 ## SqlAggregateSeeder (in Test.Support)

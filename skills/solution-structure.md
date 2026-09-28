@@ -326,7 +326,7 @@ Adjust optional dependencies per enabled features without inverting layer direct
 
 ## EF.Packages Source Reference
 
-The private EF.* NuGet packages (`EF.Domain`, `EF.Application`, `EF.Infrastructure`, `EF.Data`, `EF.Utility`, `EF.InternalMessageBus`) have full source available at:
+The private EF.* NuGet packages (package list: [../support/ef-packages-reference.md](../support/ef-packages-reference.md)) have full source available at:
 
 **[https://github.com/efreeman518/EF.Packages](https://github.com/efreeman518/EF.Packages)**
 
@@ -334,14 +334,14 @@ Use this repo as the **authoritative source of truth** for all EF.* types, APIs,
 
 | Type | Package | Purpose |
 |---|---|---|
-| `EntityBase` | EF.Domain | Base entity with `Id` (init, V7 GUID) and `RowVersion` (nullable byte[]) |
+| `EntityBase` | EF.Domain | Base entity with `Id` (init, V7 GUID) and `long Version` (concurrency token) |
 | `AuditableBase<T>` | EF.Domain | EntityBase + audit properties (rarely used when AuditInterceptor is active) |
 | `DomainResult<T>` | EF.Domain.Contracts | Railway-oriented domain operation result |
-| `Result` / `Result<T>` | EF.Domain.Contracts | Application-layer operation results |
+| `Result` / `Result<T>` | EF.Common.Contracts | Application-layer operation results |
 | `RepositoryBase<TCtx,TAudit,TTenant>` | EF.Data | Base repository with CRUD + concurrency |
-| `DbContextBase` | EF.Data | Base context - `SaveChangesAsync(ct)` throws `NotImplementedException` by design |
-| `IRequestContext` | EF.Utility | Tenant, Roles, CorrelationId, AuditId (NO `.UserId`) |
-| `IInternalMessageBus` | EF.InternalMessageBus | Synchronous `Publish()` (NOT async) |
+| `DbContextBase` | EF.Data | Base context - tenant filter, audit fields, `Version` increment; generated writes use `SaveChangesAsync(OptimisticConcurrencyWinner, ct)` |
+| `IRequestContext<TAuditIdType, TTenantIdType>` | EF.Common.Contracts | Tenant, Roles, CorrelationId, AuditId (NO `.UserId`) |
+| `IInternalMessageBus` | EF.BackgroundServices (`EF.BackgroundServices.InternalMessageBus`) | Synchronous `Publish()` (NOT async) |
 
 ---
 

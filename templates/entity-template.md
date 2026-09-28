@@ -40,9 +40,9 @@ public readonly record struct {Entity}Id(Guid Value) : IDomainId<{Entity}Id>
 
 > **EntityBase properties (inherited, do NOT redefine):**
 > - `{Entity}Id Id { get; init; }` - typed domain ID, client-generated via `Guid.CreateVersion7()` (set by the app, not the store; EF `ValueGeneratedNever()`), init-only
-> - `byte[]? RowVersion { get; set; }` - nullable, configured via `.IsRowVersion()` in EF config
+> - `long Version { get; set; }` - concurrency token, configured via `.IsConcurrencyToken()` in EF config (the `[Obsolete]` `RowVersion` is never used)
 >
-> `EntityBase<TId>` is the generic base where `TId : IDomainId<TId>`. The typed `Id` property replaces the raw `Guid Id`.
+> `EntityBase<TId>` is the generic base where `TId : struct, IDomainId<TId>`. The typed `Id` property replaces the raw `Guid Id`.
 >
 > **Do NOT inherit `AuditableBase<T>`** unless audit fields must live on the entity itself. The default pattern uses `AuditInterceptor` on the `DbContext` to manage audit metadata externally.
 

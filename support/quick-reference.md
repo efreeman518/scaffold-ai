@@ -30,13 +30,13 @@ High-signal lookup for structure, dependencies, DI patterns, and common routes/c
 
 | Package | Primary Purpose |
 |---|---|
-| `EF.Domain` | entities, tenant contracts, domain result primitives |
-| `EF.Domain.Contracts` | DTO/domain result contracts |
+| `EF.Domain` | entity bases, domain exceptions, mask attribute |
+| `EF.Domain.Contracts` | typed IDs, tenant contracts, `DomainResult` / `DomainError` |
 | `EF.Data` | EF repo/config base abstractions |
-| `EF.Common` | `Result`, helpers, predicates |
-| `EF.Common.Contracts` | request context, paging/search contracts |
+| `EF.Common` | `ResultExtensions`, helpers, predicates, app-facing exceptions |
+| `EF.Common.Contracts` | `Result`, request context, paging/search contracts, DTO base contract |
 | `EF.BackgroundServices` | internal message bus, handlers, background queue |
-| `EF.Host` | host startup/task abstractions |
+| `EF.Host` | `AddAzureAppConfiguration` host/configuration extensions |
 
 ---
 
@@ -58,10 +58,10 @@ Rules:
 
 | Type | Purpose |
 |---|---|
-| `EntityBase` | common Id + rowversion base entity |
+| `EntityBase` | common Id + `Version` concurrency base entity |
 | `ITenantEntity<TTenantId>` | tenant ownership contract |
 | `DomainResult<T>` | domain-level success/failure monad |
-| `EntityBaseConfiguration<TEntity, TId>` | base EF configuration rules |
+| `EntityBaseConfiguration<TEntity, TId>` | app-level base EF configuration (not a package type) |
 | `RepositoryBase<TContext, TAuditId, TTenantId>` | common repository operations |
 | `IRequestContext<TAuditId, TTenantId>` | scoped audit/tenant/role context |
 | `IInternalMessageBus` | internal publish/subscribe pipeline |

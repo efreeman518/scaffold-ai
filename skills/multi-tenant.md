@@ -29,9 +29,9 @@ Enforce tenant isolation through data, service, and request-context layers with 
 ## Tenant Entity Contract
 
 ```csharp
-public interface ITenantEntity<TTenantId>
+public interface ITenantEntity<TTenantIdType> where TTenantIdType : struct
 {
-    TTenantId TenantId { get; }
+    TTenantIdType TenantId { get; init; }
 }
 
 public class TodoItem : EntityBase<TodoItemId>, ITenantEntity<TenantId>

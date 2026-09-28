@@ -2,7 +2,7 @@
 
 Cross-project wiring for database context setup, startup tasks, migrations, and seed data. Load before Phase 5a (Foundation) and Phase 5b (App Core).
 
-For base types used here (`DbContextBase`, `DbContextScopedFactory`, `AuditInterceptor`, `IStartupTask`), see [../support/ef-packages-reference.md](../support/ef-packages-reference.md).
+For base types used here (`DbContextBase`, `DbContextScopedFactory`, `AuditInterceptor`), see [../support/ef-packages-reference.md](../support/ef-packages-reference.md).
 
 ---
 
@@ -49,8 +49,10 @@ private static void AddDatabaseServices(IServiceCollection services, IConfigurat
     // (repositoryContractStyle: per-entity - omit the open generics and register a pair per entity.)
 
     // Interceptors
-    services.AddTransient<AuditInterceptor<string, Guid?>>();
-    services.AddTransient<ConnectionNoLockInterceptor>();
+    // Empty sink list: persistence goes through the bus handler (skills/data-persistence.md section Audit Strategy)
+    services.AddTransient(sp => new AuditInterceptor<string, Guid?>(sp.GetRequiredService<IInternalMessageBus>(), []));
+    // SQL Server arm only, and only when a context uses ReadIsolation.ReadUncommitted:
+    // services.AddTransient<EF.Data.SqlServer.Interceptors.ConnectionNoLockInterceptor>();
 
     ConfigureDatabaseContexts(services, config);
 }
@@ -231,7 +233,7 @@ public abstract class {App}DbContextBase(DbContextOptions options)
 
 ## Startup Tasks
 
-`IStartupTask` (from EF.Common.Contracts) is the interface for tasks that run after `builder.Build()` but before the host accepts requests. `app.RunStartupTasks()` (from EF.Host) resolves and executes all registered implementations in order.
+`IStartupTask` (app-level, in the Bootstrapper; not a package type) is the interface for tasks that run after `builder.Build()` but before the host accepts requests. The Bootstrapper's `app.RunStartupTasks()` resolves and executes all registered implementations in order ([../skills/bootstrapper.md](../skills/bootstrapper.md)).
 
 ### Registration
 

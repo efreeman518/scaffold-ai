@@ -13,7 +13,7 @@ Create orchestration stays explicit: extract DTO -> stamp trusted request-contex
 
 The application layer owns DTOs, contracts, static mappers, orchestration services, validation helpers, and internal message handlers. Domain invariants stay in domain factories/methods.
 
-Base types (`IRequestContext`, `Result<T>`, `IStartupTask`): [../support/ef-packages-reference.md](../support/ef-packages-reference.md) - do not regenerate these. DomainResult mechanics (factory results, Bind/Map chaining, error surface): [domain-model.md](domain-model.md) section DomainResult Pattern.
+Base types (`IRequestContext`, `Result<T>`): [../support/ef-packages-reference.md](../support/ef-packages-reference.md) - do not regenerate these. DomainResult mechanics (factory results, Bind/Map chaining, error surface): [domain-model.md](domain-model.md) section DomainResult Pattern.
 
 ## Non-Negotiables
 
@@ -101,7 +101,7 @@ Service rules:
 4. Use transactional repo for writes, query repo for read/projection.
 5. Keep delete idempotent - for **hard delete**, call `repoTrxn.Delete(entity)` before `SaveChangesAsync`. For **soft delete** (main entities), flip flags: `entity.Update(flags: entity.Flags | {Entity}Flags.IsInactive)` then save. Neither wraps `SaveChangesAsync` in a catch that returns exception text; save exceptions propagate to the exception handler.
 6. **CreateAsync must apply ALL DTO properties** - `Entity.Create()` only takes factory args. Call `entity.Update(...)` afterward to apply remaining DTO fields (e.g., EstimatedHours, ActualHours). If `Update()` triggers `Valid()`, propagate failures.
-7. **SaveChangesAsync overload** - Always use the two-parameter overload. Default application writes to `SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct)` so conflict handling remains reachable. Use `ClientWins` only for a recorded last-write-wins requirement. The parameterless `SaveChangesAsync(ct)` throws `NotImplementedException`.
+7. **SaveChangesAsync overload** - Always use the two-parameter overload. Default application writes to `SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct)` so conflict handling remains reachable. Use `ClientWins` only for a recorded last-write-wins requirement. The single-parameter `SaveChangesAsync(ct)` names no conflict strategy.
 8. **`BuildResponse` helper** - Each service should have a private static `BuildResponse({Entity}Dto dto)` that returns `new DefaultResponse<{Entity}Dto> { Item = dto }` (add `TenantInfo` when multi-tenant). Centralizes response construction.
 9. **`ErrorConstants`** - Use `ErrorConstants.ERROR_ITEM_NOTFOUND` in Update not-found paths (not inline strings).
 10. **`nameof({Entity})`** - Use in all boundary-validator calls and error messages.

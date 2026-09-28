@@ -332,7 +332,7 @@ Options: Azure Service Bus, RabbitMQ, Event Grid, Event Hubs. See [skills/messag
 | `repositoryContractStyle` | `hybrid` | `per-entity`, `hybrid`, `generic-only` (see [Repository Contract Style](#repository-contract-style)) |
 | `includeNotifications` | `false` | |
 | `includeFlowEngine` | `false` | Enables `EF.FlowEngine` (durable JSON workflow orchestration). Generates a dedicated FE DbContext + registration partial + workflow seeding + admin endpoints + test project. See [../skills/flowengine.md](../skills/flowengine.md). |
-| `flowEngineDbStrategy` | `same-db-separate-schema` | `same-db-separate-schema` (Variant A - preserves atomic outbox; default), `separate-db` (Variant B/C - outbox best-effort). See [../support/ef-packages-reference.md](../support/ef-packages-reference.md) section FlowEngine Data-Layout Variants. |
+| `flowEngineDbStrategy` | `same-db-separate-schema` | `same-db-separate-schema` (Variant A - preserves atomic outbox; default), `separate-db` (Variant B/C - outbox best-effort). See [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section FlowEngine Data-Layout Variants. |
 
 Declare a `hostingLaneDefaults` entry for each lane. Each provider resolver follows `environment > config > lane default > hard default`, then validates the selected value against that lane's allowed set. Explicit unknown and cross-lane values fail startup instead of silently selecting another provider. `Enum.TryParse` accepts numeric strings such as `"7"`, so a resolver rejects numeric input and requires `Enum.IsDefined` on the parsed value. Keep provider selection out of Domain and Application code, and keep each provider family independently overridable within its lane.
 

@@ -128,7 +128,7 @@ Centralize on `JsonTestOptions.Default`; do **not** construct ad-hoc `JsonSerial
 - **Create / Update** (`POST`, `PUT`) expect `{"item": {dto}}`. Clients wrap: `new DefaultRequest<T> { Item = dto }`. A bare DTO deserializes `Item` as `null` and the handler faults.
 - **Get / Create / Update** return `{"item": {dto}}`. Clients unwrap `response.Item`. Reading the bare DTO yields all-default properties, silently.
 - **Search** is different: it accepts `SearchRequest<TFilter>` **directly** (not wrapped) and returns `PagedResponse<T>` with a `data` array and a `total` count - not `DefaultResponse`.
-- **Reuse the shared types from `EF.Common.Contracts`** - `DefaultRequest<T>`, `DefaultResponse<T>`, `SearchRequest<TFilter>`, `PagedResponse<T>` - on both sides. Clients reference them through the `{Project}.Application.Models` project that already pulls them in. Re-deriving a client-side envelope is the root cause of the paging bugs below: a hand-rolled copy drifts on the wire field name (`pageIndex` vs `pageNumber`) and on the index base, and each drift fails silently.
+- **Reuse the shared types** - the app-level `DefaultRequest<T>` / `DefaultResponse<T>` and `SearchRequest<TFilter>` / `PagedResponse<T>` from `EF.Common.Contracts` - on both sides. Clients reference them through the `{Project}.Application.Models` project that already pulls them in. Re-deriving a client-side envelope is the root cause of the paging bugs below: a hand-rolled copy drifts on the wire field name (`pageIndex` vs `pageNumber`) and on the index base, and each drift fails silently.
 - **The page-index base (0- or 1-based) is a property of the running API, not a constant.** Verify it empirically - request page 0 and page 1 against a seeded list with `PageSize = 1` and see which returns the first row - then send that base consistently. Do **no** offset conversion in the response parser: the server echoes back the base it used, so a `+1`/`-1` in a setter desyncs the page counter.
 - **Routes, validation limits, and enum wire strings live in one shared source** consumed by the server validator, every client, and test mocks. They drift independently otherwise, and an `/api/{**catch-all}` fallback turns route drift into a silent 404 rather than a loud failure; hand-pinned route strings in strict test mocks then validate the stale contract.
 
@@ -433,7 +433,7 @@ group.MapGet("/{id:guid}", GetById)
 - [ ] Every handler uses `Result.Match<IResult>()` - no `IsSuccess`/`else` guards anywhere
 - [ ] Typed `Result<T>` handlers have all three branches (success, errors, none); non-generic `Result` handlers have two (success, errors)
 - [ ] `global using EF.AspNetCore;` present in `GlobalUsings.cs`
-- [ ] CRUD routes use the `DefaultRequest<T>` / `DefaultResponse<T>` envelope and search uses `SearchRequest<TFilter>` / `PagedResponse<T>`, both from `EF.Common.Contracts` - no locally redefined envelope on either side of the wire
+- [ ] CRUD routes use the `DefaultRequest<T>` / `DefaultResponse<T>` envelope (app-level, `Application.Models`) and search uses `SearchRequest<TFilter>` / `PagedResponse<T>` from `EF.Common.Contracts` - no locally redefined envelope on either side of the wire
 - [ ] Validation and business errors return `ProblemDetails`/`ValidationProblem`
 - [ ] Typed and exception errors expose separate `requestId`, W3C `traceId`, and `spanId` through one customizer
 - [ ] Swagger/Scalar is gated by `OpenApiSettings:Enable`

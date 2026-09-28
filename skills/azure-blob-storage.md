@@ -1,4 +1,4 @@
-# Azure Blob Storage (EF.Blob)
+# Azure Blob Storage (EF.Storage)
 
 > **Shared shape** (settings class, repository wrapper, DI registration, Aspire integration, local inspection tools) lives in [azure-data-storage.md](azure-data-storage.md). This file covers Blob-specific guidance only.
 
@@ -84,8 +84,8 @@ Supporting types:
 public class ContainerInfo
 {
     public string ContainerName { get; set; } = null!;
-    public ContainerPublicAccessType ContainerPublicAccessType { get; set; } = ContainerPublicAccessType.None;
-    public bool CreateContainerIfNotExist { get; set; } = true;
+    public ContainerPublicAccessType ContainerPublicAccessType { get; set; }
+    public bool CreateContainerIfNotExist { get; set; }   // defaults to false
 }
 
 public enum ContainerPublicAccessType
@@ -115,39 +115,11 @@ public class {Project}BlobRepositorySettings : BlobRepositorySettingsBase { }
 
 `BlobRepositorySettingsBase` requires `BlobServiceClientName`.
 
-**Override the base stubs.** `BlobRepositoryBase.Upload/Download/DeleteAsync` are `virtual` and throw `NotImplementedException` in the feed package. The project wrapper above only inherits them - calling `_blobRepo.UploadAsync(...)` at runtime crashes unless the wrapper overrides each method actually used. Implement against the injected `IAzureClientFactory<BlobServiceClient>`:
-
-```csharp
-public override async Task<Uri> UploadAsync(
-    string containerName, string blobName, Stream content, string contentType,
-    CancellationToken ct = default)
-{
-    var container = _clientFactory.CreateClient(_settings.BlobServiceClientName)
-        .GetBlobContainerClient(containerName);
-    var blob = container.GetBlobClient(blobName);
-    await blob.UploadAsync(
-        content,
-        new BlobHttpHeaders { ContentType = contentType },
-        cancellationToken: ct);
-    return blob.Uri;
-}
-
-public override async Task<Stream> DownloadAsync(
-    string containerName, string blobName, CancellationToken ct = default)
-{
-    var blob = _clientFactory.CreateClient(_settings.BlobServiceClientName)
-        .GetBlobContainerClient(containerName)
-        .GetBlobClient(blobName);
-    var response = await blob.DownloadStreamingAsync(cancellationToken: ct);
-    return response.Value.Content;
-}
-```
+**No overrides needed.** `BlobRepositoryBase` implements `IBlobRepository` and the provider-neutral `IObjectStorageRepository` (`UploadAsync(containerName, objectName, content, contentType, metadata, ct)`, `DownloadAsync`, `DeleteAsync`, `ExistsAsync`, `GetPresignedUrlAsync`, `ListAsync`) with non-virtual members. Application code that may run against S3 as well depends on `IObjectStorageRepository` ([../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Object Storage (EF.Storage.Contracts, EF.Storage.S3)).
 
 **Provision once, never per repository call.** Register a startup/deployment task that creates each configured container before the host reports ready, then set `CreateContainerIfNotExist: false` for normal repository operations. The startup task may call `CreateIfNotExistsAsync`, is idempotent, and uses a distributed coordination primitive only when concurrent creation is unsafe. Upload/download/delete paths assume provisioning completed and surface a missing-container failure instead of adding a control-plane call to every request. Apply the same rule to S3 buckets, tables, search indexes, and broker topology. See [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Data-Path Rules.
 
 **`BlobContainerClient.GetBlobsAsync` signature gotcha.** The current Azure SDK requires **positional** arguments: `GetBlobsAsync(BlobTraits.None, BlobStates.None, prefix, cancellationToken)`. The named-argument form `GetBlobsAsync(prefix: "...", cancellationToken: ct)` that older Microsoft samples show **does not compile** - the method exposes no parameters by those names. Use positional, or assign through the well-named overload of `BlobContainerClient`.
-
-If overrides are deferred (no caller exists yet), keep the wrapper inheriting the throwing stubs and rely on the *scaffold-skipped surface* exception in [../support/final-scaffold-checklist.md](../support/final-scaffold-checklist.md). The moment a service or endpoint calls `UploadAsync`, the override is mandatory.
 
 ### Configuration
 

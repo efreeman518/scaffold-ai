@@ -66,7 +66,8 @@ public class {Entity}RepositoryTrxn({Project}DbContextTrxn dbContext)
 ```csharp
 using System.Linq.Expressions;
 using EF.Data;
-using EF.Common;
+using EF.Data.Contracts;
+using EF.Common.Contracts;
 
 namespace Infrastructure.Repositories;
 
@@ -79,7 +80,7 @@ public class {Entity}RepositoryQuery({Project}DbContextQuery dbContext)
     {
         return await QueryPageProjectionAsync<{Entity}, {Entity}Dto>(
             {Entity}Mapper.Projection, // Use ProjectorSearch only for an intentional lean grid shape.
-            readNoLock: true,
+            readIsolation: ReadIsolation.Default,
             pageSize: request.PageSize,
             pageIndex: Math.Max(1, request.PageIndex),
             filter: BuildFilter(request.Filter),
@@ -114,7 +115,7 @@ public class {Entity}RepositoryQuery({Project}DbContextQuery dbContext)
 
         var result = await QueryPageProjectionAsync(
             {Entity}Mapper.ProjectorStaticItems,
-            readNoLock: false,
+            readIsolation: ReadIsolation.Default,
             pageSize: 50,
             pageIndex: 1,
             filter: filter,
@@ -123,7 +124,7 @@ public class {Entity}RepositoryQuery({Project}DbContextQuery dbContext)
             splitQueryThresholdOptions: null,
             cancellationToken: ct).ConfigureAwait(ConfigureAwaitOptions.None);
 
-        return new StaticList<StaticItem<Guid, Guid?>> { Items = result.Data };
+        return new StaticList<StaticItem<Guid, Guid?>>(result.Data);
     }
 
     // ===== Filter Builder =====
@@ -170,7 +171,7 @@ public class {Entity}RepositoryQuery({Project}DbContextQuery dbContext)
 ## File: Application/Contracts/Repositories/I{Entity}RepositoryTrxn.cs
 
 ```csharp
-using EF.Data;
+using EF.Data.Contracts;
 using EF.Domain.Contracts;
 
 namespace Application.Contracts.Repositories;
@@ -194,7 +195,7 @@ public interface I{Entity}RepositoryTrxn : IRepositoryBase
 ## File: Application/Contracts/Repositories/I{Entity}RepositoryQuery.cs
 
 ```csharp
-using EF.Common;
+using EF.Common.Contracts;
 
 namespace Application.Contracts.Repositories;
 
@@ -226,13 +227,13 @@ generic contracts add only entity-typed convenience. They belong in `<packagePre
 ```csharp
 // EF.Data.Contracts - open-generic contracts (typed ID overloads)
 public interface IRepositoryTrxn<TEntity, TId> : IRepositoryBase
-    where TEntity : EntityBase<TId>
+    where TEntity : class, IEntityBase<TId>
     where TId : struct, IDomainId<TId>
 {
     Task<TEntity?> GetAsync(TId id, CancellationToken ct = default);                 // tracked
 }
 public interface IRepositoryQuery<TEntity, TId> : IRepositoryBase
-    where TEntity : EntityBase<TId>
+    where TEntity : class, IEntityBase<TId>
     where TId : struct, IDomainId<TId>
 {
     Task<TEntity?> GetAsync(TId id, CancellationToken ct = default);                 // no-tracking
@@ -242,22 +243,22 @@ public interface IRepositoryQuery<TEntity, TId> : IRepositoryBase
 // EF.Data - generic impls over RepositoryBase (audit id = string, tenant id = Guid?)
 public class RepositoryTrxn<TEntity, TId, TDbContext>(TDbContext db)
     : RepositoryBase<TDbContext, string, Guid?>(db), IRepositoryTrxn<TEntity, TId>
-    where TEntity : EntityBase<TId>
+    where TEntity : class, IEntityBase<TId>
     where TId : struct, IDomainId<TId>
     where TDbContext : DbContextBase<string, Guid?>
 {
     public async Task<TEntity?> GetAsync(TId id, CancellationToken ct = default)
-        => await GetEntityAsync<TEntity>(true, filter: e => e.Id == id, cancellationToken: ct)
+        => await DB.GetByKeyAsync<TEntity>(true, ct, id)
             .ConfigureAwait(ConfigureAwaitOptions.None);
 }
 public class RepositoryQuery<TEntity, TId, TDbContext>(TDbContext db)
     : RepositoryBase<TDbContext, string, Guid?>(db), IRepositoryQuery<TEntity, TId>
-    where TEntity : EntityBase<TId>
+    where TEntity : class, IEntityBase<TId>
     where TId : struct, IDomainId<TId>
     where TDbContext : DbContextBase<string, Guid?>
 {
     public async Task<TEntity?> GetAsync(TId id, CancellationToken ct = default)
-        => await GetEntityAsync<TEntity>(false, filter: e => e.Id == id, cancellationToken: ct)
+        => await DB.GetByKeyAsync<TEntity>(false, ct, id)
             .ConfigureAwait(ConfigureAwaitOptions.None);
     public async Task<IReadOnlyList<TEntity>> ListAsync(Expression<Func<TEntity, bool>> predicate, CancellationToken ct = default)
         => await DB.Set<TEntity>().AsNoTracking().Where(predicate).ToListAsync(ct)
@@ -282,12 +283,12 @@ generic-coverable entity:
 // Infrastructure.Repositories/{App}GenericRepositories.cs
 public sealed class {App}RepositoryTrxn<TEntity, TId>({App}DbContextTrxn db)
     : RepositoryTrxn<TEntity, TId, {App}DbContextTrxn>(db)
-    where TEntity : EntityBase<TId>
+    where TEntity : class, IEntityBase<TId>
     where TId : struct, IDomainId<TId> { }
 
 public sealed class {App}RepositoryQuery<TEntity, TId>({App}DbContextQuery db)
     : RepositoryQuery<TEntity, TId, {App}DbContextQuery>(db)
-    where TEntity : EntityBase<TId>
+    where TEntity : class, IEntityBase<TId>
     where TId : struct, IDomainId<TId> { }
 
 // Bootstrapper/RegisterServices.Database.cs
@@ -339,7 +340,7 @@ return new PagedResponse<Category> { Data = data, ... };
 // OK CORRECT - SQL-level projection, base class handles paging/count
 return await QueryPageProjectionAsync<Category, CategoryDto>(
     CategoryMapper.Projection,
-    readNoLock: true,
+    readIsolation: ReadIsolation.Default,
     pageSize: request.PageSize,
     pageIndex: Math.Max(1, request.PageIndex),
     filter: BuildFilter(request.Filter),
@@ -351,9 +352,9 @@ return await QueryPageProjectionAsync<Category, CategoryDto>(
 
 Every query repo search method must follow this pattern. Use `{Entity}Mapper.Projection` when the search result matches the canonical full DTO shape. Use `{Entity}Mapper.ProjectorSearch` only when the entity has a deliberately lean list/grid shape. The service layer then direct-returns the result without post-mapping.
 
-> **Call it with named arguments - always.** `QueryPageProjectionAsync` takes several same-typed value arguments in the order `readNoLock, pageSize, pageIndex, ..., includeTotal`. A **positional** call compiles fine but is a silent footgun with two failure modes that no in-memory or mocked-repo test can catch: (1) swapping `pageSize`/`pageIndex` returns a near-empty page for a normal `PageIndex=1, PageSize=20` request; (2) passing `includeTotal:false` returns `Total = -1`. Both translate to real SQL that behaves correctly against the fake providers used in fast tests, so only a real-SQL search test (see below) surfaces them. Always pass `readNoLock:`, `pageSize:`, `pageIndex:`, `includeTotal:` by name, as the pattern above does.
+> **Call it with named arguments - always.** `QueryPageProjectionAsync` takes several same-typed value arguments in the order `readIsolation, pageSize, pageIndex, ..., includeTotal`. A **positional** call compiles fine but is a silent footgun with two failure modes that no in-memory or mocked-repo test can catch: (1) swapping `pageSize`/`pageIndex` returns a near-empty page for a normal `PageIndex=1, PageSize=20` request; (2) passing `includeTotal:false` returns `Total = -1`. Both translate to real SQL that behaves correctly against the fake providers used in fast tests, so only a real-SQL search test (see below) surfaces them. Always pass `readIsolation:`, `pageSize:`, `pageIndex:`, `includeTotal:` by name, as the pattern above does.
 
-> **PageIndex pitfall:** `ComposeIQueryable` in EF.Data expects **1-based** `pageIndex` (it does `pageIndex - 1` internally). `SearchRequest<T>.PageIndex` defaults to `0`. Without `Math.Max(1, request.PageIndex)`, a default request produces a negative SQL `OFFSET`, crashing with `SqlException: The offset specified in a OFFSET clause may not be negative`.
+> **PageIndex pitfall:** `ComposeIQueryable` in EF.Data.Contracts expects **1-based** `pageIndex` (it does `pageIndex - 1` internally). `SearchRequest<T>.PageIndex` defaults to `0`. Without `Math.Max(1, request.PageIndex)`, a default request produces a negative SQL `OFFSET`, crashing with `SqlException: The offset specified in a OFFSET clause may not be negative`.
 
 > **Prove it with a real-SQL search test.** Because both the argument-swap and `includeTotal` regressions are invisible to fake providers, every searchable aggregate needs a `Test.Integration` search test against a SQL Testcontainer that asserts the returned page **and** `Total`. This is required at `balanced` and above - it is the specific failure that test exists to catch.
 
@@ -409,15 +410,15 @@ return Result.Success();
 
 > **BUG PATTERN:** Omitting `repoTrxn.Delete(entity)` causes delete operations to silently no-op. This was found and fixed during reference app (TaskFlow) TestContainer testing.
 
-## Critical: SaveChangesAsync - NEVER Use 1-Param Overload
+## Critical: SaveChangesAsync - Always Name the Conflict Strategy
 
-`DbContextBase.SaveChangesAsync(CancellationToken)` **ALWAYS throws `NotImplementedException`** by design. Always use the 2-param overload:
+`SaveChangesAsync(CancellationToken)` saves with no conflict strategy. Generated code always names the strategy with the 2-param overload:
 
 ```csharp
 // OK CORRECT - use the two-parameter overload and surface conflicts
 await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 
-// FAIL WRONG - throws NotImplementedException at runtime
+// WRONG - no named conflict strategy; the choice is invisible in review
 await repoTrxn.SaveChangesAsync(ct);
 ```
 
@@ -428,7 +429,7 @@ The 2-param overload retries on `DbUpdateConcurrencyException` using the specifi
 - **Repositories inherit `RepositoryBase<TContext, TAuditId, TTenantId>`** - provides `GetEntityAsync`, `Create(ref)`, `UpdateFull(ref)`, `Delete(entity)`, `DeleteAsync(predicate)`, `SaveChangesAsync(OptimisticConcurrencyWinner, CancellationToken)`, `QueryPageProjectionAsync`, `QueryPageAsync`. These are **protected helpers for repository implementations only** - none of them appear on `IRepositoryQuery<TEntity, TId>` / `IRepositoryTrxn<TEntity, TId>`, so services and handlers can never call them; consumers get `GetAsync` / `ListAsync` plus the bespoke `Search{Entities}Async` methods (GR-14)
 - **`DB` property** - `RepositoryBase` exposes `protected TDbContext DB => dbContext;` for calling extension methods (e.g. Updater) on the context
 - **Generic args:** `TAuditId = string` (matches `IRequestContext.AuditId`), `TTenantId = Guid?` (matches `ITenantEntity<TenantId>` - nullable for non-tenant scenarios)
-- **`QueryPageProjectionAsync` signature:** `(Expression<Func<T, TProject>> projector, bool readNoLock, int? pageSize, int? pageIndex, Expression<Func<T, bool>>? filter, Func<IQueryable<T>, IOrderedQueryable<T>>? orderBy, bool includeTotal, SplitQueryThresholdOptions?, CancellationToken, params includes[])` - call with **named arguments** (adjacent same-typed `pageSize`/`pageIndex` swap silently; see the "Call it with named arguments" note above)
+- **`QueryPageProjectionAsync` signature:** `(Expression<Func<T, TProject>> projector, ReadIsolation readIsolation, int? pageSize, int? pageIndex, Expression<Func<T, bool>>? filter, Func<IQueryable<T>, IOrderedQueryable<T>>? orderBy, bool includeTotal, SplitQueryThresholdOptions?, CancellationToken, params includes[])` - call with **named arguments** (adjacent same-typed `pageSize`/`pageIndex` swap silently; see the "Call it with named arguments" note above)
 - **`SearchRequest<TFilter>`** is a record: `PageSize` (int), `PageIndex` (int), `Sorts` (IEnumerable\<Sort\>?), `Filter` (TFilter?). Does **not** have `Page`, `PageNumber`, `SortBy`, or `SortDirection`
 - **Trxn repository**: Uses `{Project}DbContextTrxn` (tracking, audit interceptor, read-write)
 - **Query repository**: Uses `{Project}DbContextQuery` (NoTracking, read-only replica)

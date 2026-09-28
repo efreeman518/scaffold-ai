@@ -172,7 +172,7 @@ Container image upgrades can change the database's expected persistence root wit
 
 **Canonical owner for migration execution.** Exactly one process owns schema: `src/Host/{App}.DatabaseMigrator`, a console host in the solution (plus a Dockerfile when the app deploys containers). Runtime hosts (API, Scheduler, Functions, workers, Gateway) never call `Database.MigrateAsync`, create schemas, or patch tables at startup. Scaled-out instances race DDL, runtime identities would need broad permissions, and startup failure modes become uncontrollable.
 
-Runner primitives ship in EF.Data (`EF.Data.Migrations` namespace): `AddDatabaseMigrationRunner()`, `AddEfCoreMigrationTarget<TContext>(logicalName, order)`, `DatabaseMigrationRunner.RunAsync()`. Each target resolves `IDbContextFactory<TContext>` - register target contexts with `AddDbContextFactory` (the `Add{App}MigrationDbContexts` helper's job), never plain `AddDbContext`.
+Runner primitives ship in EF.Data (`EF.Data.Migrations` namespace): `AddDatabaseMigrationRunner()`, `AddEfCoreMigrationTarget<TContext>(name, order)`, `DatabaseMigrationRunner.RunAsync()`. Each target resolves `IDbContextFactory<TContext>` - register target contexts with `AddDbContextFactory` (the `Add{App}MigrationDbContexts` helper's job), never plain `AddDbContext`.
 
 Sub-phase split: Phase 5a creates the initial migration files (the schema artifact); the migrator host project and the AppHost `WaitForCompletion` wiring are generated in 5b with the rest of runtime orchestration.
 
@@ -278,13 +278,13 @@ Give the domain a UTF8 byte budget matching the column (e.g. `RULE_SECURE_PROPER
 
 ### EF has no fluent Always Encrypted mapping
 
-There is no `.IsEncrypted()`. The CMK/CEK creation and `ALTER COLUMN ... ENCRYPTED WITH` are raw SQL that must run inside the migration. Do **not** re-derive the T-SQL - `EF.Data` ships a `MigrationSupport` helper. In the migration's `Up`, after `CreateTable`, call a private `ConfigureAlwaysEncrypted(migrationBuilder)`:
+There is no `.IsEncrypted()`. The CMK/CEK creation and `ALTER COLUMN ... ENCRYPTED WITH` are raw SQL that must run inside the migration. Do **not** re-derive the T-SQL - `EF.Data.SqlServer` ships a `MigrationSupport` helper (`using EF.Data.SqlServer;`). In the migration's `Up`, after `CreateTable`, call a private `ConfigureAlwaysEncrypted(migrationBuilder)`:
 
 ```csharp
 var support = new MigrationSupport(migrationBuilder, new DefaultAzureCredential());
 support.CreateColumnMasterKey(urlAkvCmk, "CMK_WITH_AKV");
 support.CreateColumnEncryptionKey(urlAkvCmk, "CMK_WITH_AKV", "CEK_WITH_AKV");
-// varbinary has no collation -> collate: null. encType per field: DETERMINISTIC (queryable) or RANDOMIZED (default).
+// varbinary has no collation -> collate: null. encType per field: DETERMINISTIC (queryable, the helper default) or RANDOMIZED.
 support.AlterColumnEncryption("CEK_WITH_AKV", "[schema].[Table]", "[SecureDeterministic] varbinary(200)", collate: null, encType: "DETERMINISTIC");
 support.AlterColumnEncryption("CEK_WITH_AKV", "[schema].[Table]", "[SecureRandom] varbinary(200)", collate: null, encType: "RANDOMIZED");
 ```
