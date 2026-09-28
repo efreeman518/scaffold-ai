@@ -54,9 +54,7 @@ public abstract class {Project}DbContextBase(DbContextOptions options)
     {
         base.ConfigureConventions(cb);
 
-        cb.RegisterDomainIdConversions(typeof(TenantId).Assembly);
-        cb.Properties<Email>().HaveConversion<EmailValueConverter>().HaveMaxLength(320);
-        cb.Properties<Locale>().HaveConversion<LocaleValueConverter>().HaveMaxLength(20);
+        // IDs, value objects, decimal, UTC: ef-configuration-template section Model Conventions
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -64,7 +62,6 @@ public abstract class {Project}DbContextBase(DbContextOptions options)
         base.OnModelCreating(modelBuilder);
         modelBuilder.HasDefaultSchema("{project}");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof({Project}DbContextBase).Assembly);
-        ConfigureDefaultDataTypes(modelBuilder);
         ConfigureTenantQueryFilters(modelBuilder);
     }
 }
@@ -179,9 +176,8 @@ See [ef-configuration-template.md](../templates/ef-configuration-template.md) fo
 2. Every configuration calls `ToTable` (class-name aligned).
 3. Set delete behavior explicitly (`Restrict` for references, `Cascade` for owned children).
 4. Name indexes predictably (`IX_...` / `CIX_...`).
-5. Set `HasMaxLength(N)` for strings (avoid `nvarchar(max)`).
-6. Use default decimal precision; override only when domain requires it.
-7. Use `datetime2` for `DateTime` columns.
+5. Set `HasMaxLength(N)` for strings; leave one unbounded only for genuinely large text.
+6. Decimal precision and UTC temporals are provider-neutral conventions; name no provider column type ([ef-configuration-template.md](../templates/ef-configuration-template.md) section Model Conventions).
 
 ---
 
@@ -229,7 +225,7 @@ await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 
 - [ ] Both `{App}DbContextTrxn` and `{App}DbContextQuery` exist
 - [ ] Query context is configured for no-tracking reads
-- [ ] Domain ID and stable value-object converters are registered in `ConfigureConventions`, not per-property and not from an `OnModelCreating` reflection loop
+- [ ] Domain ID, stable value-object, decimal-precision, and UTC temporal conventions are registered in `ConfigureConventions`, not per-property and not from an `OnModelCreating` reflection loop
 - [ ] Each entity has explicit `IEntityTypeConfiguration<T>` inheriting `EntityBaseConfiguration<TEntity, TId>`
 - [ ] `EntityBaseConfiguration<TEntity, TId>` configures `HasKey`, `ValueGeneratedNever`, `Version` as the concurrency token, and ignores `RowVersion`
 - [ ] Repositories are split for write and read concerns

@@ -63,18 +63,17 @@ public class DesignTimeDbContextFactoryQuery : IDesignTimeDbContextFactory<{Proj
 
 ## JSON Columns (`ToJson()`) Troubleshooting
 
-`ToJson()` with owned types is the preferred pattern for structured data stored as JSON in SQL Server. EF Core may still fail to generate migrations for complex graphs with nested collections or dictionaries.
+`ToJson()` with owned types is the preferred pattern for structured data stored in JSON columns. EF Core may still fail to generate migrations for complex graphs with nested collections or dictionaries.
 
 Projection trap: materializing a primitive collection inside a `ToJson()`-owned type via `.ToList()` NREs in the SQL Server shaper at shaper-build time (even on empty tables), while translating fine on Npgsql - write `new List<T>(x.Items)` instead of `x.Items.ToList()` in projections, and cover the projection on the deployed provider (see [testing.md](../skills/testing.md)).
 
-Fallback: use a serializer-backed value conversion to `nvarchar(max)` with a custom `ValueComparer`.
+Fallback: use a serializer-backed value conversion to an unbounded string (no `HasMaxLength`; each provider picks its large-text type) with a custom `ValueComparer`.
 
 ```csharp
 builder.Property(e => e.ComplexData)
     .HasConversion(
         v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
         v => JsonSerializer.Deserialize<ComplexType>(v, (JsonSerializerOptions?)null)!)
-    .HasColumnType("nvarchar(max)")
     .Metadata.SetValueComparer(
         new ValueComparer<ComplexType>(
             (a, b) => JsonSerializer.Serialize(a, (JsonSerializerOptions?)null) == JsonSerializer.Serialize(b, (JsonSerializerOptions?)null),

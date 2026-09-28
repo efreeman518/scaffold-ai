@@ -111,6 +111,8 @@ CANARIES = {
     "Never generate a parallel `docs/tech-design.md`": "templates/tech-design-template.md",  # docs/tech-design.html is the only design doc; diagrams doc carries source-plus-SVG rules only
     "start only that lane's stores, and CI runs the assembly once per declared lane": "templates/test-templates-integration.md",  # test lane switch; aspire/e2e templates point to section Lane switch
     "a prerequisite that is present but fails to start": "skills/testing.md",  # prerequisite rule: missing -> Inconclusive with enabling command, present-but-failing -> red; others point
+    "cb.Properties<decimal>().HavePrecision(18, 4)": "templates/ef-configuration-template.md",  # provider-neutral scalar conventions (decimal, UTC temporals); data-layer-wiring/data-persistence/SKILL point to section Model Conventions
+    "diagram-{NN}.{mmd,svg}": "support/tech-design-diagrams.md",  # diagram source+SVG naming under docs/diagrams/; the template's file table points here
 }
 roots = ["skills", "patterns", "ai", "support", "schemas", "profiles", "templates"]
 files = [p for r in roots for p in pathlib.Path(r).rglob("*.md")]
@@ -229,8 +231,10 @@ are pointers.
   generic release contract stays in [skills/cicd.md](../skills/cicd.md).
 - Domain rules (aggregate-owned `Valid()`/`Transition`, no rule-object layer):
   [skills/domain-model.md](../skills/domain-model.md) section Domain Rules.
-- Technical design doc (`docs/tech-design.html` only): [templates/tech-design-template.md](../templates/tech-design-template.md);
+- Technical design doc (`docs/tech-design.html` + css/js + maintenance file): [templates/tech-design-template.md](../templates/tech-design-template.md);
   diagram format and validation: [support/tech-design-diagrams.md](../support/tech-design-diagrams.md).
+- EF scalar conventions (decimal precision, UTC temporals, no provider column types outside the forced branch):
+  [templates/ef-configuration-template.md](../templates/ef-configuration-template.md) section Model Conventions.
 - Test lane switch (lane resolution, per-lane stores, once-per-lane CI run):
   [templates/test-templates-integration.md](../templates/test-templates-integration.md) section Lane switch.
 - Test prerequisite classification (missing -> `Inconclusive` with the enabling command; present but failing -> red):

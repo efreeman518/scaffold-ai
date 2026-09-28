@@ -66,20 +66,16 @@ public class {Entity}Configuration : EntityBaseConfiguration<{Entity}, {Entity}I
 
         builder.Property(e => e.Name)
                .IsRequired()
-               .HasMaxLength(200);  // nvarchar(200) - realistic length for names
+               .HasMaxLength(200);  // realistic length for names
 
         // Value-object converters such as Email/Locale are registered once in
         // {App}DbContextBase.ConfigureConventions. Keep only per-property facets here:
         // builder.Property(e => e.Email).IsRequired();
         // builder.Property(e => e.Locale).HasDefaultValue(Locale.Default);
 
-        // decimal(10,4) is the global default from ConfigureDefaultDataTypes;
-        // override here only if this property needs different precision:
-        // builder.Property(e => e.Price).HasPrecision(10, 4);
-
-        // DateTime properties auto-map to datetime2 via ConfigureDefaultDataTypes;
-        // explicit override if needed:
-        // builder.Property(e => e.DueDate).HasColumnType("datetime2");
+        // decimal (18,4) and UTC temporal conversion come from ConfigureConventions
+        // (section Model Conventions); override precision only when the domain needs it:
+        // builder.Property(e => e.Rate).HasPrecision(18, 8);
 
         builder.Property(e => e.Flags)
                .IsRequired()
@@ -141,51 +137,15 @@ public class {ChildEntity}Configuration : EntityBaseConfiguration<{ChildEntity},
 }
 ```
 
-## SQL Data Type Defaults
+## Model Conventions
 
-Apply these conventions to **every** entity configuration. The base DbContext's `ConfigureDefaultDataTypes` helper can set these globally, but each configuration should be explicit about constraints.
+Canonical owner of the scalar mapping rules. `{App}DbContextBase.ConfigureConventions` registers every type-level convention before EF discovers the model; `OnModelCreating` runs no type-default loop. The shared model names no provider column type (`nvarchar`, `datetime2`, `timestamptz`) outside the provider branch EF Core forces for a provider-only type, such as PostgreSQL `jsonb` or `vector` gated on `Database.ProviderName`; each provider maps the CLR type itself.
 
-| C# Type | SQL Type | Convention | Example |
-|---------|----------|------------|---------|
-| `string` | `nvarchar(N)` | Always specify a realistic `HasMaxLength(N)`. Use lengths that match real-world data (e.g., Name -> 200, Email -> 254, Sku -> 50, Description -> 2000). **Rarely** use `nvarchar(max)` - only for truly unbounded text like rich HTML content or large notes fields. | `.HasMaxLength(200)` |
-| `decimal` | `decimal(10,4)` | Default precision is `decimal(10,4)` for monetary/quantity values. Adjust only when the domain requires different precision (e.g., exchange rates -> `decimal(18,8)`, integer-only counts -> `decimal(10,0)`). | `.HasPrecision(10, 4)` |
-| `DateTime` | `datetime2` | All `DateTime` and `DateTime?` properties map to `datetime2`. Never use the legacy `datetime` SQL type. | `.HasColumnType("datetime2")` |
-
-### ConfigureDefaultDataTypes Helper
-
-In the abstract base DbContext (`{Project}DbContextBase`), add a global convention method that sets these defaults for all entities:
-
-```csharp
-protected static void ConfigureDefaultDataTypes(ModelBuilder modelBuilder)
-{
-    foreach (var entityType in modelBuilder.Model.GetEntityTypes())
-    {
-        foreach (var property in entityType.GetProperties())
-        {
-            // All decimals -> decimal(10,4) unless explicitly overridden
-            if (property.ClrType == typeof(decimal) || property.ClrType == typeof(decimal?))
-            {
-                if (property.GetPrecision() is null)
-                    property.SetPrecision(10);
-                if (property.GetScale() is null)
-                    property.SetScale(4);
-            }
-
-            // All DateTime -> datetime2
-            if (property.ClrType == typeof(DateTime) || property.ClrType == typeof(DateTime?))
-            {
-                property.SetColumnType("datetime2");
-            }
-        }
-    }
-}
-```
-
-> **Individual configurations can override these defaults** when the domain requires it (e.g., `.HasPrecision(18, 8)` for currency exchange rates).
-
-## Domain ID and Value-Object Conversion Conventions
-
-Domain IDs are typed value objects (`{Entity}Id : IDomainId<{Entity}Id>`). **Do NOT hand-wire individual `HasConversion<>` calls** for each ID property and do not scan entity metadata from `OnModelCreating`. Register conversions at the type level in `ConfigureConventions` before EF builds the model:
+| C# type | Convention | Per-property override |
+|---|---|---|
+| `string` | Realistic `HasMaxLength(N)` (Name 200, Email 254, Sku 50, Description 2000). Leave it unbounded only for genuinely large text. | `.HasMaxLength(200)` |
+| `decimal` | `HavePrecision(18, 4)` for every monetary/quantity value. | `.HasPrecision(18, 8)` for exchange rates |
+| `DateTimeOffset`, `DateTime` | Stored and compared as UTC through the converters below. Prefer `DateTimeOffset`. | none |
 
 ```csharp
 using EF.Data;
@@ -198,6 +158,9 @@ public abstract class {App}DbContextBase(DbContextOptions options)
         base.ConfigureConventions(cb);
 
         cb.RegisterDomainIdConversions(typeof({Entity}Id).Assembly);
+        cb.Properties<decimal>().HavePrecision(18, 4);
+        cb.Properties<DateTimeOffset>().HaveConversion<UtcDateTimeOffsetConverter>();
+        cb.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
         cb.Properties<Email>()
             .HaveConversion<EmailValueConverter>()
             .HaveMaxLength(320);
@@ -208,7 +171,26 @@ public abstract class {App}DbContextBase(DbContextOptions options)
 }
 ```
 
-`RegisterDomainIdConversions` lives in the EF.Data package (`EF.Data` namespace). It scans the supplied assembly for `IDomainId<T>` structs and registers each converter as pre-convention model configuration, so EF discovers and converts mapped IDs, previously unmapped scalar IDs such as `TenantId`, and nullable FK IDs without an app-local reflection loop.
+`Infrastructure.Data/Conventions/UtcDateTimeOffsetConverter.cs` and its `UtcDateTimeConverter.cs` sibling:
+
+```csharp
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+
+public sealed class UtcDateTimeOffsetConverter : ValueConverter<DateTimeOffset, DateTimeOffset>
+{
+    public UtcDateTimeOffsetConverter() : base(v => v.ToUniversalTime(), v => v.ToUniversalTime()) { }
+}
+
+public sealed class UtcDateTimeConverter : ValueConverter<DateTime, DateTime>
+{
+    public UtcDateTimeConverter()
+        : base(v => v.Kind == DateTimeKind.Utc ? v : v.ToUniversalTime(), v => DateTime.SpecifyKind(v, DateTimeKind.Utc)) { }
+}
+```
+
+Why UTC: Npgsql `timestamptz` rejects a non-zero offset and SQL Server compares by instant anyway, so one converter keeps every provider on one code path. EF applies it to query parameters too, so a caller-supplied `+05:00` filter is normalized before it reaches the provider. Clients convert for display.
+
+Domain IDs are typed value objects (`{Entity}Id : IDomainId<{Entity}Id>`). **Do NOT hand-wire individual `HasConversion<>` calls** for each ID property and do not scan entity metadata from `OnModelCreating`. `RegisterDomainIdConversions` lives in the EF.Data package (`EF.Data` namespace). It scans the supplied assembly for `IDomainId<T>` structs and registers each converter as pre-convention model configuration, so EF discovers and converts mapped IDs, previously unmapped scalar IDs such as `TenantId`, and nullable FK IDs without an app-local reflection loop.
 
 Use one non-nullable `DomainIdValueConverter<T>` implementation for nullable and non-nullable properties. EF never passes null into a converter. Do not create or keep `NullableDomainIdValueConverter<T>` or nullable value-object converters.
 
@@ -226,8 +208,7 @@ Converted value object defaults must use the **model CLR type**, not the provide
 - Clustered index on `(TenantId, Id)` ensures tenant data locality
 - Composite indexes always lead with `TenantId` for filtered queries
 - Enum properties: use `HasDefaultValue({Enum}.None)` for flags enums; `HasConversion<string>()` is optional for readability
-- All string properties must have `HasMaxLength()` with a realistic length - no unbounded `nvarchar(max)` unless the field genuinely stores large text
-- All `decimal` properties use `HasPrecision(10, 4)` by default - override per-property when needed
-- All `DateTime` properties map to `datetime2` - the global convention handles this, but explicit `.HasColumnType("datetime2")` is acceptable for clarity
+- All string properties must have `HasMaxLength()` with a realistic length; leave one unbounded only when it genuinely stores large text
+- Decimal precision and UTC temporal conversion are `ConfigureConventions` rules (section Model Conventions); entity configs name no provider column type
 - Domain ID properties (`{Entity}Id`, `TenantId`, nullable FKs) are handled by `ConfigureConventions` / `RegisterDomainIdConversions` - no per-property `HasConversion<>` and no `OnModelCreating` reflection loop
 - Stable value objects such as `Email` and `Locale` are handled by `ConfigureConventions` once per type; entity configs keep only required/default/index facets

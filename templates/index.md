@@ -128,7 +128,7 @@ Generate when any of `Test.Aspire`, the `WasmUI` bridge tier, or `Test.Mobile` i
 
 | Artifact | Template | Required Reference |
 |---|---|---|
-| Technical design doc (`docs/tech-design.html` only) | `tech-design-template.md` | `support/tech-design-diagrams.md` (source-plus-SVG pattern + viewer controls) |
+| Technical design doc (`docs/tech-design.html` only) | `tech-design-template.md` | `support/tech-design-diagrams.md` (source-plus-SVG pattern + render gate) |
 
 ## Phase-to-Template Mapping
 

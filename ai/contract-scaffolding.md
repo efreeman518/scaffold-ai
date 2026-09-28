@@ -172,7 +172,6 @@ public class {Entity} : EntityBase<{Entity}Id>, ITenantEntity<TenantId>
 ### 4. Test Infrastructure
 
 **Test.Support:**
-- `Utility.cs` - config builder + random string helper
 - `TestConstants.cs` - `DefaultTenantId`, `SystemUserId`
 - `JsonTestOptions.cs` - shared `JsonSerializerOptions` mirroring the API host's `ConfigureHttpJsonOptions` (case-insensitive + `JsonStringEnumConverter`). Required so endpoint / E2E tests deserialize string enums consistently. See [test-templates-endpoint.md](../templates/test-templates-endpoint.md) section Shared JSON Options.
 - `WebApplicationFactoryBase.cs` - thin app adapter deriving `EF.IntegrationTesting.AspNetCore.EfWebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>` (the package owns the pooled-EF + interceptor + scoped-factory swap-out). Constrained to `DbContextBase<string, Guid?>` (the EF.Packages canonical audit/tenant shape). Both `tests/Test.Endpoints/CustomApiFactory` and `tests/Test.E2E/DbApiFactory` derive from it - see [test-templates-endpoint.md](../templates/test-templates-endpoint.md) section Shared WebApplicationFactoryBase for the adapter shape.

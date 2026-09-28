@@ -126,13 +126,13 @@ Generate one complete slice, validate, then move to next slice.
 - Static mappers + EF-safe projectors
 - `DomainResult`-style railway flow
 - Tenant-safe defaults where enabled
-- SQL defaults: `nvarchar(N)`, `decimal(10,4)`, `datetime2`
+- Provider-neutral EF model: decimal `(18,4)`, UTC temporals
 - Stub external dependencies for local compile/run **(GR-06)** - generate compilable no-op implementations with `// TODO: [CONFIGURE]` comments at every integration point (stub class, DI registration, appsettings section)
 - **Every external dependency must declare one scaffold-time mode (GR-05)** before Phase 5 code is generated for it. Valid modes:
   - `emulator` - Aspire-hosted or local emulator available (SQL, Redis, Azure Storage Emulator, Service Bus emulator)
   - `lazy-optional` - config-driven; service activates only when config section is present/non-empty; absent = no-op passthrough
   - `no-op stub` - compile-time stub that satisfies the interface and returns safe defaults; no cloud call made
-  - `deployment-only` - live integration deferred to deployment; **a no-op stub must still be generated** so the solution compiles and runs locally. Stub must satisfy the interface, return safe defaults, and carry a `// TODO: [CONFIGURE]` comment. Blocker logged in `HANDOFF.md`.
+  - `deployment-only` - live integration deferred to deployment; **a no-op stub must still be generated** so the solution compiles and runs locally; it satisfies the interface with safe defaults and a `// TODO: [CONFIGURE]` comment. Blocker logged in `HANDOFF.md`.
 - **Schema ownership for third-party operational stores:** When a dependency (scheduler, queue dashboard, job runner, etc.) persists data through its own EF-backed or SQL-backed operational tables, the app owns its schema through an app-owned migration context applied by the `{App}.DatabaseMigrator` host - library auto-create stays off, and runtime hosts validate-only at startup (canonical rules: [../support/data-persistence-advanced.md](../support/data-persistence-advanced.md) section Third-Party Operational Store Schemas). Inventory the library's model (its entities, expected schema, any provided migrations or SQL scripts, design-time factory expectations) to build that context, and record the store in `resource-implementation.yaml` under `externalDependencyModes`. Do not assume a library created its tables just because its startup code runs without error - missing schema often surfaces as seeding or runtime failures, not startup crashes.
 - **Scaffold is complete when: solution builds, unit/endpoint tests pass, and the app boots end-to-end without any manual cloud setup (GR-11).** Manual cloud provisioning (Entra, Key Vault, Foundry, ACS) must use `lazy-optional` or `no-op stub` mode and cannot block scaffold completion.
 - No paid-license packages or tools unless they add significant value and no free option exists (GR-04). Use MSTest built-in assertions as the assertion baseline. See [../skills/testing.md](../skills/testing.md) for approved assertion options.

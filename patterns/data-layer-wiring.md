@@ -148,7 +148,7 @@ Keep schema and history-table configuration inside this central provider-options
 
 **Source:** `Infrastructure.Data/{App}DbContextBase.cs`
 
-The base context inherits from `DbContextBase<string, Guid?>` (from EF.Data). `OnModelCreating` must follow this exact call order. **Why:** Package metadata must exist before app configuration, while global naming, type, and tenant-filter passes require the complete entity model; reordering can overwrite app choices or make final passes miss entities. Therefore preserve the sequence below.
+The base context inherits from `DbContextBase<string, Guid?>` (from EF.Data). `OnModelCreating` must follow this exact call order. **Why:** Package metadata must exist before app configuration, while the provider-only and tenant-filter passes require the complete entity model; reordering can overwrite app choices or make final passes miss entities. Therefore preserve the sequence below.
 
 ```csharp
 public abstract class {App}DbContextBase(DbContextOptions options)
@@ -158,9 +158,8 @@ public abstract class {App}DbContextBase(DbContextOptions options)
     {
         base.ConfigureConventions(cb);
 
-        cb.RegisterDomainIdConversions(typeof(TenantId).Assembly);               // Pre-convention ID converters from EF.Data
-        cb.Properties<Email>().HaveConversion<EmailValueConverter>().HaveMaxLength(320);
-        cb.Properties<Locale>().HaveConversion<LocaleValueConverter>().HaveMaxLength(20);
+        // Typed IDs, value objects, decimal precision, UTC temporals:
+        // ef-configuration-template.md section Model Conventions
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -172,12 +171,12 @@ public abstract class {App}DbContextBase(DbContextOptions options)
         modelBuilder.ApplyConfigurationsFromAssembly(                            // 3. All IEntityTypeConfiguration<T>
             typeof({App}DbContextBase).Assembly);
 
-        ConfigureDefaultDataTypes(modelBuilder);                                 // 4. Global type defaults
+        ConfigurePostgreSqlModel(modelBuilder);                                  // 4. Forced provider-only types
         ConfigureTenantQueryFilters(modelBuilder);                               // 5. Tenant filters
     }
 ```
 
-`RegisterDomainIdConversions` is an EF.Data extension used from `ConfigureConventions`, not an app-local `OnModelCreating` reflection loop. Type-level pre-convention registration lets EF discover and convert all `IDomainId<T>` properties, including unmapped scalar IDs such as `TenantId` and nullable FKs, before EF Core 10 validates the model. Value objects with one storage shape across the app (`Email`, `Locale`) follow the same type-level convention pattern. Keep per-property config only for required/default/index facets or for value objects that intentionally use different provider types in different entities.
+Type-level conventions run in `ConfigureConventions`, before EF discovers the model, and are owned by [../templates/ef-configuration-template.md](../templates/ef-configuration-template.md) section Model Conventions. `ConfigurePostgreSqlModel` is the only provider branch in the model: it returns unless `Database.ProviderName` is Npgsql and maps the types SQL Server cannot create (`jsonb`, `vector` and its extension), so the SQL Server migration snapshot never carries them. Omit it when the model has no provider-only type.
 
 **Dynamic tenant query filter** -- applied to every entity implementing `ITenantEntity<TenantId>`:
 
@@ -192,34 +191,6 @@ public abstract class {App}DbContextBase(DbContextOptions options)
         {
             var filter = BuildTenantFilter(clrType);   // from DbContextBase -- uses IRequestContext.TenantId
             modelBuilder.Entity(clrType).HasQueryFilter(filter);
-        }
-    }
-```
-
-**Global decimal and datetime2 defaults:**
-
-```csharp
-    private static void ConfigureDefaultDataTypes(ModelBuilder modelBuilder)
-    {
-        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
-        {
-            foreach (var property in entityType.GetProperties())
-            {
-                // All decimals -> decimal(10,4) unless explicitly overridden
-                if (property.ClrType == typeof(decimal) || property.ClrType == typeof(decimal?))
-                {
-                    if (property.GetPrecision() is null)
-                        property.SetPrecision(10);
-                    if (property.GetScale() is null)
-                        property.SetScale(4);
-                }
-
-                // All DateTime -> datetime2
-                if (property.ClrType == typeof(DateTime) || property.ClrType == typeof(DateTime?))
-                {
-                    property.SetColumnType("datetime2");
-                }
-            }
         }
     }
 ```
