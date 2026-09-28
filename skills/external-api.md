@@ -93,22 +93,30 @@ public static class ServiceCollectionExtensions
 
         services.AddTransient<{ServiceName}AuthHandler>();
 
-        services
+        var client = services
             .AddRefitClient<I{ServiceName}Api>()
             .ConfigureHttpClient(c =>
             {
                 c.BaseAddress = new Uri(settings.BaseUrl);
                 c.Timeout = TimeSpan.FromSeconds(settings.TimeoutSeconds);
             })
-            .AddHttpMessageHandler<{ServiceName}AuthHandler>()
-            .AddResilienceHandler("{ServiceName}", (builder, context) =>
+            .AddHttpMessageHandler<{ServiceName}AuthHandler>();
+
+        // Replace the ServiceDefaults standard handler instead of stacking a second pipeline on it.
+#pragma warning disable EXTEXP0001 // RemoveAllResilienceHandlers is [Experimental]; this client owns its pipeline. Remove this pragma when the API is no longer experimental.
+        client.RemoveAllResilienceHandlers();
+#pragma warning restore EXTEXP0001
+        client.AddResilienceHandler("{ServiceName}", (builder, context) =>
             {
-                builder.AddRetry(new HttpRetryStrategyOptions
+                var retry = new HttpRetryStrategyOptions
                 {
                     MaxRetryAttempts = settings.RetryCount,
                     BackoffType = DelayBackoffType.Exponential,
                     UseJitter = true
-                });
+                };
+                // A retried POST repeats a payment; only safe methods retry unless the call carries an idempotency key.
+                retry.DisableForUnsafeHttpMethods();
+                builder.AddRetry(retry);
 
                 builder.AddCircuitBreaker(new HttpCircuitBreakerStrategyOptions
                 {

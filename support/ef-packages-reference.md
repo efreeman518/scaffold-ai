@@ -215,7 +215,7 @@ These types appear in the service and endpoint templates but are **not provided 
 | `DefaultRequest<T>` | Application.Models | Request wrapper for Create/Update service methods |
 | `DefaultResponse<T>` | Application.Models | Response wrapper for Get/Create/Update service methods |
 | `ApplicationStyle` / `ApplicationStyleResolver` | Application.Contracts | Runtime `Service` / `Cqrs` selector for `applicationStyle: switch`; reads `Application:Style` plus `<APP>_APPLICATION_STYLE` |
-| `AppConstants` | Application.Contracts | Role names (ROLE_GLOBAL_ADMIN), cache names (DEFAULT_CACHE) |
+| `AppConstants` | Application.Contracts | Role names (ROLE_GLOBAL_ADMIN, ROLE_SYSTEM), the system context user id (SYSTEM_USER_ID), cache names (DEFAULT_CACHE) |
 | `ITenantBoundaryValidator` | Application.Contracts | Tenant boundary enforcement interface |
 | `TenantBoundaryValidator` | Application.Services | Default implementation - GlobalAdmin bypass + tenant matching |
 | `IEntityCacheProvider` | Application.Contracts | Abstraction for entity-level caching |
