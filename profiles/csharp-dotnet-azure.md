@@ -10,7 +10,7 @@ A clean-architecture C#/.NET solution with:
 
 - `.slnx` solution layout and central package management (`Directory.Packages.props`).
 - Dual `DbContext` pattern (`{App}DbContextTrxn` / `{App}DbContextQuery`) over the shared `DbContextBase<string, Guid?>` base type.
-- Entity Framework Core data access with audit/tenant interceptors and integration tests using Testcontainers SQL.
+- Entity Framework Core data access with audit/tenant interceptors and integration tests on the lane's Testcontainers database.
 - DDD aggregate boundaries enforced in the generated write surface (GR-15): aggregate roots get the full slice, while internal children (1:N owned, M:N junction) are mutated only through the root's `Add*`/`Remove*` methods, the `{Root}Updater`, and nested sub-resource routes - no standalone child write handlers/services/endpoints. See [../skills/domain-model.md](../skills/domain-model.md) section Aggregate Roots vs Internal Children.
 - ASP.NET Core minimal-API host with `WebApplicationFactoryBase` test infrastructure.
 - Aspire AppHost orchestration with a `NonAzure` default lane (PostgreSQL, RabbitMQ, S3-compatible storage) and an opt-in, independently tested `Azure` provider/deployment lane.

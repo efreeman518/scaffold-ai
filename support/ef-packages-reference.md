@@ -195,9 +195,8 @@ One package, five namespaces:
 
 | Type | Namespace | Used For |
 |---|---|---|
-| `EF.IntegrationTesting.AspNetCore.EfWebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>` | `EF.IntegrationTesting.AspNetCore` | Host-replacement WebApplicationFactory base: swaps pooled contexts / options / factories / interceptors for test-mode equivalents, creates contexts via reflection (bypasses `required` members), suppresses startup tasks via `StartupTaskServiceTypeFullName`. Safe when nothing is registered yet (Phase 4). Apps derive a thin adapter in `Test.Support` - shape in [../templates/test-templates-endpoint.md](../templates/test-templates-endpoint.md) |
-| SQL Testcontainers fixtures | `EF.IntegrationTesting.Testcontainers` | Shared SQL container lifecycle for `Test.Integration` fixtures and `Test.E2E` `SqlApiFactory` |
-| `MsSqlContainerFixture`, `PostgreSqlContainerFixture` | `EF.IntegrationTesting.Testcontainers` | Provider container fixtures |
+| `EF.IntegrationTesting.AspNetCore.EfWebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>` | `EF.IntegrationTesting.AspNetCore` | Host-replacement WebApplicationFactory base; apps derive a thin adapter in `Test.Support` - behavior and shape in [../templates/test-templates-endpoint.md](../templates/test-templates-endpoint.md) |
+| `PostgreSqlContainerFixture`, `MsSqlContainerFixture` | `EF.IntegrationTesting.Testcontainers` | Database container lifecycle behind `TestDatabaseContainer` (`Test.Integration` fixtures, `Test.E2E` `DbApiFactory`) |
 | `AspireTestingHelpers` (`WaitForResourceHealthyAsync`, `GetRequiredConnectionStringAsync`) | `EF.IntegrationTesting.Aspire` | `Test.Aspire` mesh fixtures; the app-level `AspireTestHost` wraps them - see [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md) |
 | `DbContextOptionsFactory` (`BuildSqlServerOptions`, `BuildNpgsqlOptions`, `BuildInMemoryOptions`), `EfTestDbContextFactory<T>` | `EF.IntegrationTesting.EntityFramework` / `EF.IntegrationTesting.AspNetCore` | Test context options and factories |
 | `EnvironmentVariableScope`, `FunctionsCoreToolsDiscovery` | `EF.IntegrationTesting.Environment` | Environment scoping + Functions Core Tools discovery for mesh tests |

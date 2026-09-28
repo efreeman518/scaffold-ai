@@ -83,11 +83,11 @@ src/
 tests/
 |-- Test.Unit/                        # pure domain/application unit tests
 |-- Test.UI/                          # fast headless UI model/presentation tests; no app head reference
-|-- Test.Integration/                 # component: one class vs one real store (standalone Testcontainers SQL/Azurite/Redis)
+|-- Test.Integration/                 # component: one class vs one real store (standalone Testcontainers per selected store)
 |-- Test.Integration.{Project}.FlowEngine/ # when FlowEngine definition validation is in scope
 |-- Test.Aspire/                      # mesh: full AppHost graph over HTTP (lazy-started; Docker-gated)
 |-- Test.Endpoints/                   # WebApplicationFactory in-memory; per-endpoint contract tests
-|-- Test.E2E/                         # WebApplicationFactory + Testcontainers SQL; multi-endpoint workflow chains
+|-- Test.E2E/                         # WebApplicationFactory + Testcontainers database; multi-endpoint workflows
 |-- Test.Architecture/                # NetArchTest layering rules
 |-- Test.PlaywrightUI/                # browser-driven UI tests against hosted stack (Aspire/docker-compose)
 |-- Test.Mobile/                      # Appium mobile lane when Uno native testing is in scope

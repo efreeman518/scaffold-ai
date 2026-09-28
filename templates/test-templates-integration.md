@@ -2,198 +2,198 @@
 
 | | |
 |---|---|
-| **Generates** | `tests/Test.Support/Hosting/DockerRuntimePreflight.cs` (shared with Aspire-backed tiers when present), `tests/Test.Integration/Infrastructure/SqlContainerFixture.cs`, `tests/Test.Integration/Infrastructure/AzuriteContainerFixture.cs` (+ `RedisContainerFixture.cs` when the app uses Redis), `tests/Test.Integration/Infrastructure/IntegrationTestSetup.cs`, `tests/Test.Integration/{Entity}RepositoryIntegrationTests.cs`, `tests/Test.Integration/AuditLogRepositoryAzuriteTests.cs`, `tests/Test.Integration/DomainEventPipelineTests.cs` |
-| **Requires** | [repository-template](repository-template.md), [updater-template](updater-template.md), `EF.IntegrationTesting` (Testcontainers fixtures), Testcontainers packages for each store the app uses |
-| **Phase** | Fixtures generated in Phase 4 (component shells); tests filled in during Phase 5a (`*RepositoryIntegrationTests`) and Phase 5b (`AuditLogRepositoryAzuriteTests`, `DomainEventPipelineTests`) |
-| **Protocol** | Tests-after for this tier - TDD lives in `Test.Unit` and `Test.Endpoints`. Integration verifies wiring against real infrastructure (SQL/Azurite/Redis), so write the tests once the unit + endpoint tests pin behavior. |
-| **Mesh tier** | The full-AppHost-graph mesh tests (`AspireTestHost`, API/Function audit pipelines, Blazor-mesh smoke) live in a **separate `Test.Aspire` project** - see [test-templates-aspire.md](test-templates-aspire.md). |
+| **Generates** | `tests/Test.Support/Hosting/DockerRuntimePreflight.cs` + `TestDatabaseContainer.cs` (shared with other container tiers); under `tests/Test.Integration/`: `Infrastructure/DbContainerFixture.cs` + one fixture per other selected store, `Infrastructure/IntegrationTestSetup.cs`, `{Entity}RepositoryIntegrationTests.cs`, `RelationalAuditLogRepositoryTests.cs`, `RabbitMqTransportTests.cs`, `DomainEventPipelineTests.cs` |
+| **Requires** | [repository-template](repository-template.md), [updater-template](updater-template.md), `EF.IntegrationTesting` (database container fixtures), Testcontainers packages for each other store the app uses |
+| **Phase** | Fixtures generated in Phase 4 (component shells); tests filled in during Phase 5a (`*RepositoryIntegrationTests`) and Phase 5b (audit, transport, and projection tests) |
+| **Protocol** | Tests-after for this tier - TDD lives in `Test.Unit` and `Test.Endpoints`. Integration verifies wiring against real infrastructure, so write the tests once the unit + endpoint tests pin behavior. |
 
-> **Token vs interpolation:** the migration test builds an assertion message with `$"Expected >= {ExpectedTableCount} tables in {app} schema, found {tableCount}"`. `{ExpectedTableCount}` and `{app}` are scaffold tokens; `{tableCount}` is the in-scope local and stays verbatim. Rule: [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) section Disambiguating Tokens From Logging And Interpolation.
+> **Token vs interpolation:** in the migration test's `$"Expected >= {ExpectedTableCount} tables in {app} schema, found {tableCount}"`, `{ExpectedTableCount}` and `{app}` are scaffold tokens and `{tableCount}` is a local that stays verbatim ([../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) section Disambiguating Tokens From Logging And Interpolation).
 
 ## Why this tier exists
 
-`Test.Endpoints` runs against in-memory EF, which silently masks tenant query filters, owned-type flattening, paging plans, raw SQL projections, M:N bridge tables, polymorphic indexes, and audit interceptor wiring. `Test.E2E` runs the full HTTP path but only against a single SQL container.
+`Test.Endpoints` runs against in-memory EF, which silently masks tenant query filters, owned-type flattening, paging plans, raw SQL projections, M:N bridge tables, polymorphic indexes, and audit interceptor wiring. `Test.Integration` is the **component** tier: it instantiates **one class against one real store** in a **standalone Testcontainer** - no HTTP, no Aspire graph. Use it for:
 
-`Test.Integration` is the **component** tier - it exercises **one class against one real store** (a repository vs SQL, the audit repository vs Azurite Table Storage, the projection service vs SQL) by instantiating the class under test directly against a **standalone Testcontainer**. No HTTP, no Aspire graph. Use it for:
-
-- EF migration apply against real SQL Server (catches FK ordering / shadow-property / schema drift bugs).
+- EF migration apply against the lane's real database (catches FK ordering / shadow-property / schema drift bugs).
 - Tenant query filters, M:N junction navigation (`.ThenInclude`), polymorphic-index existence checks.
-- `AuditLogRepository.AppendAsync -> Azurite` round-trip (partition/row-key shape, metadata round-trip).
-- Domain-event projection (`SQL -> projection service -> view document`) with an in-memory view store.
+- Audit repository round trip against the lane's sink (tenant-first key, sentinel tenant, metadata).
+- Outbox row -> RabbitMQ transport -> bound queues (wire shape, topology routing, malformed-body rejection).
+- Domain-event projection (`database -> projection service -> view document`) with an in-memory view store.
 
-> **Component vs mesh.** A test belongs here when it instantiates one class against one store. It belongs in [test-templates-aspire.md](test-templates-aspire.md) (the `Test.Aspire` project) when it needs the production AppHost graph over HTTP - `CreateHttpClient(...)`, multiple Aspire resources, `WaitForResourceHealthyAsync`, `DistributedApplicationTestingBuilder`. The split keeps the fast component tier off the ~60-90 s Aspire boot. `Test.Integration` must **not** reference `AppHost` or `Aspire.Hosting.Testing`.
+> **Component vs mesh:** mesh tests live in `Test.Aspire` ([test-templates-aspire.md](test-templates-aspire.md)); placement rule in [../skills/testing.md](../skills/testing.md) section Component vs Mesh split. `Test.Integration` must **not** reference `AppHost` or `Aspire.Hosting.Testing`.
 
-## Naming Convention
+**Naming:** both canonical forms appear here - `Given_{Entity}Created_When_ProjectionRuns_Then_{Entity}ViewProduced` for a behavioral scenario, `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` for a structural fact (owner: [../skills/testing.md](../skills/testing.md) section Test Naming Convention). The coverage matrix and gate checks reference method names exactly, so a rename is deliberate.
 
-Owned by [../skills/testing.md](../skills/testing.md) section Test Naming Convention. Both canonical forms appear in
-this tier, and the choice is per test:
+## Lane switch
 
-```csharp
-// Behavioral scenario with a real precondition.
-[TestMethod]
-public async Task Given_AuditEntry_When_AppendAsyncToAzurite_Then_TableEntityPersistedWithExpectedKeys() { }
-
-// Structural fact about infrastructure - the subject is the schema, so there is no meaningful "Given".
-[TestMethod]
-public async Task Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema() { }
-```
-
-Method names here are referenced by exact name from the coverage matrix below and from gate checks, so treat a rename
-as a deliberate change.
-
+One assembly serves every declared lane: tests resolve the lane with the hosts' `HostingLaneResolver` (`NonAzure` unless `{APP}_LANE=Azure`), start only that lane's stores, and CI runs the assembly once per declared lane. Generate the `Azure` arm (SQL Server, Azurite, Service Bus) only when `hostingLanes` includes `Azure`; it differs only where an **Azure arm** note says. A single-lane test calls `IntegrationTestSetup.RequireLane(lane)`, `Inconclusive` on the other lane. `Test.E2E` and `Test.Aspire` read the same `TestHostingLane`.
 
 ## Fixture model
 
-> **Lane provider:** the snippets show the `Azure` lane database arm (`MsSqlContainerFixture` / `Testcontainers.MsSql`, `UseSqlServer`). On the default `NonAzure` lane generate the same shape with `PostgreSqlContainerFixture` (EF.IntegrationTesting.Testcontainers) or `Testcontainers.PostgreSql` and `UseNpgsql`, and replace Azurite-backed audit with the relational sink. The real provider is the deployed one: [../skills/testing.md](../skills/testing.md) section Capability-Gated Test Tiers (the early decision drives the rest).
+Each store the app uses gets a **standalone Testcontainer fixture** under `tests/Test.Integration/Infrastructure/`. A single `IntegrationTestSetup` runs the shared bounded Docker preflight, starts the lane's fixtures in parallel from `[AssemblyInitialize]`, and disposes them in `[AssemblyCleanup]`. Each fixture captures its `StartupError` rather than throwing so discovery continues, but each dependent test then fails with the full exception. Only the preflight-confirmed unavailable runtime is `Inconclusive`. Generate only the fixtures the app needs, each named for its store and independent of the Aspire host: `DbContainerFixture` always; `RedisContainerFixture` when a distributed cache, limiter, or Redis Data Protection is in scope; `RabbitMqBrokerFixture` when `messagingProvider: RabbitMq`; `SeaweedFsContainerFixture` when `storageProvider: S3`.
 
-Each store the app uses gets a **standalone Testcontainer fixture** under `tests/Test.Integration/Infrastructure/`. A single `IntegrationTestSetup` runs the shared bounded Docker preflight, starts the needed fixtures in parallel from `[AssemblyInitialize]`, and disposes them in `[AssemblyCleanup]`. Each fixture captures its `StartupError` rather than throwing so discovery continues, but each dependent test then fails with the full exception. Only the preflight-confirmed unavailable runtime is `Inconclusive`. Generate only the fixtures the app needs (SQL always; Azurite when audit/table storage is in scope; Redis when a distributed cache is in scope).
-
-> **Naming:** name each fixture for the store it owns (`SqlContainerFixture`, `AzuriteContainerFixture`, `RedisContainerFixture`). They are standalone - they do **not** wrap or depend on the Aspire host.
-
-> **Cleanup is owned by `DisposeAsync` + the Testcontainers reaper - never hand-sweep Docker.** Each fixture's `StopAsync` -> `DisposeAsync` removes its own container deterministically. As a backstop, Testcontainers' Resource Reaper (Ryuk) stamps every container it starts with a per-run `org.testcontainers.session-id` label and removes only those when the test process exits - so a crashed run still cleans up by **exact session ownership**. Do **not** add `docker rm`/`docker container prune` sweeps to fixtures or test code: a sweep by image name or generic label would also delete other projects', other sessions', and intentional persistent containers. The reaper already owns this correctly.
+> **Cleanup is owned by `DisposeAsync` + the Testcontainers reaper - never hand-sweep Docker.** Each fixture's `StopAsync` -> `DisposeAsync` removes its own container; the Resource Reaper (Ryuk) removes only containers carrying this run's `org.testcontainers.session-id` label when a crashed process exits. A `docker rm`/`docker container prune` sweep by image name or generic label also deletes other projects', other sessions', and intentional persistent containers.
 
 ---
 
-### File: `tests/Test.Integration/Infrastructure/SqlContainerFixture.cs`
+### File: `tests/Test.Support/Hosting/TestDatabaseContainer.cs`
+
+Shared by `DbContainerFixture` and the `Test.E2E` `DbApiFactory`. `ContainerImages` is the one image catalog in the shared hosting project (reviewed tag plus manifest digest per image); AppHost and every fixture read it.
 
 ```csharp
 using EF.IntegrationTesting.Testcontainers;
 using Microsoft.EntityFrameworkCore;
-using {Project}.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Configuration;
+using Npgsql;
+using {Project}.Hosting;
+using {Project}.Infrastructure.Data.Provider;
 
-namespace Test.Integration.Infrastructure;
+namespace Test.Support.Hosting;
 
-/// <summary>
-/// Standalone SQL Server Testcontainer for the component tier. Wraps the shared EF.IntegrationTesting
-/// <c>MsSqlContainerFixture</c> so SQL-only repository/migration/projection tests run against a real
-/// database without booting the Aspire AppHost graph. Started once by <see cref="IntegrationTestSetup"/>;
-/// <see cref="StartupError"/> is captured so dependent tests fail with its diagnostics without aborting
-/// assembly discovery.
-/// </summary>
-internal static class SqlContainerFixture
+/// <summary>The lane container-backed tests run on, resolved exactly as the hosts resolve it.</summary>
+public static class TestHostingLane
 {
-    private static readonly MsSqlContainerFixture Sql = new();
+    public static HostingLaneSettings Current =>
+        HostingLaneResolver.Resolve(new ConfigurationBuilder().AddEnvironmentVariables().Build());
 
-    /// <summary>Startup failure captured by <see cref="StartAsync"/>; null when the container started cleanly.</summary>
-    internal static Exception? StartupError { get; private set; }
+    public static {App}DbProvider DatabaseProvider =>
+        Current.Lane == HostingLane.Azure ? {App}DbProvider.SqlServer : {App}DbProvider.PostgreSql;
+}
 
-    /// <summary>Connection string for the running SQL container. Only valid once startup succeeded.</summary>
-    internal static string ConnectionString => Sql.ConnectionString;
+/// <summary>One container for the lane's provider, isolated empty databases, and runtime-matching options.</summary>
+public sealed class TestDatabaseContainer({App}DbProvider provider) : IAsyncDisposable
+{
+    private readonly PostgreSqlContainerFixture _postgres = new(ContainerImages.PostgreSql);
 
-    /// <summary>Starts the SQL container, capturing any post-preflight failure for dependent tests.</summary>
-    internal static async Task StartAsync()
+    public {App}DbProvider Provider { get; } = provider;
+    public string ConnectionString => _postgres.ConnectionString;
+    public Task StartAsync() => _postgres.StartAsync();
+    public ValueTask DisposeAsync() => _postgres.DisposeAsync();
+
+    /// <summary>Empty database for a test whose rows or counts must not be shared with other classes.</summary>
+    public async Task<string> CreateEmptyDatabaseAsync(string prefix)
     {
-        try { await Sql.StartAsync(); }
-        catch (Exception ex) { StartupError = ex; }
+        // PostgreSQL truncates identifiers at 63 bytes; the suffix adds 33 characters, so keep prefix <= 30.
+        var name = $"{prefix}_{Guid.NewGuid():N}";
+        var admin = new NpgsqlConnectionStringBuilder(ConnectionString) { Database = "postgres" };
+        await using var connection = new NpgsqlConnection(admin.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"CREATE DATABASE \"{name}\"";
+        await command.ExecuteNonQueryAsync();
+        return new NpgsqlConnectionStringBuilder(ConnectionString) { Database = name }.ConnectionString;
     }
 
-    /// <summary>Disposes the SQL container.</summary>
-    internal static async Task StopAsync() => await Sql.DisposeAsync();
-
-    /// <summary>Builds a trxn context against the standalone SQL container.</summary>
-    internal static {App}DbContextTrxn CreateTrxnContext(string? connString = null) =>
-        new(BuildSqlServerOptions<{App}DbContextTrxn>(connString ?? Sql.ConnectionString)) { AuditId = "integration-test" };
-
-    /// <summary>Builds a query context against the standalone SQL container.</summary>
-    internal static {App}DbContextQuery CreateQueryContext(string? connString = null) =>
-        new(BuildSqlServerOptions<{App}DbContextQuery>(connString ?? Sql.ConnectionString)) { AuditId = "integration-test" };
-
-    private static DbContextOptions<TContext> BuildSqlServerOptions<TContext>(string connectionString)
+    /// <summary>Interceptors can only be added at options-build time, so observers pass them here.</summary>
+    public DbContextOptions<TContext> BuildOptions<TContext>(string? connectionString, params IInterceptor[] extra)
         where TContext : DbContext =>
         new DbContextOptionsBuilder<TContext>()
-            .UseSqlServer(connectionString, sql =>
-            {
-                sql.UseLatestCompatibilityLevel();
-                sql.EnableRetryOnFailure();
-            })
+            .Use{App}Provider(Provider, connectionString ?? ConnectionString) // owns schema + history table
+            .AddInterceptors(/* the non-audit interceptors the hosts register (version stamp, outbox staging) */)
+            .AddInterceptors(extra)
             .Options;
 }
 ```
 
-> **`AuditId` bypass:** `DbContextBase<string, Guid?>` declares `required string AuditId`. When constructing contexts outside DI, set it directly via object-initializer syntax - the design-time factory uses the same pattern. (Apps whose context takes an `IRequestContext` instead build it with an admin context here; TaskFlow uses the `AuditId` string.)
+`Use{App}Provider` is the central provider-options helper ([../patterns/data-layer-wiring.md](../patterns/data-layer-wiring.md) section Registration), exposed from `Infrastructure.Data` so hosts, migrator, design-time factory, and tests share one schema/history-table rule.
 
----
+> **Azure arm:** hold an `MsSqlContainerFixture(ContainerImages.SqlServer)` instead of the PostgreSQL fixture when `Provider` is `SqlServer`, and branch `CreateEmptyDatabaseAsync` to `SqlConnectionStringBuilder` with admin catalog `master` and `CREATE DATABASE [{name}]`. `BuildOptions` needs no branch.
 
-### File: `tests/Test.Integration/Infrastructure/AzuriteContainerFixture.cs`
-
-Generate when the app persists to Azure Table/Blob/Queue storage (audit log, attachments).
+### File: `tests/Test.Integration/Infrastructure/DbContainerFixture.cs`
 
 ```csharp
-using Testcontainers.Azurite;
+using {Project}.Infrastructure.Data;
+using Test.Support.Hosting;
 
 namespace Test.Integration.Infrastructure;
 
 /// <summary>
-/// Standalone Azurite Testcontainer for the component tier. Provides a real Table Storage endpoint for
-/// the audit-repository test without booting the Aspire AppHost graph. Started once by
-/// <see cref="IntegrationTestSetup"/>; <see cref="StartupError"/> is captured (not thrown).
+/// Standalone database Testcontainer on the lane's provider, started by <see cref="IntegrationTestSetup"/>;
+/// <see cref="StartupError"/> is captured so dependent tests fail with it without aborting discovery.
 /// </summary>
-internal static class AzuriteContainerFixture
+internal static class DbContainerFixture
 {
-    // Pass the image explicitly (the parameterless AzuriteBuilder() ctor is [Obsolete]); resolve and
-    // pin a concrete reviewed tag at scaffold time - see aspire.md section Emulator Image Pinning.
-    private static readonly AzuriteContainer Azurite =
-        new AzuriteBuilder("mcr.microsoft.com/azure-storage/azurite:<resolved-stable-azurite-tag>").Build();
+    private static readonly TestDatabaseContainer Container = new(TestHostingLane.DatabaseProvider);
 
-    /// <summary>Startup failure captured by <see cref="StartAsync"/>; null when the container started cleanly.</summary>
     internal static Exception? StartupError { get; private set; }
+    internal static string ConnectionString => Container.ConnectionString;
 
-    /// <summary>Azurite connection string (blob/queue/table). Only valid once startup succeeded.</summary>
-    internal static string ConnectionString => Azurite.GetConnectionString();
-
-    /// <summary>Starts the Azurite container, capturing any post-preflight failure for dependent tests.</summary>
     internal static async Task StartAsync()
     {
-        try { await Azurite.StartAsync(); }
+        try { await Container.StartAsync(); }
         catch (Exception ex) { StartupError = ex; }
     }
 
-    /// <summary>Disposes the Azurite container.</summary>
-    internal static async Task StopAsync() => await Azurite.DisposeAsync();
+    internal static async Task StopAsync() => await Container.DisposeAsync();
+
+    internal static Task<string> CreateEmptyDatabaseConnectionStringAsync(string prefix) =>
+        Container.CreateEmptyDatabaseAsync(prefix);
+
+    internal static {App}DbContextTrxn CreateTrxnContext(string? connString = null) =>
+        new(Container.BuildOptions<{App}DbContextTrxn>(connString)) { AuditId = "integration-test" };
+
+    internal static {App}DbContextQuery CreateQueryContext(string? connString = null) =>
+        new(Container.BuildOptions<{App}DbContextQuery>(connString)) { AuditId = "integration-test" };
 }
 ```
 
-> **Redis:** when the app uses a distributed cache, generate a parallel `RedisContainerFixture` wrapping `Testcontainers.Redis` (`new RedisBuilder("redis:<resolved-reviewed-tag>@sha256:<resolved-manifest-digest>").Build()`, `GetConnectionString()`) with the same `StartupError` shape, and start it in `IntegrationTestSetup` alongside the others. A concrete tag without a digest is allowed only for a documented local-only fixture.
+> **`AuditId` bypass:** `DbContextBase<string, Guid?>` declares `required string AuditId`. When constructing contexts outside DI, set it directly via object-initializer syntax - the design-time factory uses the same pattern. A context that takes an `IRequestContext` instead gets an admin context here.
 
----
+The other store fixtures follow the same `StartupError` / `StartAsync` / `StopAsync` shape:
+
+- **RabbitMQ:** `new RabbitMqBuilder(ContainerImages.RabbitMq).WithUsername("{app}").WithPassword("{app}-password").Build()` - current images refuse a remote `guest` login, so the container gets its own credentials and clients read them back from `GetConnectionString()` (exposed as `ConnectionString`).
+- **Redis:** `RedisTestContainer` in `tests/Test.Support/Hosting` (shared with `DbApiFactory`) wraps `new RedisBuilder(ContainerImages.Redis).Build()` and exposes `ConnectionString` and `IsStarted`; `RedisContainerFixture` wraps it.
+- **SeaweedFS (S3):** `new ContainerBuilder(ContainerImages.SeaweedFs).WithCommand("mini", "-dir=/data")` with `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` values the fixture also exposes, `WithPortBinding(8333, true)`, and `Wait.ForUnixContainer().UntilInternalTcpPortIsAvailable(8333)`; `ServiceUrl` is `http://{Hostname}:{GetMappedPublicPort(8333)}`.
+- **Azure arm:** `AzuriteContainerFixture` wraps `new AzuriteBuilder(ContainerImages.Azurite).Build()` (the parameterless builder is obsolete) and exposes `GetConnectionString()`.
 
 ### File: `tests/Test.Integration/Infrastructure/IntegrationTestSetup.cs`
 
 ```csharp
 namespace Test.Integration.Infrastructure;
 
+using {Project}.Hosting;
 using Test.Support.Hosting;
 
 /// <summary>
-/// Assembly-scoped lifecycle for the component tier. Starts the standalone store Testcontainers in
-/// parallel via <c>[AssemblyInitialize]</c> and disposes them via <c>[AssemblyCleanup]</c>. A bounded Docker
-/// preflight is the only inconclusive path; captured container startup failures remain red. Component tier
-/// only - no Aspire graph or AppHost reference.
+/// Assembly-scoped lifecycle for the component tier: starts only the lane's store Testcontainers in parallel.
+/// A bounded Docker preflight is the only inconclusive path; captured startup failures remain red.
 /// </summary>
 [TestClass]
-public class IntegrationTestSetup
+public static class IntegrationTestSetup
 {
+    private static HostingLane _lane;
+
     internal static string? DockerUnavailableReason { get; private set; }
 
     [AssemblyInitialize]
     public static async Task AssemblyInit(TestContext context)
     {
+        _lane = TestHostingLane.Current.Lane;
         DockerUnavailableReason = await DockerRuntimePreflight.GetUnavailableReasonAsync(
             TimeSpan.FromSeconds(10),
             context.CancellationToken);
         if (DockerUnavailableReason is not null)
             return;
 
-        await Task.WhenAll(
-            SqlContainerFixture.StartAsync(),
-            AzuriteContainerFixture.StartAsync());
+        // One entry per generated fixture; only the selected lane's branch runs.
+        Task[] starts = _lane == HostingLane.Azure
+            ? [DbContainerFixture.StartAsync(), RedisContainerFixture.StartAsync(), AzuriteContainerFixture.StartAsync()]
+            : [DbContainerFixture.StartAsync(), RedisContainerFixture.StartAsync(),
+               RabbitMqBrokerFixture.StartAsync(), SeaweedFsContainerFixture.StartAsync()];
+        await Task.WhenAll(starts);
     }
 
     [AssemblyCleanup]
     public static async Task AssemblyCleanup(TestContext _)
     {
-        if (DockerUnavailableReason is null)
-            await Task.WhenAll(SqlContainerFixture.StopAsync(), AzuriteContainerFixture.StopAsync());
+        if (DockerUnavailableReason is not null)
+            return;
+
+        Task[] stops = _lane == HostingLane.Azure
+            ? [DbContainerFixture.StopAsync(), RedisContainerFixture.StopAsync(), AzuriteContainerFixture.StopAsync()]
+            : [DbContainerFixture.StopAsync(), RedisContainerFixture.StopAsync(),
+               RabbitMqBrokerFixture.StopAsync(), SeaweedFsContainerFixture.StopAsync()];
+        await Task.WhenAll(stops);
     }
 
     internal static bool IsUnavailable(Exception? startupError) =>
@@ -202,54 +202,39 @@ public class IntegrationTestSetup
     internal static void AssertAvailable(string resourceName, Exception? startupError)
     {
         if (DockerUnavailableReason is not null)
-        {
             Assert.Inconclusive(DockerUnavailableReason);
-            return;
-        }
 
         if (startupError is not null)
             Assert.Fail($"{resourceName} container startup failed after Docker preflight succeeded:{Environment.NewLine}{startupError}");
     }
+
+    internal static void RequireLane(HostingLane lane)
+    {
+        if (DockerUnavailableReason is not null)
+            Assert.Inconclusive(DockerUnavailableReason);
+
+        if (_lane != lane)
+            Assert.Inconclusive($"Test requires {APP}_LANE={lane}; current lane is {_lane}.");
+    }
 }
 ```
 
-> Only one `[AssemblyInitialize]`/`[AssemblyCleanup]` per assembly. Add each generated store fixture's `StartAsync`/`StopAsync` to the `Task.WhenAll` calls.
+> Only one `[AssemblyInitialize]`/`[AssemblyCleanup]` per assembly. Add each generated store fixture's `StartAsync`/`StopAsync` to its lane's arrays.
 
 ---
 
 ## Repository Integration Tests
 
-Cover **migration apply** + **CRUD against real SQL** + **child includes** + **updater navigation-add round-trip** (for entities with an `{Entity}Updater`) + **M:N junction navigation** + **tenant query filter** + **polymorphic indexes** when applicable + **paged search projection per searchable aggregate**. Build contexts via `SqlContainerFixture` and gate on `StartupError` in `[TestInitialize]`.
+Cover **migration apply** + **CRUD against the real database** + **child includes** + **updater navigation-add round-trip** (for entities with an `{Entity}Updater`) + **M:N junction navigation** + **tenant query filter** + **polymorphic indexes** when applicable + **paged search projection per searchable aggregate**. Build contexts via `DbContainerFixture` and gate on `StartupError` in `[TestInitialize]`. Every SQL statement stays standard (`INFORMATION_SCHEMA`, quoted identifiers) and every scalar goes through `Convert.ToInt32` - PostgreSQL returns `bigint` for `COUNT(*)` - so one test body runs on both providers.
 
-> **Paged search projection is required at `balanced`+ for every searchable aggregate.** Call the repo's search method (which wraps `QueryPageProjectionAsync`) for a normal `PageIndex=1, PageSize=n` request and assert **both** the returned page contents **and** `Total`. This is the only tier that catches a positional `QueryPageProjectionAsync` call - a swapped `pageSize`/`pageIndex` (near-empty page) or `includeTotal:false` (`Total = -1`) - because fake providers used in fast tiers translate the same wrong call into correct-looking results. See the "Call it with named arguments" note in [repository-template.md](repository-template.md).
+> **Paged search projection is required at `balanced`+ for every searchable aggregate.** Call the repo's search method (which wraps `QueryPageProjectionAsync`) for a normal `PageIndex=1, PageSize=n` request and assert **both** the page contents **and** `Total`. Only this tier catches a positional call - swapped `pageSize`/`pageIndex` (near-empty page) or `includeTotal:false` (`Total = -1`) - because fast-tier fakes translate it into correct-looking results. See the "Call it with named arguments" note in [repository-template.md](repository-template.md).
 
-> **Typed ID - assertion pitfall:** Entity `Id` is now `{Entity}Id` (a typed value struct), not `Guid`. A direct equality comparison between a `Guid` and a typed ID will not compile or silently fail. Always unwrap `.Value` when comparing a typed ID against a raw `Guid`:
-> ```csharp
-> // WRONG - type mismatch, will not compile
-> Assert.AreEqual(categoryId, result.CategoryId);
->
-> // RIGHT - unwrap the typed ID
-> Assert.AreEqual(categoryId, result.CategoryId.Value);
-> Assert.AreEqual(categoryId, result.CategoryId?.Value);  // nullable form
-> Assert.AreNotEqual(Guid.Empty, entity.Id.Value);
-> ```
->
-> **Generic repo construction:** When constructing the generic repository pair directly in tests (for CRUD-only/join entities), include the typed ID parameter:
-> ```csharp
-> // OLD - will not compile with typed ID constraints
-> var repo = new {App}RepositoryTrxn<Tag>(db);
->
-> // NEW
-> var repo = new {App}RepositoryTrxn<Tag, TagId>(db);
-> ```
-> Bespoke repos (`{Entity}RepositoryTrxn`) are constructed without type parameters - they do not change.
+> **Typed IDs:** entity `Id` is a typed value struct (`{Entity}Id`), so compare it with a raw `Guid` through `.Value` (`Assert.AreEqual(categoryId, result.CategoryId.Value)`, `result.CategoryId?.Value` when nullable) - a direct comparison does not compile. Construct the generic repository pair with the typed ID parameter (`new {App}RepositoryTrxn<Tag, TagId>(db)`); bespoke `{Entity}RepositoryTrxn` repos take none.
 
-> **Seeding a full FK chain:** repository tests below seed a bare parent in their own unit of work
-> (fine for repo-level assertions). When a test needs the **owner/tenant chain** (a row owned by a real
-> user in a real tenant - e.g. anything exercising the write-identity path), use the shared
-> `SqlAggregateSeeder` from `Test.Support` ([test-templates-endpoint.md](test-templates-endpoint.md)
-> section SqlAggregateSeeder - conditional, generate on first need) rather than re-inlining
-> tenant+user inserts per test.
+> **Seeding a full FK chain:** repository tests seed a bare parent in their own unit of work. A test that
+> needs the owner/tenant chain (anything on the write-identity path) uses the shared `DbAggregateSeeder`
+> ([test-templates-endpoint.md](test-templates-endpoint.md) section DbAggregateSeeder), never inline
+> tenant+user inserts.
 
 ### File: `tests/Test.Integration/{Entity}RepositoryIntegrationTests.cs`
 
@@ -267,11 +252,11 @@ using Test.Support.Builders;
 namespace Test.Integration;
 
 /// <summary>
-/// Validates EF migrations apply cleanly against real SQL Server and that core repository operations
+/// Validates EF migrations apply cleanly against the lane's real database and that core repository operations
 /// (CRUD, includes, many-to-many bridges, the tenant query filter, polymorphic-attachment indexing where
 /// applicable) work against the migrated schema.
-/// Component tier: instantiates contexts directly against a standalone SQL Testcontainer via
-/// <c>SqlContainerFixture</c> (started by <c>IntegrationTestSetup</c>) - no Aspire graph, no HTTP.
+/// Component tier: instantiates contexts directly against a standalone database Testcontainer via
+/// <c>DbContainerFixture</c> (started by <c>IntegrationTestSetup</c>) - no Aspire graph, no HTTP.
 /// </summary>
 [TestClass]
 [TestCategory("Integration")]
@@ -280,15 +265,14 @@ public class {Entity}RepositoryIntegrationTests
     private static readonly Guid TenantA = TestConstants.TenantId;
     private static readonly Guid TenantB = Guid.Parse("00000000-0000-0000-0000-000000000099");
 
-    // Async test class -> declare the instance TestContext and flow TestContext.CancellationToken into
-    // every cancellable async call (including helpers). See ../skills/testing.md Cancellation-Token discipline.
+    // Flow TestContext.CancellationToken everywhere - see ../skills/testing.md Cancellation-Token discipline.
     public TestContext TestContext { get; set; } = null!;
 
-    /// <summary>Classifies Docker unavailability separately from a SQL startup failure.</summary>
+    /// <summary>Classifies Docker unavailability separately from a database startup failure.</summary>
     [TestInitialize]
     public void TestSetup()
     {
-        IntegrationTestSetup.AssertAvailable("SQL", SqlContainerFixture.StartupError);
+        IntegrationTestSetup.AssertAvailable("Database", DbContainerFixture.StartupError);
     }
 
     [TestMethod]
@@ -296,13 +280,13 @@ public class {Entity}RepositoryIntegrationTests
     public async Task Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema()
     {
         var ct = TestContext.CancellationToken;
-        await using (var firstRun = SqlContainerFixture.CreateTrxnContext())
+        await using (var firstRun = DbContainerFixture.CreateTrxnContext())
         {
             await firstRun.Database.MigrateAsync(ct);
         }
 
         // Fresh context catches unqualified history-table lookup and accidental InitialCreate replay.
-        await using var db = SqlContainerFixture.CreateTrxnContext();
+        await using var db = DbContainerFixture.CreateTrxnContext();
         await db.Database.MigrateAsync(ct);
 
         Assert.IsTrue(await db.Database.CanConnectAsync(ct));
@@ -311,12 +295,12 @@ public class {Entity}RepositoryIntegrationTests
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{app}'";
-        var tableCount = (int)(await cmd.ExecuteScalarAsync(ct))!;
+        var tableCount = Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
         Assert.IsGreaterThanOrEqualTo(tableCount, {ExpectedTableCount},
             $"Expected >= {ExpectedTableCount} tables in {app} schema, found {tableCount}");
 
         cmd.CommandText = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{app}' AND TABLE_NAME = '__EFMigrationsHistory'";
-        var historyTableCount = (int)(await cmd.ExecuteScalarAsync(ct))!;
+        var historyTableCount = Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
         Assert.AreEqual(1, historyTableCount, "Migration history table must be pinned to the owned schema");
     }
 
@@ -325,7 +309,7 @@ public class {Entity}RepositoryIntegrationTests
     public async Task {Entity}_CrudOperations_WorkAgainstRealSql()
     {
         var ct = TestContext.CancellationToken;
-        await using var db = SqlContainerFixture.CreateTrxnContext();
+        await using var db = DbContainerFixture.CreateTrxnContext();
         await db.Database.MigrateAsync(ct);
 
         // Create
@@ -358,12 +342,12 @@ public class {Entity}RepositoryIntegrationTests
     public async Task Search_WithDuplicateSortKeys_HasStablePageMembership()
     {
         var ct = TestContext.CancellationToken;
-        await using var db = SqlContainerFixture.CreateTrxnContext();
+        await using var db = DbContainerFixture.CreateTrxnContext();
         await db.Database.MigrateAsync(ct);
 
         // Seed at least three pages with the same business sort key. Keep the returned IDs.
         var expectedIds = await SeedSearchRowsAsync(db, name: "Same sort key", count: 13, ct);
-        await using var queryDb = SqlContainerFixture.CreateQueryContext();
+        await using var queryDb = DbContainerFixture.CreateQueryContext();
         var repo = new {Entity}RepositoryQuery(queryDb);
 
         var actualIds = new List<Guid>();
@@ -417,7 +401,7 @@ public class {Entity}RepositoryIntegrationTests
     [Timeout(120000)]
     public async Task {Entity}_WithChildren_PersistsCorrectly()
     {
-        await using var db = SqlContainerFixture.CreateTrxnContext();
+        await using var db = DbContainerFixture.CreateTrxnContext();
         await db.Database.MigrateAsync();
 
         var entity = new {Entity}Builder().WithName("Parent {Entity}").Build();
@@ -437,16 +421,10 @@ public class {Entity}RepositoryIntegrationTests
     }
 
     /// <summary>
-    /// Regression guard for the <c>ValueGeneratedNever</c> key baseline (GR-16). Drives a real
-    /// <c>repo.UpdateFromDto(reloadedParent, dto)</c> round-trip that adds a NEW child to an
-    /// already-persisted, freshly-loaded (tracked) parent - the exact aggregate-edit path the API uses,
-    /// and the ONLY path that exercises EF's add-vs-update state inference for navigation-added children.
-    /// The <c>{Entity}_WithChildren_PersistsCorrectly</c> test above seeds children via
-    /// <c>db.{ChildEntities}.Add(...)</c>, which inserts them directly and bypasses this inference -
-    /// it cannot catch a missing/regressed baseline. Here the insert succeeds only because
-    /// <c>EntityBase.Id</c> is <c>ValueGeneratedNever</c> (EntityBaseConfiguration): EF treats the
-    /// client-set Guid v7 key as application-assigned and infers the navigation-add as Added. Drop that
-    /// baseline (or add a child whose config skips <c>base.Configure</c>) and the save throws
+    /// Regression guard for the <c>ValueGeneratedNever</c> key baseline (GR-16): a real
+    /// <c>repo.UpdateFromDto(reloadedParent, dto)</c> round-trip that adds a NEW child to a freshly loaded,
+    /// tracked parent - the aggregate-edit path the API uses and the only path that exercises EF's
+    /// add-vs-update inference for navigation-added children. Without the baseline the save throws
     /// <c>DbUpdateConcurrencyException</c> (UPDATE against a non-existent row).
     /// </summary>
     [TestMethod]
@@ -456,7 +434,7 @@ public class {Entity}RepositoryIntegrationTests
         {Entity}Id parentId;  // typed ID - not Guid
 
         // Seed a bare parent in its own unit of work.
-        await using (var seed = SqlContainerFixture.CreateTrxnContext())
+        await using (var seed = DbContainerFixture.CreateTrxnContext())
         {
             await seed.Database.MigrateAsync();
             var seeded = new {Entity}Builder().WithName("Updater Parent").Build();
@@ -466,14 +444,12 @@ public class {Entity}RepositoryIntegrationTests
         }
 
         // Reload the persisted parent (tracked, children included) in a fresh context - the handler/service path.
-        await using var db = SqlContainerFixture.CreateTrxnContext();
+        await using var db = DbContainerFixture.CreateTrxnContext();
         var loaded = await db.{Entities}
             .Include(e => e.{ChildEntities})
             .FirstAsync(e => e.Id == parentId);
 
-        // Desired-state DTO carries a NEW child (no Id -> create path). The DTO collection property
-        // mirrors the entity navigation; fill the child's required fields for your domain.
-        // DTOs still carry Guid - unwrap typed ID with .Value when populating DTO fields.
+        // Desired-state DTO with a NEW child (no Id -> create path); DTOs carry Guid, so unwrap with .Value.
         var dto = new {Entity}Dto
         {
             Id = parentId.Value,
@@ -489,7 +465,7 @@ public class {Entity}RepositoryIntegrationTests
         await db.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins);
 
         // Confirm the child persisted via a clean reload.
-        await using var verify = SqlContainerFixture.CreateTrxnContext();
+        await using var verify = DbContainerFixture.CreateTrxnContext();
         var reloaded = await verify.{Entities}
             .Include(e => e.{ChildEntities})
             .FirstAsync(e => e.Id == parentId);
@@ -501,7 +477,7 @@ public class {Entity}RepositoryIntegrationTests
     public async Task {Entity}Tag_ManyToMany_WorksCorrectly()
     {
         // Only generate when entity participates in an M:N relationship via a junction entity.
-        await using var db = SqlContainerFixture.CreateTrxnContext();
+        await using var db = DbContainerFixture.CreateTrxnContext();
         await db.Database.MigrateAsync();
 
         var entity = new {Entity}Builder().WithName("Tagged").Build();
@@ -528,7 +504,7 @@ public class {Entity}RepositoryIntegrationTests
     public async Task TenantQueryFilter_RestrictsResults_WhenTenantIdSet()
     {
         // Only generate when enableMultiTenant is true.
-        await using var db = SqlContainerFixture.CreateTrxnContext();
+        await using var db = DbContainerFixture.CreateTrxnContext();
         await db.Database.MigrateAsync();
 
         var entityA = new {Entity}Builder().WithTenantId(TenantA).WithName("Tenant A").Build();
@@ -561,124 +537,200 @@ public class {Entity}RepositoryIntegrationTests
 | `Search_WithDuplicateSortKeys_HasStablePageMembership` | Every repository with paging. Seed more than one page with the same business sort key and assert exact IDs, no omissions, and no duplicates. |
 | `{Entity}_CrudOperations_WorkAgainstRealSql` | Every entity with mutations. |
 | `{Entity}_WithChildren_PersistsCorrectly` | Entity has owned/dependent child collections (1:N). Persistence + includes only - seeds children via `db.{ChildEntities}.Add(...)`, so it does NOT exercise the updater/navigation-add path (see next row). |
-| `{Entity}_UpdateFromDto_AddsChildToReloadedParent_AgainstRealSql` | Entity has owned/dependent child collections (1:N) **and** an `{Entity}Updater`. Required regression guard for the `ValueGeneratedNever` key baseline (GR-16) - the only test that adds a NEW child through `repo.UpdateFromDto` against real SQL. A green `{Entity}_WithChildren_PersistsCorrectly` does not substitute for it. |
+| `{Entity}_UpdateFromDto_AddsChildToReloadedParent_AgainstRealSql` | Entity has owned/dependent child collections (1:N) **and** an `{Entity}Updater`. Required regression guard for the `ValueGeneratedNever` key baseline (GR-16) - the only test that adds a NEW child through `repo.UpdateFromDto` against the real database. A green `{Entity}_WithChildren_PersistsCorrectly` does not substitute for it. |
 | `{Entity}Tag_ManyToMany_WorksCorrectly` | Entity participates in M:N via a junction. |
 | `TenantQueryFilter_RestrictsResults_WhenTenantIdSet` | `enableMultiTenant: true`. |
 | `Polymorphic_Index_Exists` | Entity uses a polymorphic ownership pattern (e.g., `Attachment.OwnerType` + `OwnerId`). |
 
 ---
 
-## Audit Repository (Azurite) Test
+## Audit Repository Test
 
-Validates `AuditLogRepository.AppendAsync` against real Azurite Table Storage (partition key, row key shape, round-trip metadata). Component tier - it exercises only Azurite via `AzuriteContainerFixture`, no API and no Function.
+Generate for `auditProvider: Relational`.
 
-### File: `tests/Test.Integration/AuditLogRepositoryAzuriteTests.cs`
+### File: `tests/Test.Integration/RelationalAuditLogRepositoryTests.cs`
 
 ```csharp
-using Azure.Data.Tables;
 using EF.Common.Contracts;
-using Microsoft.Extensions.Azure;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using {Project}.Infrastructure.Storage;
+using Microsoft.EntityFrameworkCore;
+using {Project}.Hosting;
+using {Project}.Infrastructure.Repositories;
 using Test.Integration.Infrastructure;
 
 namespace Test.Integration;
 
 /// <summary>
-/// Validates AuditLogRepository.AppendAsync against real Azurite Table Storage: partition key,
-/// row key shape (..._{Id:N}), and round-trip of audit metadata.
-/// Component tier: exercises only Azurite via a standalone <c>AzuriteContainerFixture</c> (started by
-/// <c>IntegrationTestSetup</c>) - no API, no Function, no Aspire graph.
+/// Validates RelationalAuditLogRepository: tenant-first key, sentinel tenant for a null tenant, field round trip.
+/// Component tier; each test migrates its own empty database so audit rows never mix with another class's.
 /// </summary>
 [TestClass]
 [TestCategory("Integration")]
-[DoNotParallelize]
-public class AuditLogRepositoryAzuriteTests
+public class RelationalAuditLogRepositoryTests
 {
+    private const string SystemTenantId = "_system";
+
     public TestContext TestContext { get; set; } = null!;
 
-    /// <summary>Classifies Docker unavailability as Inconclusive and post-preflight startup failure as red.</summary>
     [TestInitialize]
     public void TestSetup()
     {
-        IntegrationTestSetup.AssertAvailable("Azurite", AzuriteContainerFixture.StartupError);
+        IntegrationTestSetup.RequireLane(HostingLane.NonAzure);
+        IntegrationTestSetup.AssertAvailable("Database", DbContainerFixture.StartupError);
     }
 
     [TestMethod]
-    [Timeout(300000)]
-    public async Task Given_AuditEntry_When_AppendAsyncToAzurite_Then_TableEntityPersistedWithExpectedKeys()
+    [Timeout(300000, CooperativeCancellation = true)]
+    public async Task Append_PersistsEveryAuditField_WithTenantFirstKeyAndSentinelTenant()
     {
-        var ct = TestContext.CancellationToken;  // flow the test token, not CancellationToken.None
-
-        var connectionString = AzuriteContainerFixture.ConnectionString;
-        Assert.IsFalse(string.IsNullOrWhiteSpace(connectionString));
-
-        var tableName = $"audit{Guid.NewGuid():N}"[..31];
-        var tableServiceClient = new TableServiceClient(connectionString);
-        var repository = new AuditLogRepository(
-            new TestTableServiceClientFactory(tableServiceClient),
-            Options.Create(new AuditLogStorageSettings
-            {
-                TableName = tableName,
-                NullTenantPartitionKey = "_system"
-            }),
-            NullLogger<AuditLogRepository>.Instance);
+        var ct = TestContext.CancellationToken;
+        var connString = await DbContainerFixture.CreateEmptyDatabaseConnectionStringAsync("auditrel");
+        await using (var migrate = DbContainerFixture.CreateTrxnContext(connString))
+            await migrate.Database.MigrateAsync(ct);
 
         var tenantId = Guid.NewGuid();
         var entry = new AuditEntry<string, Guid>
         {
-            Id = Guid.NewGuid(),
-            AuditId = "integration-user",
-            TenantId = tenantId,
-            EntityType = "{Entity}",
-            EntityKey = Guid.NewGuid().ToString(),
-            Status = AuditStatus.Success,
-            Action = "Create",
-            Metadata = "{\"source\":\"azurite-test\"}"
+            Id = Guid.CreateVersion7(), AuditId = "integration-user", TenantId = tenantId,
+            EntityType = "{Entity}", EntityKey = Guid.NewGuid().ToString(),
+            Status = AuditStatus.Success, Action = "Create", Metadata = "{\"source\":\"relational-test\"}"
+        };
+        var systemEntry = new AuditEntry<string, Guid?>
+        {
+            Id = Guid.CreateVersion7(), AuditId = "system", TenantId = null,
+            EntityType = "Retention", EntityKey = "sweep", Status = AuditStatus.Success, Action = "Purge"
         };
 
-        try
+        await using (var db = DbContainerFixture.CreateTrxnContext(connString))
         {
+            var repository = new RelationalAuditLogRepository(db, SystemTenantId);
             await repository.AppendAsync(entry, ct);
-
-            var tableClient = tableServiceClient.GetTableClient(tableName);
-            var persisted = await ReadSingleEntityAsync(tableClient, tenantId.ToString());
-
-            Assert.IsNotNull(persisted);
-            Assert.AreEqual(tenantId.ToString(), persisted.PartitionKey);
-            Assert.IsTrue(persisted.RowKey.EndsWith($"_{entry.Id:N}", StringComparison.Ordinal));
-            Assert.AreEqual(entry.AuditId, persisted.AuditId);
-            Assert.AreEqual(entry.Action, persisted.Action);
-            Assert.AreEqual(entry.Status.ToString(), persisted.Status);
+            await repository.AppendAsync(systemEntry, ct);
         }
-        finally
-        {
-            await tableServiceClient.DeleteTableAsync(tableName);
-        }
-    }
 
-    private static async Task<AuditLogTableEntity> ReadSingleEntityAsync(
-        TableClient tableClient, string partitionKey)
-    {
-        await foreach (var entity in tableClient.QueryAsync<AuditLogTableEntity>(
-            e => e.PartitionKey == partitionKey))
-        {
-            return entity;
-        }
-        Assert.Fail("Expected an audit entity to be written to Azurite.");
-        throw new InvalidOperationException("Unreachable");
-    }
+        await using var verify = DbContainerFixture.CreateQueryContext(connString);
+        var persisted = await verify.AuditLog.AsNoTracking().SingleAsync(e => e.Id == entry.Id, ct);
+        Assert.AreEqual(tenantId.ToString(), persisted.TenantId, "tenant-first key: one tenant's trail is a range scan");
+        Assert.AreEqual(entry.AuditId, persisted.AuditId);
+        Assert.AreEqual(entry.Status.ToString(), persisted.Status);
+        Assert.AreEqual(entry.Metadata, persisted.Metadata);  // assert every mapped field the sink stores
 
-    private sealed class TestTableServiceClientFactory(TableServiceClient client)
-        : IAzureClientFactory<TableServiceClient>
-    {
-        public TableServiceClient CreateClient(string name) => client;
+        var system = await verify.AuditLog.AsNoTracking().SingleAsync(e => e.Id == systemEntry.Id, ct);
+        Assert.AreEqual(SystemTenantId, system.TenantId, "a null tenant is stored under the sentinel");
     }
 }
 ```
 
-> The **API/Function audit pipeline** (request -> middleware -> Table Storage over HTTP) is a mesh test - it lives in `Test.Aspire`. See [test-templates-aspire.md](test-templates-aspire.md).
+Add `PurgeOlderThan_WalksTheWindowInBatches_AndKeepsRowsInsideIt` when the sink has a retention sweep: seed rows at explicit `RecordedUtc` values on both sides of a fixed cutoff, purge with a batch size smaller than the expired count, and assert the returned total plus the surviving in-window rows - one unbounded `DELETE` reports the same total and proves nothing.
+
+> **Azure arm:** `AuditLogRepositoryAzuriteTests` holds the Azure Table repository (`AuditLogRepository`) to the same contract against `AzuriteContainerFixture`: a `TableServiceClient` over the fixture connection string behind a one-line `IAzureClientFactory<TableServiceClient>` stub, a unique table per test deleted in `finally`, and assertions on the partition-key and row-key shape, behind `RequireLane(HostingLane.Azure)`.
+
+The **API audit pipeline over HTTP** is a mesh test - see [test-templates-aspire.md](test-templates-aspire.md).
+
+---
+
+## RabbitMQ Transport Test
+
+Generate when `messagingProvider: RabbitMq`. Proves the app's half of the provider (the package's own tests cover confirms, prefetch, and dead-lettering); duplicate-delivery proof is the inbox test owned by [../skills/messaging.md](../skills/messaging.md) section At-Least-Once Consumer: Inbox. Staging, envelope, and topology member names follow the reference app - read the generated members before binding (GR-18).
+
+### File: `tests/Test.Integration/RabbitMqTransportTests.cs`
+
+```csharp
+using EF.Messaging.RabbitMq;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using RabbitMQ.Client;
+using {Project}.Application.Contracts.Messaging;
+using {Project}.Hosting;
+using {Project}.Infrastructure.Data.Interceptors;
+using {Project}.Infrastructure.Messaging.RabbitMq;
+using Test.Integration.Infrastructure;
+using Test.Support;
+
+namespace Test.Integration;
+
+/// <summary>
+/// Validates {Project}RabbitMqEventTransport and {Project}RabbitMqTopology against a real broker: a staged outbox
+/// row reaches every bound queue in the shape consumers read back. Component tier: one RabbitMQ Testcontainer.
+/// </summary>
+[TestClass]
+[TestCategory("Integration")]
+[DoNotParallelize]
+public sealed class RabbitMqTransportTests
+{
+    public TestContext TestContext { get; set; } = null!;
+
+    [TestInitialize]
+    public void TestSetup()
+    {
+        IntegrationTestSetup.RequireLane(HostingLane.NonAzure);
+        IntegrationTestSetup.AssertAvailable("RabbitMQ", RabbitMqBrokerFixture.StartupError);
+    }
+
+    [TestMethod]
+    [Timeout(300000, CooperativeCancellation = true)]
+    public async Task PublishedOutboxRow_ArrivesOnEveryBoundQueue_AndReadsBackAsItsEnvelope()
+    {
+        var ct = TestContext.CancellationToken;
+        await using var provider = await BuildProviderAsync($"transport-{Guid.NewGuid():N}", ct);
+
+        var envelope = {Project}IntegrationEvents.Envelope(
+            new {Entity}CreatedEvent(Guid.CreateVersion7(), TestConstants.TenantId, "over rabbit"),
+            DateTimeOffset.UtcNow, correlationId: "corr-1");
+        // The staging interceptor's row builder, so the test sends exactly what SaveChanges stages.
+        var row = OutboxStagingInterceptor.ToRow(envelope, TestConstants.TenantId, DateTimeOffset.UtcNow);
+
+        var failures = await provider.GetRequiredService<IIntegrationEventTransport>()
+            .SendBatchAsync(row.Destination, [row], ct);
+        Assert.IsEmpty(failures, "a confirmed publish reports no failed message");
+
+        foreach (var queue in new[] { {Project}RabbitMqTopology.ProjectionQueue /*, every queue bound to this event */ })
+        {
+            var delivered = await GetAsync(queue, ct);
+            Assert.IsNotNull(delivered, $"nothing arrived on {queue}");
+            Assert.AreEqual(row.Id.ToString(), delivered.BasicProperties.MessageId);
+            Assert.AreEqual("corr-1", delivered.BasicProperties.CorrelationId);
+            Assert.AreEqual(nameof({Entity}CreatedEvent), delivered.RoutingKey);
+            Assert.IsTrue(IntegrationEnvelopeReader.TryRead(delivered.Body.Span, out var read, out _));
+            Assert.AreEqual(envelope.Id, read!.Id);
+        }
+    }
+
+    /// <summary>The host registration (messaging.md section RabbitMQ) against the broker, with topology declared.</summary>
+    private static async Task<ServiceProvider> BuildProviderAsync(string clientName, CancellationToken ct)
+    {
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Messaging:RabbitMq:ConnectionString"] = RabbitMqBrokerFixture.ConnectionString,
+            ["Messaging:RabbitMq:ClientProvidedName"] = clientName
+        }).Build();
+
+        var services = new ServiceCollection().AddLogging();
+        services.AddRabbitMqMessaging(config, "Messaging:RabbitMq");
+        services.AddSingleton<IIntegrationEventTransport, {Project}RabbitMqEventTransport>();
+        var provider = services.BuildServiceProvider();
+        await provider.GetRequiredService<IRabbitMqTopologyDeclarer>().DeclareAsync({Project}RabbitMqTopology.Build(), ct);
+        return provider;
+    }
+
+    /// <summary>Polls briefly: a publisher confirm means the broker has the message, not that it is routed yet.</summary>
+    private static async Task<BasicGetResult?> GetAsync(string queue, CancellationToken ct)
+    {
+        var factory = new ConnectionFactory { Uri = new Uri(RabbitMqBrokerFixture.ConnectionString) };
+        await using var connection = await factory.CreateConnectionAsync(ct);
+        await using var channel = await connection.CreateChannelAsync(cancellationToken: ct);
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            if (await channel.BasicGetAsync(queue, autoAck: true, ct) is { } result) return result;
+            await Task.Delay(100, ct);
+        }
+        return null;
+    }
+}
+```
+
+Add, in the same class: `MalformedBody_FailsEnvelopeParsing_BeforeAnyConsumerRuns` (purge the queue, publish a non-envelope body through `IRabbitMqPublisher` with a bound routing key, assert the delivery fails `IntegrationEnvelopeReader.TryRead` with its malformed reason); one routing assertion per consumer filter (an event bound to one queue reaches no other); one test per optional binding published through the same exchange.
+
+> **Azure arm:** Service Bus has no component-tier broker test; its transport is proven in the mesh (`OutboxMeshTests`, [test-templates-aspire.md](test-templates-aspire.md)).
 
 ---
 
@@ -702,36 +754,33 @@ using Test.Integration.Infrastructure;
 namespace Test.Integration;
 
 /// <summary>
-/// Validates the domain-event projection pipeline: an entity persisted to SQL is read by the projection
-/// service through the query-side repositories and emitted as a view document with correct counts.
-/// Component tier: only SQL is exercised (the Service Bus -> Function -> projection hop is covered by the
-/// mesh tier in <c>Test.Aspire</c>); contexts are built against a standalone SQL Testcontainer via
-/// <c>SqlContainerFixture</c> (started by <c>IntegrationTestSetup</c>) - no Aspire graph. The view store is
-/// in-memory - real Cosmos behavior is out of scope.
+/// Validates the domain-event projection pipeline: an entity persisted to the database is read by the
+/// projection service through the query-side repositories and emitted as a view document.
+/// Component tier: only the database via <c>DbContainerFixture</c>; the broker -> consumer -> projection hop
+/// is the mesh tier's. The view store is in-memory - the lane's read-model store has its own component test.
 /// </summary>
 [TestClass]
 public class DomainEventPipelineTests
 {
     private static readonly Guid TenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
-    // Instance TestContext (per-test cancellation) is separate from the static ClassInitialize parameter
-    // below - both coexist. See ../skills/testing.md Cancellation-Token discipline.
+    // Coexists with the static ClassInitialize parameter - see ../skills/testing.md Cancellation-Token discipline.
     public TestContext TestContext { get; set; } = null!;
 
     [ClassInitialize]
     public static async Task ClassInit(TestContext context)
     {
-        if (IntegrationTestSetup.IsUnavailable(SqlContainerFixture.StartupError))
+        if (IntegrationTestSetup.IsUnavailable(DbContainerFixture.StartupError))
             return;
-        await using var db = SqlContainerFixture.CreateTrxnContext();
+        await using var db = DbContainerFixture.CreateTrxnContext();
         await db.Database.MigrateAsync(context.CancellationToken);
     }
 
-    /// <summary>Classifies Docker unavailability separately from a SQL startup failure.</summary>
+    /// <summary>Classifies Docker unavailability separately from a database startup failure.</summary>
     [TestInitialize]
     public void TestSetup()
     {
-        IntegrationTestSetup.AssertAvailable("SQL", SqlContainerFixture.StartupError);
+        IntegrationTestSetup.AssertAvailable("Database", DbContainerFixture.StartupError);
     }
 
     [TestMethod]
@@ -739,8 +788,8 @@ public class DomainEventPipelineTests
     [Timeout(120000)]
     public async Task Given_{Entity}Created_When_ProjectionRuns_Then_{Entity}ViewProduced()
     {
-        var connStr = SqlContainerFixture.ConnectionString;
-        await using var ctx = SqlContainerFixture.CreateTrxnContext(connStr);
+        var connStr = DbContainerFixture.ConnectionString;
+        await using var ctx = DbContainerFixture.CreateTrxnContext(connStr);
 
         var entityResult = {Entity}.Create(TenantId, "Integration Test {Entity}");
         Assert.IsTrue(entityResult.IsSuccess);
@@ -748,7 +797,7 @@ public class DomainEventPipelineTests
         ctx.{Entities}.Add(entity);
         await ctx.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins);
 
-        await using var queryCtx = SqlContainerFixture.CreateQueryContext(connStr);
+        await using var queryCtx = DbContainerFixture.CreateQueryContext(connStr);
         var viewRepo = new InMemory{Entity}ViewRepository();
         var projectionService = new {Entity}ViewProjectionService(
             new {Entity}RepositoryQuery(queryCtx),
@@ -762,26 +811,9 @@ public class DomainEventPipelineTests
         Assert.AreEqual("Integration Test {Entity}", view.Name);
     }
 }
-
-/// <summary>In-memory implementation of I{Entity}ViewRepository for integration testing
-/// without a Cosmos emulator.</summary>
-internal class InMemory{Entity}ViewRepository : I{Entity}ViewRepository
-{
-    private readonly Dictionary<string, {Entity}ViewDto> _store = new();
-
-    public Task UpsertAsync({Entity}ViewDto view, CancellationToken ct = default)
-    {
-        _store[$"{view.TenantId}:{view.Id}"] = view;
-        return Task.CompletedTask;
-    }
-
-    public Task<{Entity}ViewDto?> GetAsync(string id, string tenantId, CancellationToken ct = default)
-    {
-        _store.TryGetValue($"{tenantId}:{id}", out var result);
-        return Task.FromResult(result);
-    }
-}
 ```
+
+`InMemory{Entity}ViewRepository` (same file, `internal`) implements `I{Entity}ViewRepository` over a `Dictionary<string, {Entity}ViewDto>` keyed `$"{tenantId}:{id}"`; members the test never calls complete without effect.
 
 Skip this template when the project does not have a projection service / read-model store. Generate only when `.scaffold/resource-implementation.yaml` declares a projection/read-model boundary.
 
@@ -798,51 +830,52 @@ Skip this template when the project does not have a projection service / read-mo
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="MSTest" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
-    <PackageReference Include="Testcontainers.MsSql" />
-    <PackageReference Include="Testcontainers.Azurite" />
-    <PackageReference Include="Azure.Data.Tables" />
     <PackageReference Include="EF.IntegrationTesting" />
+    <PackageReference Include="Testcontainers" />
+    <PackageReference Include="Testcontainers.RabbitMq" />
+    <PackageReference Include="RabbitMQ.Client" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Test.Support\Test.Support.csproj" />
+    <ProjectReference Include="..\..\src\Shared\{Project}.Hosting\{Project}.Hosting.csproj" />
     <ProjectReference Include="..\..\src\Application\{Project}.Application.Contracts\{Project}.Application.Contracts.csproj" />
     <ProjectReference Include="..\..\src\Application\{Project}.Application.Services\{Project}.Application.Services.csproj" />
     <ProjectReference Include="..\..\src\Infrastructure\{Project}.Infrastructure.Data\{Project}.Infrastructure.Data.csproj" />
     <ProjectReference Include="..\..\src\Infrastructure\{Project}.Infrastructure.Repositories\{Project}.Infrastructure.Repositories.csproj" />
-    <ProjectReference Include="..\..\src\Infrastructure\{Project}.Infrastructure.Storage\{Project}.Infrastructure.Storage.csproj" />
+    <ProjectReference Include="..\..\src\Infrastructure\{Project}.Infrastructure.Messaging.RabbitMq\{Project}.Infrastructure.Messaging.RabbitMq.csproj" />
   </ItemGroup>
 </Project>
 ```
 
-> **No `AppHost` / `Aspire.Hosting.Testing` reference.** Those belong only to `Test.Aspire`. Add `Testcontainers.Redis` when a `RedisContainerFixture` is generated.
+> `EF.IntegrationTesting` carries both database container fixtures; `Test.Support` carries `Testcontainers.Redis`. Add `AWSSDK.S3` for an object-storage test. **Azure arm:** add `Testcontainers.Azurite`, `Azure.Data.Tables`, and the `Infrastructure.Storage` reference.
 
 ---
 
 ## Verification
 
-- [ ] `Test.Integration` references **no** `AppHost` and **no** `Aspire.Hosting.Testing` - component tier only.
-- [ ] One standalone fixture per store under `Infrastructure/`; each captures `StartupError` instead of aborting discovery.
-- [ ] One `IntegrationTestSetup` owns bounded Docker preflight plus the sole `[AssemblyInitialize]`/`[AssemblyCleanup]`, then starts fixtures in parallel only after preflight succeeds.
-- [ ] Every test marks failed Docker preflight `Inconclusive`; a captured store startup failure after successful preflight fails with the full exception.
-- [ ] Component tests instantiate the class under test directly against a fixture connection string - no `CreateHttpClient`, no `WaitForResourceHealthyAsync`, no `DistributedApplicationTestingBuilder`.
+- [ ] `Test.Integration` references **no** `AppHost` and **no** `Aspire.Hosting.Testing`; tests instantiate the class under test against a fixture connection string.
+- [ ] One `IntegrationTestSetup` owns bounded Docker preflight plus the sole `[AssemblyInitialize]`/`[AssemblyCleanup]` and starts only the resolved lane's fixtures; each fixture captures `StartupError`.
+- [ ] Failed Docker preflight is `Inconclusive`; a post-preflight startup failure fails with the full exception; a single-lane test calls `RequireLane`.
+- [ ] Contexts come from `TestDatabaseContainer.BuildOptions` (central provider helper), never a hand-written `UseNpgsql`/`UseSqlServer` call.
 - [ ] `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` exists exactly once per assembly (not per entity).
 - [ ] Tenant query filter test exists when `enableMultiTenant: true`; M:N test exists when entity uses a junction.
 - [ ] Every test class has a class-level `<summary>` declaring tier (component) + store.
-- [ ] Running `Test.Integration` boots **no** Aspire graph (no `DistributedApplicationTestingBuilder` log lines).
-- [ ] No fixture or test performs a manual `docker rm`/`docker container prune` sweep; per-run cleanup is left to each fixture's `DisposeAsync` plus the Testcontainers reaper (`org.testcontainers.session-id`).
+- [ ] No fixture or test performs a manual `docker rm`/`docker container prune` sweep.
 
 ---
 
 **TaskFlow proof (local):**
-- `../scaffold-proof/tests/Test.Integration/Infrastructure/DbContainerFixture.cs` (TaskFlow's `SqlContainerFixture`, provider-selected)
-- `../scaffold-proof/tests/Test.Integration/Infrastructure/AzuriteContainerFixture.cs`
+- `../scaffold-proof/tests/Test.Support/Hosting/TestDatabaseContainer.cs`
+- `../scaffold-proof/tests/Test.Integration/Infrastructure/DbContainerFixture.cs`
+- `../scaffold-proof/tests/Test.Integration/Infrastructure/RabbitMqBrokerFixture.cs`
 - `../scaffold-proof/tests/Test.Integration/Infrastructure/IntegrationTestSetup.cs`
 - `../scaffold-proof/tests/Test.Integration/MigrationAndRepositoryTests.cs`
-- `../scaffold-proof/tests/Test.Integration/AuditLogRepositoryAzuriteTests.cs`
+- `../scaffold-proof/tests/Test.Integration/RelationalAuditLogRepositoryTests.cs`
+- `../scaffold-proof/tests/Test.Integration/RabbitMqTransportTests.cs`
+- `../scaffold-proof/tests/Test.Integration/AuditLogRepositoryAzuriteTests.cs` (Azure arm)
 - `../scaffold-proof/tests/Test.Integration/DomainEventPipelineTests.cs`
 
 **TaskFlow proof (remote fallback):**
