@@ -68,7 +68,7 @@ Exit criteria:
 - [ ] All no-op stubs satisfy their interfaces
 - [ ] `RegisterServices.cs` wires all no-op stubs
 - [ ] `tests/Test.Support/` contains `WebApplicationFactoryBase` (thin adapter over `EfWebApplicationFactoryBase`), `JsonTestOptions`, `InMemoryDbBuilder`, `TestConstants`, and `Builders/{Entity}Builder` shells; `LocalSqlSettings` lives in the AppHost project; unit tests are flat classes (no shared unit-test base)
-- [ ] `tests/Test.Endpoints/CustomApiFactory.cs` and `tests/Test.E2E/SqlApiFactory.cs` inherit/use the shared `WebApplicationFactoryBase` (no duplicated swap-out plumbing); `tests/Test.Integration/Infrastructure/*ContainerFixture` + `IntegrationTestSetup` (component) and `tests/Test.Aspire/AspireTestHost` + `AspireMeshLifecycle` (mesh) all compile
+- [ ] `tests/Test.Endpoints/CustomApiFactory.cs` and `tests/Test.E2E/DbApiFactory.cs` inherit/use the shared `WebApplicationFactoryBase` (no duplicated swap-out plumbing); `tests/Test.Integration/Infrastructure/*ContainerFixture` + `IntegrationTestSetup` (component) and `tests/Test.Aspire/AspireTestHost` + `AspireMeshLifecycle` (mesh) all compile
 - [ ] `{Entity}DtoBuilder` returns valid DTOs
 - [ ] No domain logic in entity shells (only `throw new NotImplementedException`)
 - [ ] `<packagePrefix>.*` shared base types are consumed from feed packages or `src/Packages/<packagePrefix>.*` projects per `packageStrategy` - never reimplemented in application/domain/host layers

@@ -70,7 +70,7 @@ Method-level docs are **not** the convention - Given/When/Then names encode scen
 ```csharp
 /// <summary>
 /// Exercises the {Entity} create->search->update->delete flow over HTTP.
-/// Tier: Test.E2E (WAF + Testcontainers SQL) - InMemory provider would miss
+/// Tier: Test.E2E (WAF + Testcontainers database) - InMemory provider would miss
 /// shadow properties, raw SQL projection, and concurrency token behavior.
 /// </summary>
 [TestClass]
@@ -122,11 +122,11 @@ Severity policy for `MSTEST0049` (and the generation-time verify gate that enfor
 
 Rule: start balanced, then add hosted UI and performance suites when slices stabilize. Separate two switches that are easy to conflate (see [Capability-Gated Test Tiers](#capability-gated-test-tiers-the-early-decision-drives-the-rest)): **generation** (does the test project exist?) is driven by the early Phase 2 capability pick + `testingProfile`; **runtime gating** (does a generated tier run, or self-skip?) is default-on for a selected tier with a local false-only opt-out - except `Test.Mobile`, which is opt-IN (default off) because its emulator/Appium/APK preconditions are too heavy for the canonical lane.
 
-The `resource-implementation.yaml` test booleans drive **generation**: `comprehensive` implies `includeAspireTests` + `includePlaywrightUITests` (plus Load/Benchmarks/Mutation) when those flags are omitted. Setting a flag explicitly overrides the profile default. `includeMobileTests` (`Test.Mobile`, Uno native Appium) and the Skia-canvas `WasmUI` bridge tier require `includeUnoUI`; generate them in balanced+ when Uno is in scope. Generate `Test.UI` when UI model/presentation coverage exists; it is the fast headless UI lane for UI services, theme/catalog logic, presentation models, and MVUX state/feed tests. Do not confuse `includeE2ETests` (`Test.E2E`, WebApplicationFactory + Testcontainers SQL) with `includePlaywrightUITests` (`Test.PlaywrightUI`, browser-driven) - they are distinct tiers.
+The `resource-implementation.yaml` test booleans drive **generation**: `comprehensive` implies `includeAspireTests` + `includePlaywrightUITests` (plus Load/Benchmarks/Mutation) when those flags are omitted. Setting a flag explicitly overrides the profile default. `includeMobileTests` (`Test.Mobile`, Uno native Appium) and the Skia-canvas `WasmUI` bridge tier require `includeUnoUI`; generate them in balanced+ when Uno is in scope. Generate `Test.UI` when UI model/presentation coverage exists; it is the fast headless UI lane for UI services, theme/catalog logic, presentation models, and MVUX state/feed tests. Do not confuse `includeE2ETests` (`Test.E2E`, WebApplicationFactory + Testcontainers database) with `includePlaywrightUITests` (`Test.PlaywrightUI`, browser-driven) - they are distinct tiers.
 
-EF query-translation correctness requires a real relational provider. `minimal` (Unit + Endpoint) does not cover translated predicates, projections, owned-type filters, or value-converted columns because endpoint tests use the in-memory WAF path. In `balanced` and higher, add at least one real-SQL search/list path per searchable aggregate: `Test.E2E` for HTTP workflow coverage or `Test.Integration` for repository/component coverage.
+EF query-translation correctness requires a real relational provider. `minimal` (Unit + Endpoint) does not cover translated predicates, projections, owned-type filters, or value-converted columns (`TenantId`, nullable typed FKs, `Email`, `Locale`, `Contains` / `LIKE`) because endpoint tests use the in-memory WAF path, and unit, endpoint, and model-validation tests can all stay green while translation throws at runtime. In `balanced` and higher, add at least one real-database search/list path per searchable aggregate: `Test.E2E` for HTTP workflow coverage or `Test.Integration` for repository/component coverage.
 
-The real provider must be the **deployed** provider. When configured `databaseProviders` differ between the test default and the deployment target (e.g. tests default to SQL Server, production runs PostgreSQL), a green run proves nothing about deployed-provider query translation - shaper and translation failures are provider-specific. Run the relational integration suite against the deployed provider at least once per release, and on every change to query projections.
+The real provider must be the **deployed** provider. Container-backed tiers run on the resolved lane (`NonAzure` unless `{APP}_LANE=Azure`), so a green run proves query translation only for that lane's provider - shaper and translation failures are provider-specific. Run the relational suites on the lane of every deployed provider at least once per release, and on every change to query projections.
 
 Any assertion whose expected result crosses a time boundary uses an injected `TimeProvider` fixed to an explicit instant. This includes recurrence generation, expiry, retention, leases, retries, and scheduled-window queries. `TimeProvider.System` in such a test makes the boundary move between arrange and act and can change counts without a product defect.
 
@@ -183,7 +183,7 @@ The container-backed tiers - `Test.Aspire` (mesh) and `Test.Integration` / `Test
 
 - **Gate on a generic container-capability check, not a Docker-Desktop probe.** Treat the runtime as available when the Testcontainers/Docker client can connect (or `docker info` succeeds). Docker Desktop, WSL Docker Engine, Rancher Desktop, and a Podman-compatible Docker socket are all valid - never special-case a product or probe for Docker Desktop specifically in test code.
 - **No runtime -> `Assert.Inconclusive`** with a message naming the missing container runtime and the fix (see [Never Silently Pass](#never-silently-pass-applies-to-every-tier)). Run `docker info` with a short timeout and begin asynchronous drains of both stdout and stderr before waiting for exit; redirected pipes can otherwise fill and deadlock the preflight. Docker available transfers control to the real host, where later startup/readiness failures are red.
-- **Never silently downgrade a mesh or component test to an in-memory provider.** Swapping a Testcontainers SQL / Aspire mesh test to EF InMemory when Docker is absent makes it pass while exercising none of the real-infra failure modes it exists to catch - that hides infra failures behind green. Self-skip (`Inconclusive`); do not rewrite it to a lighter store.
+- **Never silently downgrade a mesh or component test to an in-memory provider.** Swapping a Testcontainers database / Aspire mesh test to EF InMemory when Docker is absent makes it pass while exercising none of the real-infra failure modes it exists to catch - that hides infra failures behind green. Self-skip (`Inconclusive`); do not rewrite it to a lighter store.
 - **Unit, endpoint, and fake-`IChatClient` AI tests run with no Docker at all** - they must never take a container dependency.
 
 Suspect container resource pressure before editing test logic when health checks flap; the resource floor, WSL `.wslconfig`, and runtime-restart guidance live in [../support/troubleshooting.md](../support/troubleshooting.md) -> Docker / Container Runtime.
@@ -219,9 +219,9 @@ When any of `Test.Aspire`, the `WasmUI` bridge tier, or `Test.Mobile` is in scop
 | `Test.Unit` | Pure CLR + Moq | Domain rules, mappers, application services with mocks | [test-templates-domain.md](../templates/test-templates-domain.md), [test-templates-repository.md](../templates/test-templates-repository.md), [test-templates-service.md](../templates/test-templates-service.md) |
 | `Test.UI` | Pure CLR + Moq, no app head | Headless UI services, theme/catalog logic, presentation models, MVUX state/feed tests. References `{Project}.Uno.Core` and `{Project}.Uno.Presentation`, never `{Project}.Uno`. | [test-templates-presentation.md](../templates/test-templates-presentation.md) |
 | `Test.Endpoints` | `WebApplicationFactory<TProgram>` + EF InMemory | Single endpoint contract: status code, response shape, validation, auth | [test-templates-endpoint.md](../templates/test-templates-endpoint.md) |
-| `Test.E2E` | `WebApplicationFactory<TProgram>` + Testcontainers SQL | Multi-endpoint workflows against real SQL: paged search distinct-page, projection round-trip, FK constraints, child aggregate lifecycle | [test-templates-e2e.md](../templates/test-templates-e2e.md) |
-| `Test.Integration` | Standalone Testcontainers (SQL / Azurite / Redis) | Component: one class vs one real store - repo CRUD/migrations, tenant filter, M:N, audit-repo round-trip, projection pipeline | [test-templates-integration.md](../templates/test-templates-integration.md) |
-| `Test.Aspire` | Aspire `DistributedApplicationTestingBuilder` | Mesh: full AppHost graph over HTTP - API/Function audit pipelines, Service Bus -> Function -> projection, Blazor-mesh smoke | [test-templates-aspire.md](../templates/test-templates-aspire.md) |
+| `Test.E2E` | `WebApplicationFactory<TProgram>` + Testcontainers database (lane provider) | Multi-endpoint workflows against the real database: paged search distinct-page, projection round-trip, FK constraints, child aggregate lifecycle | [test-templates-e2e.md](../templates/test-templates-e2e.md) |
+| `Test.Integration` | Standalone Testcontainers (database / Redis / RabbitMQ / S3; Azurite on the Azure arm) | Component: one class vs one real store - repo CRUD/migrations, tenant filter, M:N, audit-repo round-trip, broker transport, projection pipeline | [test-templates-integration.md](../templates/test-templates-integration.md) |
+| `Test.Aspire` | Aspire `DistributedApplicationTestingBuilder` | Mesh: full AppHost graph over HTTP - outbox -> broker -> consumer, Azure-arm audit pipelines, Blazor-mesh smoke | [test-templates-aspire.md](../templates/test-templates-aspire.md) |
 | `Test.PlaywrightUI` | Real hosted stack (Aspire / docker-compose / preview) | Browser-driven UI - hosts both the `PlaywrightUI` DOM lane and the `WasmUI` canvas-bridge lane (`WasmUI` is a category here, not a separate project) | [testing-quality.md](testing-quality.md) section Hosted Browser UI |
 | `Test.Architecture` | `NetArchTest.Rules` | Layer dependency rules | [test-templates-quality.md](../templates/test-templates-quality.md) |
 | `Test.Load` | In-house `LoadRunner` (no package) | Throughput / latency / error-rate thresholds | [test-templates-quality.md](../templates/test-templates-quality.md) |
@@ -229,8 +229,6 @@ When any of `Test.Aspire`, the `WasmUI` bridge tier, or `Test.Mobile` is in scop
 | `Test.Mutation` | Stryker.NET + MSTest | Focused mutation testing for high-value domain/service paths | [test-templates-quality.md](../templates/test-templates-quality.md) |
 
 Rule: PlaywrightUI is a different harness. Never merge it with WAF tests.
-
-Real-SQL tiers are the only tiers that prove EF translation. Use them for predicates over value-converted properties (`TenantId`, nullable typed FKs, `Email`, `Locale`), projections, `Contains` / `LIKE`, and owned-type filters. Unit, endpoint, and model-validation tests can all stay green while SQL translation would throw at runtime.
 
 **Live AI smoke is Azure AI Foundry only, in the mesh tier.** When `includeAiServices: true`, the model-backed smoke runs in `Test.Aspire`: it checks Azure eligibility before AppHost creation and reads the active provider from `GET /api/v1/ai/status`. There is no separate local-model test project. Exact inconclusive-versus-red outcomes belong only to [ai-integration.md](ai-integration.md) section Optional Live-Provider Classification.
 
@@ -240,14 +238,14 @@ Real-SQL tiers are the only tiers that prove EF translation. Use them for predic
 Pure unit (Test.Unit)
  -> Headless UI (Test.UI)
  -> CustomApiFactory (Test.Endpoints, WAF + InMemory)
-    -> SqlApiFactory (Test.E2E, WAF + Testcontainers SQL)
+    -> DbApiFactory (Test.E2E, WAF + Testcontainers database)
       -> Standalone store fixtures (Test.Integration, component - one class vs one Testcontainer)
         -> AspireTestHost (Test.Aspire, mesh - full distributed app over HTTP)
           -> Hosted Playwright (Test.PlaywrightUI)
 Mutation overlay (Test.Mutation, Stryker over focused MSTest suite)
 ```
 
-Phase 4 generates the WAF base in `Test.Support`, the `CustomApiFactory` / `SqlApiFactory` shells, the `Test.Integration` store fixtures (`SqlContainerFixture` / `AzuriteContainerFixture` + `IntegrationTestSetup`), and the `Test.Aspire` mesh shells (`AspireTestHost` + `AspireMeshLifecycle`) so the ladder is wired before any Phase 5 tests are written - profile-gated tiers (`Test.E2E`, `Test.Aspire`) get shells only when the Capability-Gated table above generates them. See [../ai/contract-scaffolding.md](../ai/contract-scaffolding.md) (`### 4. Test Infrastructure`).
+Phase 4 generates the WAF base in `Test.Support`, the `CustomApiFactory` / `DbApiFactory` shells, `TestDatabaseContainer`, the `Test.Integration` store fixtures (`DbContainerFixture` + one per selected store + `IntegrationTestSetup`), and the `Test.Aspire` mesh shells (`AspireTestHost` + `AspireMeshLifecycle`) so the ladder is wired before any Phase 5 tests are written - profile-gated tiers (`Test.E2E`, `Test.Aspire`) get shells only when the Capability-Gated table above generates them. See [../ai/contract-scaffolding.md](../ai/contract-scaffolding.md) (`### 4. Test Infrastructure`).
 
 ### Heavy Aspire Mesh Graph Rule
 
@@ -259,8 +257,8 @@ This is the canonical statement of the rule; the Aspire template and the testing
 
 The integration surface is two separate projects, never one mixed assembly:
 
-- **`Test.Integration` (component)** - one class vs one real store, instantiated directly against a standalone Testcontainer (`SqlContainerFixture` / `AzuriteContainerFixture` / `RedisContainerFixture`, started in parallel by `IntegrationTestSetup`). No HTTP, no `AppHost`/`Aspire.Hosting.Testing` reference. See [../templates/test-templates-integration.md](../templates/test-templates-integration.md).
-- **`Test.Aspire` (mesh)** - the full production AppHost graph over HTTP, started lazily by `AspireTestHost.EnsureStartedAsync` and torn down by `AspireMeshLifecycle`. See [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md).
+- **`Test.Integration` (component)** - one class vs one real store, instantiated directly against a standalone Testcontainer (`DbContainerFixture` plus one fixture per other selected store, started in parallel by `IntegrationTestSetup`). No HTTP, no `AppHost`/`Aspire.Hosting.Testing` reference. See [../templates/test-templates-integration.md](../templates/test-templates-integration.md).
+- **`Test.Aspire` (mesh)** - any test needing `CreateHttpClient(...)`, multiple Aspire resources, `WaitForResourceHealthyAsync`, or `DistributedApplicationTestingBuilder`: the full production AppHost graph over HTTP, started lazily by `AspireTestHost.EnsureStartedAsync` and torn down by `AspireMeshLifecycle`. See [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md).
 
 Keeping them in separate assemblies means the fast component tier never pays the ~60-90 s graph boot; the mesh boots once per run, only when a mesh test executes. Do **not** reintroduce a single `Test.Integration` that piggybacks component tests on a shared `AspireTestHost`.
 
@@ -300,7 +298,7 @@ Category boundaries that matter:
 
 - **`UI` / `Presentation`** fast headless UI tier (`Test.UI`) for UI services, theme/catalog logic, presentation models, MVUX state/feed tests. Never tag these `Unit`, and never reference a Uno.Sdk app head.
 - **`Aspire`** is the mesh tier (`Test.Aspire`), distinct from **`Integration`** (component, `Test.Integration`). Never tag mesh tests `Integration` - that would boot the full graph on a `--filter TestCategory=Integration` run.
-- **`PlaywrightUI`** is DOM-based browser UI (MudBlazor/React/managed-DOM Uno). **`WasmUI`** is the Skia-canvas Uno bridge tier. **`MobileUI`** is Appium. None of these is `E2E` (`E2E` is WAF + Testcontainers SQL).
+- **`PlaywrightUI`** is DOM-based browser UI (MudBlazor/React/managed-DOM Uno). **`WasmUI`** is the Skia-canvas Uno bridge tier. **`MobileUI`** is Appium. None of these is `E2E` (`E2E` is WAF + Testcontainers database).
 - **`LiveAI`** marks model-backed smoke tests; `Test.Aspire` owns them, against Azure AI Foundry. Fast AI coverage (provider selection, contract, parse guard, no-write, write, no-op fallback) uses a fake `IChatClient` in `Test.Unit` / `Test.Endpoints` and carries no AI category. `AzureFoundry` is for Azure-specific selection/provisioning only, not a second copy of a provider-neutral contract. Classification and doctrine: [ai-integration.md](ai-integration.md) -> Provider Test Tiers.
 
 ```powershell
@@ -347,43 +345,7 @@ Apply `= null!` to every non-nullable field in every generated test class.
 
 `[AssemblyInitialize]` methods must **never throw**. A throwing `AssemblyInitialize` causes MSTest to abort the entire assembly - including tests that have no dependency on the failed setup. Preserve the failure, but classify only Docker-unavailable as inconclusive.
 
-For test assemblies that start external infrastructure (e.g., Testcontainers), apply this pattern:
-
-```csharp
-[AssemblyInitialize]
-public static async Task AssemblyInit(TestContext context)
-{
-    _dockerUnavailableReason = await DockerRuntimePreflight.GetUnavailableReasonAsync(
-        TimeSpan.FromSeconds(10),
-        context.CancellationToken);
-    if (_dockerUnavailableReason is not null)
-        return;
-
-    try
-    {
-        await _fixture.InitializeAsync();
-    }
-    catch (Exception ex)
-    {
-        _startupFailure = ex;
-        // Do not rethrow - dependent tests fail with the original startup diagnostics.
-    }
-}
-```
-
-In each test that depends on the infrastructure, check readiness at the start:
-
-```csharp
-[TestInitialize]
-public void TestSetup()
-{
-    if (_dockerUnavailableReason is not null)
-        Assert.Inconclusive(_dockerUnavailableReason);
-
-    if (_startupFailure is not null)
-        Assert.Fail($"Infrastructure startup failed after Docker preflight: {_startupFailure}");
-}
-```
+For test assemblies that start external infrastructure (e.g., Testcontainers): `[AssemblyInitialize]` runs the bounded `DockerRuntimePreflight` first and returns when it reports a reason; each fixture's start then catches its own exception into a `StartupError` without rethrowing. Each dependent test's `[TestInitialize]` calls `Assert.Inconclusive` with the Docker reason, or `Assert.Fail` with the full `StartupError` after preflight succeeded. Shape: `IntegrationTestSetup` and `DbContainerFixture` in [../templates/test-templates-integration.md](../templates/test-templates-integration.md).
 
 Apply the readiness check only to infrastructure-dependent tests so unrelated tests remain runnable. Do not downgrade Testcontainers image parsing, pull, create, or container startup failures after a successful preflight.
 
@@ -428,7 +390,7 @@ Use `WebApplicationFactory` and validate status code, response shape, validation
 
 ### Workflow E2E (Test.E2E)
 
-Use WAF + real SQL (often Testcontainers) for create->search->update->delete business flows through HTTP.
+Use WAF + the lane's real database (Testcontainers) for create->search->update->delete business flows through HTTP.
 
 ### Blazor - Three-Layer Coverage
 
@@ -454,109 +416,52 @@ Place fluent builders in `tests/Test.Support/Builders/`.
 
 `Test.Integration` is **not** for endpoint contract tests.
 
-- Integration (`Test.Integration`, component): one class vs one real store (SQL/Redis/Azurite). Cross-process broker/Function flows belong to the mesh tier in `Test.Aspire`.
+- Integration (`Test.Integration`, component): one class vs one real store (database, Redis, broker, object store). Cross-process broker/Function flows belong to the mesh tier in `Test.Aspire`.
 - Endpoint: HTTP contract tests via `WebApplicationFactory` in `Test.Endpoints`.
 
 If the test posts JSON to an API and asserts HTTP response shape, it belongs in `Test.Endpoints`.
 
 ## Aspire Test Host (recipe)
 
-The Aspire mesh host lives in `Test.Aspire` - see [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md) for the full file shapes. Name the fixture for what it wraps: if it owns the full `DistributedApplication` (DB + Functions + Storage + lifecycle), call it `AspireTestHost` - not `DatabaseFixture`. The component tier's per-store context helpers live on the standalone fixtures in `Test.Integration` (e.g. `SqlContainerFixture.CreateTrxnContext()`), not on the mesh host.
+The Aspire mesh host lives in `Test.Aspire` - see [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md) for the full file shapes. Name the fixture for what it wraps: if it owns the full `DistributedApplication` (DB + Functions + Storage + lifecycle), call it `AspireTestHost` - not `DatabaseFixture`. The component tier's per-store context helpers live on the standalone fixtures in `Test.Integration` (e.g. `DbContainerFixture.CreateTrxnContext()`), not on the mesh host.
 
 ### Shared environment rules
 
 1. **One shared app per assembly.** Start lazily through a guarded fixture and reuse. Never build one graph per test class.
-2. **Set scoped flags (e.g., `TASKFLOW_ASPIRE_TESTING`, `TASKFLOW_INCLUDE_FUNCTIONS`) before `CreateAsync`** - only for things AppHost reads via `Environment.GetEnvironmentVariable`. **Save and restore originals** in cleanup for hermeticity.
+2. **Set scoped flags (e.g., `{APP}_ASPIRE_TESTING`, `{APP}_INCLUDE_FUNCTIONS`) before `CreateAsync`** - only for things AppHost reads via `Environment.GetEnvironmentVariable`. **Save and restore originals** in cleanup for hermeticity.
 3. **Pass parameters via `configureBuilder`, not env-var mutation.** AppHost binds `Parameters:*` through `IConfiguration` - write them into `hostSettings.Configuration` so test isolation stays clean.
 4. **Conditional Functions inclusion.** Detect `func.exe` once before startup and set the include flag there. If a selected Functions test lacks the tool, fail with its install step; only an explicit `{APP}_RUN_FUNCTIONS_TESTS=false` opt-out is inconclusive.
-5. **One startup budget mandatory.** `AspireTestHostContext` is where the single deadline lives for this tier - see [One Startup Budget](#one-startup-budget).
-6. **`local.settings.json` override trap.** Hardcoded DB connection strings in Functions `local.settings.json` beat Aspire injection. Remove them (keep safe Azurite-style values only).
-7. **Keep `using Aspire.Hosting.Testing;`** in every file calling `CreateHttpClient()` or `GetConnectionStringAsync()` (they are extension methods).
+5. **`local.settings.json` override trap.** Hardcoded DB connection strings in Functions `local.settings.json` beat Aspire injection. Remove them (keep safe Azurite-style values only).
+6. **Keep `using Aspire.Hosting.Testing;`** in every file calling `CreateHttpClient()` or `GetConnectionStringAsync()` (they are extension methods).
 
 ### Assertion Surface - Prefer Downstream Effects
 
-When the Aspire mesh test needs to verify that a message flowed (an event was published, a webhook was processed), **assert against a persistent downstream effect** - a row in SQL, a document in Cosmos, an entry in Table Storage - rather than against the message bus itself.
+When the Aspire mesh test needs to verify that a message flowed (an event was published, a webhook was processed), **assert against a persistent downstream effect** - an inbox or projection row in the database, an audit row, a read-model document - by polling it, never by receiving from the queue or topic. Shape: `OutboxMeshTests` in [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md).
 
-```csharp
-// PREFER - poll the audit row that the message handler writes
-await Wait.Until(
-    () => tableClient.QueryAsync<AuditRow>(r => r.PartitionKey == correlationId).AnyAsync(),
-    timeout: TimeSpan.FromSeconds(30));
-
-// AVOID - poll the topic/queue directly
-await Wait.Until(
-    async () => await receiver.ReceiveMessageAsync(TimeSpan.FromSeconds(2)) is not null,
-    timeout: TimeSpan.FromSeconds(180));
-```
-
-**Why.** Aspire's Service Bus emulator under `DistributedApplicationTestingBuilder` does not always propagate topic->subscription routing within bounded test windows; queue trigger plumbing on Functions is similarly best-effort under emulator-mode. Verifying via the downstream artifact is robust against this class of tooling gap *and* exercises more of the production path (the message handler actually ran end-to-end). When the downstream effect is genuinely unavailable (no consumer wired in this test scope), `Assert.Inconclusive` naming the unmet prerequisite - which consumer is missing and how to wire it - rather than asserting against the bus and accepting flakes. Never `[Ignore]` it (see [Never Silently Pass](#never-silently-pass-applies-to-every-tier)): `Inconclusive` serializes to TRX as `outcome="NotExecuted"` so the gap stays counted, and the standing deferral is recorded in `HANDOFF.md` section Deferred External Dependencies.
+**Why.** Broker delivery under `DistributedApplicationTestingBuilder` is timing-sensitive (the Service Bus emulator's topic->subscription routing and Functions queue triggers are best-effort), and a consumed test message is lost to the real consumer. Verifying via the downstream artifact is robust against this class of tooling gap *and* exercises more of the production path (the message handler actually ran end-to-end). When the downstream effect is genuinely unavailable (no consumer wired in this test scope), `Assert.Inconclusive` naming the unmet prerequisite - which consumer is missing and how to wire it - rather than asserting against the bus and accepting flakes. Never `[Ignore]` it (see [Never Silently Pass](#never-silently-pass-applies-to-every-tier)): `Inconclusive` serializes to TRX as `outcome="NotExecuted"` so the gap stays counted, and the standing deferral is recorded in `HANDOFF.md` section Deferred External Dependencies.
 
 ### Lazy Aspire Fixture Startup (canonical for `Test.Aspire`)
 
-`Test.Aspire` starts the graph lazily: wrap startup in an `EnsureStartedAsync()` helper guarded by a `SemaphoreSlim`, called from each mesh test class's `[ClassInitialize]`, instead of an eager `[AssemblyInitialize]`. The graph boots on the first mesh class to run:
+`Test.Aspire` starts the graph lazily: wrap startup in an `EnsureStartedAsync(TestContext)` helper guarded by a `SemaphoreSlim` (double-checked before and after the wait), called from each mesh test class's `[ClassInitialize]`, instead of an eager `[AssemblyInitialize]`. The graph boots on the first mesh class to run. Shape: `AspireTestHost` in [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md).
 
-```csharp
-public static class AspireTestHost
-{
-    private static DistributedApplication? _app;
-    private static readonly SemaphoreSlim _gate = new(1, 1);
-
-    public static async Task<DistributedApplication> EnsureStartedAsync(TestContext ctx)
-    {
-        if (_app is not null) return _app;
-        await _gate.WaitAsync(ctx.CancellationToken);
-        try
-        {
-            if (_app is not null) return _app;
-            _app = await BuildAndStartAsync(ctx);
-            return _app;
-        }
-        finally { _gate.Release(); }
-    }
-}
-
-[TestClass]
-public class BlazorMeshSmokeTests
-{
-    [ClassInitialize]
-    public static Task ClassInit(TestContext ctx) => AspireTestHost.EnsureStartedAsync(ctx);
-}
-```
-
-Teardown is owned by `AspireMeshLifecycle.[AssemblyCleanup]` in `Test.Aspire`, which stops/disposes the graph once regardless of which mesh class warmed it up. The component store fixtures live in the separate `Test.Integration` assembly and are started/stopped by their own `IntegrationTestSetup` `[AssemblyInitialize]`/`[AssemblyCleanup]` - the two assemblies never share a fixture.
+Teardown is owned by `AspireMeshLifecycle.[AssemblyCleanup]` in `Test.Aspire`, which stops/disposes the graph once regardless of which mesh class warmed it up; `Test.Integration` never shares a fixture with it.
 
 ### Opt-In Graph Scope via Env Flag
 
-When the production AppHost graph includes resources that aren't needed for every test run (Gateway + Blazor UI, React/Vite UI, Function App, Notifications), gate their `AddProject` / `AddViteApp` calls in `AppHost.cs` on an env var the test fixture sets **before** `CreateAsync`:
-
-```csharp
-// AppHost.cs
-if (Environment.GetEnvironmentVariable("{APP}_INCLUDE_BLAZOR") == "true")
-{
-    builder.AddProject<Projects.{App}_Blazor>("blazor").WithReference(gateway);
-}
-
-// Test fixture
-SetEnvVar("{APP}_INCLUDE_BLAZOR", "true");
-```
-
-This mirrors the reference app's `TASKFLOW_INCLUDE_FUNCTIONS`/`TASKFLOW_ASPIRE_TESTING` flags. Each opt-in flag is **default-off in tests** (kept on for `dotnet run --project AppHost`). The `IsAspireTesting()` check in AppHost decides the default-off; the test fixture flips one flag per resource it needs. Document the flag set in `HANDOFF.md` so the next session knows the env-var contract.
+When the production AppHost graph includes resources that aren't needed for every test run (Gateway + Blazor UI, React/Vite UI, Function App, Notifications), gate their `AddProject` / `AddViteApp` calls in `AppHost.cs` on an env var the test fixture sets **before** `CreateAsync` (`if (Environment.GetEnvironmentVariable("{APP}_INCLUDE_BLAZOR") == "true") builder.AddProject<Projects.{App}_Blazor>("blazor")...`). Each opt-in flag is **default-off in tests** (kept on for `dotnet run --project AppHost`). The `IsAspireTesting()` check in AppHost decides the default-off; the test fixture flips one flag per resource it needs. Document the flag set in `HANDOFF.md` so the next session knows the env-var contract.
 
 For React/Vite, use the same pattern around `AddViteApp(...)` and pass the Gateway endpoint (or API endpoint when Gateway is disabled) through `VITE_API_BASE_URL`. Browser tests still use the actual Vite resource URL as their base URL.
 
 ### Async call discipline
 
-- **Run every startup operation through one `AspireTestHostContext`.** It computes remaining time from the single monotonic deadline ([One Startup Budget](#one-startup-budget)), passes a linked token, and applies `WaitAsync(remaining, ct)`.
-- **Gate on health, not status.** Aspire reports `Running` before SQL accepts connections / Azurite serves first request / Functions warms up. Call `WaitForResourceHealthyAsync(name, ct)` before talking to a resource.
+- **Run every startup operation through one `AspireTestHostContext`,** which holds this tier's [One Startup Budget](#one-startup-budget) deadline, passes a linked token, and applies `WaitAsync(remaining, ct)`.
+- **Gate on health, not status.** Aspire reports `Running` before the database accepts connections, the broker accepts a channel, or Functions warms up. Call `WaitForResourceHealthyAsync(name, ct)` before talking to a resource.
 - **Connection/endpoint lookup consumes remaining time.** Convert a `ValueTask` to `Task` only when the shared runner requires it; never grant a fresh timeout.
 - **Bound shutdown and disposal together.** `[AssemblyCleanup(TestContext)]` calls `StopAndDisposeAsync(testContext.CancellationToken)`; one cleanup deadline covers both operations, and environment restoration remains in `finally`.
-- **Freeze business time separately.** See [One Startup Budget](#one-startup-budget) - elapsed time is not domain time.
 
 ### Fixture skeleton
 
-The Docker/deadline/wait/diagnostic/cleanup mechanics live in [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md) section Shared Aspire test-host context. The lazy `EnsureStartedAsync` configures the mesh-specific graph, and `[AssemblyCleanup]` lives in `AspireMeshLifecycle`. Admin/browser and WasmUI adapters consume the same context instead of cloning fixture lifecycle code.
-
-**State diagnostics on; resource logs optional.** On every host/start/wait failure, print named resource state, health, exit code, and start/stop timestamps before rethrowing. Raw logs remain opt-in via `{APP}_ASPIRE_RESOURCE_LOGGING=true` because they flood TRX output. This is a diagnostic switch, not a test-selection flag. Full pattern: [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md) section *State diagnostics on by default; resource logs optional*.
+The Docker/deadline/wait/diagnostic/cleanup mechanics live in [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md) section Shared Aspire test-host context. Admin/browser and WasmUI adapters consume the same context instead of cloning lifecycle code. **State diagnostics on; resource logs optional:** every host/start/wait failure prints named resource state, health, exit code, and start/stop timestamps before rethrowing; raw logs stay behind the `{APP}_ASPIRE_RESOURCE_LOGGING=true` diagnostic switch (not a test-selection flag) because they flood TRX output.
 
 ---
 
@@ -566,11 +471,11 @@ The Docker/deadline/wait/diagnostic/cleanup mechanics live in [../templates/test
 |---|---|---|
 | [../templates/test-templates-domain.md](../templates/test-templates-domain.md) | 5a | Domain entity + rule tests |
 | [../templates/test-templates-repository.md](../templates/test-templates-repository.md) | 5a | Repository tests (in-memory unit) |
-| [../templates/test-templates-integration.md](../templates/test-templates-integration.md) | 5a / 5b | Component: `SqlContainerFixture` / `AzuriteContainerFixture` + `IntegrationTestSetup`, `{Entity}RepositoryIntegrationTests`, `AuditLogRepositoryAzuriteTests`, `DomainEventPipelineTests` |
-| [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md) | 5b | Mesh: `AspireTestHost` (lazy) + `AspireMeshLifecycle`, `ApiAuditPipelineTests`, `FunctionAuditPipelineTests` |
+| [../templates/test-templates-integration.md](../templates/test-templates-integration.md) | 5a / 5b | Component: `TestDatabaseContainer`, `DbContainerFixture` + per-store fixtures + `IntegrationTestSetup`, `{Entity}RepositoryIntegrationTests`, `RelationalAuditLogRepositoryTests`, `RabbitMqTransportTests`, `DomainEventPipelineTests` |
+| [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md) | 5b | Mesh: `AspireTestHost` (lazy) + `AspireMeshLifecycle`, `OutboxMeshTests`, Azure-arm audit pipelines |
 | [../templates/test-templates-service.md](../templates/test-templates-service.md) | 5b | Service + mapper tests + consolidated `MapperProjectionParityTests` |
 | [../templates/test-templates-endpoint.md](../templates/test-templates-endpoint.md) | 5b | Endpoint contract tests via WAF + InMemory; `WebApplicationFactoryBase` reference |
-| [../templates/test-templates-e2e.md](../templates/test-templates-e2e.md) | 5b | `SqlApiFactory` + multi-endpoint `{Entity}WorkflowTests` against Testcontainers SQL |
+| [../templates/test-templates-e2e.md](../templates/test-templates-e2e.md) | 5b | `DbApiFactory` + multi-endpoint `{Entity}WorkflowTests` against the lane's Testcontainers database |
 | [../templates/test-templates-presentation.md](../templates/test-templates-presentation.md) | 5c | Uno MVUX presentation model tests in the fast `Test.Unit` lane |
 | [../templates/test-templates-quality.md](../templates/test-templates-quality.md) | 5d | Architecture / Playwright / Load / Benchmarks / Mutation - load `testing-quality.md` instead |
 | [../templates/test-templates.md](../templates/test-templates.md) | on-demand | Full-reference fallback |
@@ -589,18 +494,14 @@ The Docker/deadline/wait/diagnostic/cleanup mechanics live in [../templates/test
 - [ ] Every test field assigned in `[TestInitialize]` is declared with `= null!`.
 - [ ] `[AssemblyInitialize]` does not hide infrastructure failures; preflight-confirmed Docker unavailability is `Inconclusive`, while container/AppHost startup failures after successful preflight remain red with diagnostics.
 - [ ] `Test.Integration` (component) references no `AppHost`/`Aspire.Hosting.Testing`; tests instantiate one class vs one standalone Testcontainer and distinguish failed Docker preflight from a real container startup failure.
-- [ ] `Test.Aspire` (mesh) starts the graph lazily via `EnsureStartedAsync` (`[ClassInitialize]`); `AspireMeshLifecycle.[AssemblyCleanup]` calls shared bounded stop/dispose cleanup once.
-- [ ] Mesh tests carry `[TestCategory("Aspire")]` (not `Integration`).
+- [ ] `Test.Aspire` (mesh) passes its template's Verification list ([../templates/test-templates-aspire.md](../templates/test-templates-aspire.md)): lazy start, one bounded cleanup, `Aspire` category, scoped env, `Parameters:*` via `configureBuilder`, fixture named `AspireTestHost`.
 - [ ] Aspire/WasmUI tiers are default-on with false-only opt-out; `Test.Mobile` follows [Mobile Tier Opt-In](#mobile-tier-opt-in-default-off).
 - [ ] `dotnet test --filter "TestCategory!=Load"` is documented as the canonical local "all normal tests" run.
 - [ ] (AI scaffolded) Fast AI coverage (provider selection, contract, parse guard, no-write, write, no-op fallback) uses a fake `IChatClient` in `Test.Unit`/`Test.Endpoints`; live model tests are smoke-only (`LiveAI`, Azure AI Foundry, in `Test.Aspire`) and follow [ai-integration.md](ai-integration.md) section Optional Live-Provider Classification. Determine an active provider via `GET /api/v1/ai/status`, not a CLI probe or connection-string sniff; no duplicate provider-neutral contracts.
 - [ ] Mesh tests are `[DoNotParallelize]`; no endpoint-contract tests in either integration project.
 - [ ] Every test class has a class-level `<summary>` (scope / tier + why / quirks).
-- [ ] Aspire host passes `Parameters:*` via `configureBuilder.hostSettings.Configuration`, not env vars.
 - [ ] Startup follows [One Startup Budget](#one-startup-budget): one monotonic deadline begun before Docker preflight/test-owned build, read from the tier's `*_STARTUP_TIMEOUT_SECONDS` variable, with subordinate caps that cannot reset it and the stated inconclusive-versus-red classification and failure diagnostics.
 - [ ] Recurrence, expiry, retention, lease, retry, and scheduled-window assertions inject a fixed `TimeProvider`; no expected count depends on `TimeProvider.System`.
-- [ ] Env vars set for AppHost are scoped/restored (e.g., via `EnvironmentVariableScope`).
-- [ ] Aspire-tier fixture is named for what it wraps (`AspireTestHost`, not `DatabaseFixture`).
 
 ## Pitfalls
 

@@ -2,105 +2,137 @@
 
 | | |
 |---|---|
-| **Generates** | `tests/Test.Support/Hosting/DockerRuntimePreflight.cs` (shared with other container tiers), `tests/Test.E2E/SqlApiFactory.cs`, `tests/Test.E2E/{Entity}WorkflowTests.cs` |
-| **Requires** | [test-templates-endpoint](test-templates-endpoint.md) (for the shared `WebApplicationFactoryBase`), real SQL via Testcontainers |
+| **Generates** | `tests/Test.E2E/DbApiFactory.cs`, `tests/Test.E2E/E2EAssemblyHooks.cs`, `tests/Test.E2E/{Entity}WorkflowTests.cs`; consumes `DockerRuntimePreflight`, `TestDatabaseContainer`, and `RedisTestContainer` from `tests/Test.Support/Hosting` |
+| **Requires** | [test-templates-endpoint](test-templates-endpoint.md) (for the shared `WebApplicationFactoryBase`), [test-templates-integration](test-templates-integration.md) section Lane switch (`TestHostingLane`, `TestDatabaseContainer`), a real database via Testcontainers |
 | **Phase** | Generated in Phase 4 (factory shell) and filled in during Phase 5b once services + endpoints are green |
-| **Protocol** | Tests-after. Unit + Endpoint tests in `Test.Endpoints` already pin per-endpoint behavior; E2E validates multi-endpoint **workflows** against real SQL - paging plans, FK constraints, projection translation, owned-type round-trip, and child-aggregate lifecycles. |
-
-> **Lane provider:** the snippets show the `Azure` lane database arm (`MsSqlContainerFixture` / `Testcontainers.MsSql`, `UseSqlServer`). On the default `NonAzure` lane generate the same shape with `PostgreSqlContainerFixture` (EF.IntegrationTesting.Testcontainers) or `Testcontainers.PostgreSql` and `UseNpgsql`, and replace Azurite-backed audit with the relational sink. The real provider is the deployed one: [../skills/testing.md](../skills/testing.md) section Capability-Gated Test Tiers (the early decision drives the rest).
+| **Protocol** | Tests-after. Unit + Endpoint tests in `Test.Endpoints` already pin per-endpoint behavior; E2E validates multi-endpoint **workflows** against the real database - paging plans, FK constraints, projection translation, owned-type round-trip, and child-aggregate lifecycles. |
 
 ## Why E2E exists separately
 
 | Tier | Backing store | What only this tier catches |
 |---|---|---|
 | `Test.Endpoints` (InMemory) | EF InMemory provider | Per-endpoint contract: status code, response shape, validation. **Misses:** projection plans, shadow properties, FK constraints, owned-type column flattening, raw SQL paging behavior. |
-| `Test.E2E` (Testcontainers SQL) | Real SQL Server | Multi-endpoint workflows (create -> search -> update -> delete), paginated search across distinct pages, projection round-trip, child-aggregate FK behavior. |
-| `Test.Aspire` (mesh) | Full distributed app | Cross-process: API -> Service Bus -> Function -> projection store -> audit row. See [test-templates-aspire.md](test-templates-aspire.md). |
-| `Test.Integration` (component) | One real store | One class vs one Testcontainer: repo vs SQL, audit repo vs Azurite, projection vs SQL. See [test-templates-integration.md](test-templates-integration.md). |
+| `Test.E2E` (Testcontainers) | The lane's real database (PostgreSQL by default) | Multi-endpoint workflows (create -> search -> update -> delete), paginated search across distinct pages, projection round-trip, child-aggregate FK behavior. |
 
-Rule of thumb: if the workflow spans **two or more endpoints** and the assertion depends on **real EF translation** (paging, projection, owned types, FK behavior), it belongs in `Test.E2E`. Single-endpoint contract checks belong in `Test.Endpoints`.
+Mesh and component tiers: [../skills/testing.md](../skills/testing.md) section Harness Tiers (Critical). Rule of thumb: if the workflow spans **two or more endpoints** and the assertion depends on **real EF translation** (paging, projection, owned types, FK behavior), it belongs in `Test.E2E`. Single-endpoint contract checks belong in `Test.Endpoints`.
 
 ---
 
-## SqlApiFactory
+## DbApiFactory
 
-### File: `tests/Test.E2E/SqlApiFactory.cs`
+### File: `tests/Test.E2E/DbApiFactory.cs`
+
+The database is a real Testcontainer on the resolved lane; every other external data plane gets an inert endpoint and a no-op replacement. The default lane also needs a live Redis because its Data Protection store connects at registration.
 
 ```csharp
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using {Project}.Hosting;
 using {Project}.Infrastructure.Data;
 using Test.Support;
 using Test.Support.Hosting;
-using Testcontainers.MsSql;
 
 namespace Test.E2E;
 
 /// <summary>
-/// Real-SQL-Server WebApplicationFactory backed by Testcontainers.
-/// Exercises the full stack: HTTP -> Endpoint -> Service -> EF -> SQL.
-///
-/// Used for multi-endpoint workflow E2E tests where contract-only endpoint coverage
-/// (Test.Endpoints' in-memory factory) is insufficient - e.g., tests that span
-/// create -> search -> update -> delete and need real SQL behavior (concurrency, projection plans,
-/// FK constraints).
+/// Real-database WebApplicationFactory on the lane's provider (PostgreSQL unless {APP}_LANE=Azure).
+/// Exercises HTTP -> endpoint -> application -> EF -> database for multi-endpoint workflows.
 /// </summary>
-public sealed class SqlApiFactory : WebApplicationFactoryBase<Program, {App}DbContextTrxn, {App}DbContextQuery>
+public sealed class DbApiFactory : WebApplicationFactoryBase<Program, {App}DbContextTrxn, {App}DbContextQuery>
 {
-    private static MsSqlContainer _container = null!;
-    private static string _connectionString = null!;
+    private static readonly HostingLaneSettings Lane = TestHostingLane.Current;
+    private static readonly TestDatabaseContainer Db = new(TestHostingLane.DatabaseProvider);
+    private static readonly RedisTestContainer? Redis = Lane.IsNonAzure ? new() : null;
+    private static readonly SemaphoreSlim Gate = new(1, 1);
     private static bool _started;
 
-    /// <summary>Startup failure captured by <see cref="StartContainerAsync"/>; null when the container started cleanly.</summary>
-    public static Exception? StartupError { get; private set; }
     public static string? DockerUnavailableReason { get; private set; }
+    public static Exception? StartupError { get; private set; }
 
-    public static async Task StartContainerAsync(CancellationToken cancellationToken)
+    /// <summary>Idempotent: every workflow class calls it; the first call starts the shared containers.</summary>
+    public static async Task StartContainerAsync(CancellationToken ct)
     {
-        if (_started || DockerUnavailableReason is not null || StartupError is not null) return;
-
-        DockerUnavailableReason = await DockerRuntimePreflight.GetUnavailableReasonAsync(
-            TimeSpan.FromSeconds(10),
-            cancellationToken);
-        if (DockerUnavailableReason is not null) return;
-
+        await Gate.WaitAsync(ct);
         try
         {
-            _container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:<resolved-stable-sql-tag>").Build();
-            await _container.StartAsync();
-            _connectionString = _container.GetConnectionString();
-            _started = true;
+            if (_started || DockerUnavailableReason is not null || StartupError is not null) return;
+
+            DockerUnavailableReason = await DockerRuntimePreflight.GetUnavailableReasonAsync(TimeSpan.FromSeconds(10), ct);
+            if (DockerUnavailableReason is not null) return;
+
+            try
+            {
+                await Db.StartAsync();
+                _started = true;
+                if (Redis is not null) await Redis.StartAsync();
+            }
+            catch (Exception ex) { StartupError = ex; }
         }
-        catch (Exception ex)
-        {
-            StartupError = ex;
-        }
+        finally { Gate.Release(); }
     }
 
+    /// <summary>Called once from [AssemblyCleanup]: a disposed Testcontainer cannot restart for a later class.</summary>
     public static async Task StopContainerAsync()
     {
         if (!_started) return;
-        await _container.DisposeAsync();
-        _started = false;
+        try { if (Redis is not null) await Redis.DisposeAsync(); }
+        finally { await Db.DisposeAsync(); _started = false; }
     }
 
-    protected override DbContextOptions BuildTrxnOptions() =>
-        new DbContextOptionsBuilder<{App}DbContextTrxn>()
-            .UseSqlServer(_connectionString, sql => sql.UseCompatibilityLevel(170))
-            .Options;
+    protected override string ConnectionString => Db.ConnectionString;
 
-    protected override DbContextOptions BuildQueryOptions() =>
-        new DbContextOptionsBuilder<{App}DbContextQuery>()
-            .UseSqlServer(_connectionString, sql => sql.UseCompatibilityLevel(170))
-            .Options;
+    // The package base routes both contexts through this override; they share one schema and history table.
+    protected override DbContextOptions BuildOptionsFor<TContext>(string connectionString) =>
+        Db.BuildOptions<TContext>(connectionString);
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        // Program reads the lane while registering providers, so these go in as host settings, not app config.
+        foreach (var (key, value) in LaneSettings()) builder.UseSetting(key, value);
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IObjectStorageRepository>();
+            services.AddSingleton<IObjectStorageRepository, NoOpObjectStorageRepository>();
+            services.RemoveAll<IIntegrationEventTransport>();
+            services.AddSingleton<IIntegrationEventTransport, NoOpEventTransport>();
+        });
+    }
+
+    protected override void ConfigureTestConfiguration(IConfigurationBuilder config) =>
+        config.AddInMemoryCollection(LaneSettings());
+
+    private static Dictionary<string, string?> LaneSettings() => new()
+    {
+        ["Hosting:Lane"] = "NonAzure",
+        ["ConnectionStrings:Redis1"] = Redis!.ConnectionString,
+        // Inert endpoints: registration validates them; the data planes are replaced above.
+        ["Storage:S3:ServiceUrl"] = "http://127.0.0.1:1",
+        ["Storage:S3:AccessKeyId"] = "{app}-e2e",
+        ["Storage:S3:SecretAccessKey"] = "{app}-e2e-secret",
+        ["Messaging:RabbitMq:ConnectionString"] = "amqp://{app}:{app}@127.0.0.1:1/"
+    };
 }
 ```
 
-### Static container lifecycle
+> **Azure arm:** no Redis container. `LaneSettings()` returns `Hosting:Lane=Azure` plus inert `ConnectionStrings:BlobStorage1`, `TableStorage1`, `CosmosDb1`, `DataProtectionKeysFileUrl`, and `ServiceBus1:fullyQualifiedNamespace` values, and `ConfigureServices` also replaces the Azure Table audit sink and the Cosmos read model with their no-ops.
 
-- `StartContainerAsync` is idempotent and **static** so multiple test classes can share the container without reference counting.
-- `_started` flag prevents redundant starts when the runner instantiates the factory more than once.
-- Resolve and pin a concrete image tag at scaffold time. A floating `latest` pull breaks CI without a source change.
-- Container lifecycle is owned by the **test class**, not the factory instance - see `[ClassInitialize]` below.
+### File: `tests/Test.E2E/E2EAssemblyHooks.cs`
+
+```csharp
+namespace Test.E2E;
+
+/// <summary>Stops the shared containers once, after every workflow class has run.</summary>
+[TestClass]
+public static class E2EAssemblyHooks
+{
+    [AssemblyCleanup]
+    public static Task AssemblyCleanup() => DbApiFactory.StopContainerAsync();
+}
+```
 
 ---
 
@@ -110,70 +142,62 @@ public sealed class SqlApiFactory : WebApplicationFactoryBase<Program, {App}DbCo
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using EF.Common.Contracts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using {Project}.Application.Models;
 using {Project}.Domain.Shared.Enums;
+using Test.Support;
 
 namespace Test.E2E;
 
 /// <summary>
-/// Multi-endpoint workflow tests over the full HTTP->Endpoint->Service->EF->SQL stack: {Entity}
+/// Multi-endpoint workflow tests over the full HTTP->Endpoint->Service->EF->database stack: {Entity}
 /// CRUD round-trips, server-side paged search across distinct pages, and child-aggregate
 /// ({ChildEntity}) lifecycles.
-/// SQL tier (WebApplicationFactory + Testcontainers SQL via SqlApiFactory): real SQL is required
+/// Database tier (WebApplicationFactory + Testcontainers via DbApiFactory): a real database is required
 /// for paging plans, FK constraints applied by EF migrations, and projection behavior - InMemory
 /// (Test.Endpoints tier) would silently mask these. The Aspire tier is unnecessary because only
-/// one backing service (SQL) participates.
+/// one backing service (the database) participates.
 /// </summary>
 [TestClass]
 [TestCategory("E2E")]
 public class {Entity}WorkflowTests
 {
-    private static SqlApiFactory _factory = null!;
-    private static readonly JsonSerializerOptions _json = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        Converters = { new JsonStringEnumConverter() }
-    };
+    private static DbApiFactory _factory = null!;
+    private static readonly JsonSerializerOptions _json = JsonTestOptions.Default;
+
+    public TestContext TestContext { get; set; } = null!;
 
     [ClassInitialize]
-    public static async Task ClassInit(TestContext _)
+    public static async Task ClassInit(TestContext context)
     {
-        await SqlApiFactory.StartContainerAsync(_.CancellationToken);
-        if (SqlApiFactory.DockerUnavailableReason is not null || SqlApiFactory.StartupError is not null)
+        await DbApiFactory.StartContainerAsync(context.CancellationToken);
+        if (DbApiFactory.DockerUnavailableReason is not null || DbApiFactory.StartupError is not null)
             return;
 
-        _factory = new SqlApiFactory();
+        _factory = new DbApiFactory();
 
-        // Apply EF migrations against the real SQL container
+        // Apply EF migrations against the real database container
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<{App}DbContextTrxn>();
-        await db.Database.MigrateAsync();
+        await db.Database.MigrateAsync(context.CancellationToken);
     }
 
-    /// <summary>Classifies Docker unavailability separately from a SQL startup failure.</summary>
+    /// <summary>Classifies Docker unavailability separately from a container startup failure.</summary>
     [TestInitialize]
     public void TestSetup()
     {
-        if (SqlApiFactory.DockerUnavailableReason is not null)
-        {
-            Assert.Inconclusive(SqlApiFactory.DockerUnavailableReason);
-            return;
-        }
+        if (DbApiFactory.DockerUnavailableReason is not null)
+            Assert.Inconclusive(DbApiFactory.DockerUnavailableReason);
 
-        if (SqlApiFactory.StartupError is not null)
-            Assert.Fail($"SQL container startup failed after Docker preflight succeeded:{Environment.NewLine}{SqlApiFactory.StartupError}");
+        if (DbApiFactory.StartupError is not null)
+            Assert.Fail($"Database container startup failed after Docker preflight succeeded:{Environment.NewLine}{DbApiFactory.StartupError}");
     }
 
+    // The containers outlive this class; E2EAssemblyHooks stops them once.
     [ClassCleanup]
-    public static async Task ClassCleanup()
-    {
-        _factory?.Dispose();
-        await SqlApiFactory.StopContainerAsync();
-    }
+    public static void ClassCleanup() => _factory?.Dispose();
 
     private HttpClient CreateClient() => _factory.CreateClient();
 
@@ -182,37 +206,38 @@ public class {Entity}WorkflowTests
     [TestMethod]
     public async Task {Entity}_FullCrudCycle_AgainstRealSql()
     {
+        var ct = TestContext.CancellationToken;
         using var client = CreateClient();
 
         // CREATE
         var dto = new {Entity}Dto { Name = "E2E {Entity}", /* ... */ };
         var createResp = await client.PostAsJsonAsync("/api/{entities}",
-            new DefaultRequest<{Entity}Dto> { Item = dto });
+            new DefaultRequest<{Entity}Dto> { Item = dto }, ct);
         Assert.AreEqual(HttpStatusCode.Created, createResp.StatusCode,
-            $"Create failed: {await createResp.Content.ReadAsStringAsync()}");
-        var created = (await createResp.Content.ReadFromJsonAsync<DefaultResponse<{Entity}Dto>>(_json))!.Item;
+            $"Create failed: {await createResp.Content.ReadAsStringAsync(ct)}");
+        var created = (await createResp.Content.ReadFromJsonAsync<DefaultResponse<{Entity}Dto>>(_json, ct))!.Item;
         Assert.IsNotNull(created);
         var id = created.Id!.Value;
 
         // READ
-        var getResp = await client.GetAsync($"/api/{entities}/{id}");
+        var getResp = await client.GetAsync($"/api/{entities}/{id}", ct);
         Assert.AreEqual(HttpStatusCode.OK, getResp.StatusCode);
-        var fetched = (await getResp.Content.ReadFromJsonAsync<DefaultResponse<{Entity}Dto>>(_json))!.Item;
+        var fetched = (await getResp.Content.ReadFromJsonAsync<DefaultResponse<{Entity}Dto>>(_json, ct))!.Item;
         Assert.AreEqual("E2E {Entity}", fetched!.Name);
 
         // UPDATE
         var updateDto = new {Entity}Dto { Id = id, Name = "E2E {Entity} Updated", /* ... */ };
         var putResp = await client.PutAsJsonAsync($"/api/{entities}/{id}",
-            new DefaultRequest<{Entity}Dto> { Item = updateDto });
+            new DefaultRequest<{Entity}Dto> { Item = updateDto }, ct);
         Assert.AreEqual(HttpStatusCode.OK, putResp.StatusCode,
-            $"Update failed: {await putResp.Content.ReadAsStringAsync()}");
+            $"Update failed: {await putResp.Content.ReadAsStringAsync(ct)}");
 
         // DELETE
-        var delResp = await client.DeleteAsync($"/api/{entities}/{id}");
+        var delResp = await client.DeleteAsync($"/api/{entities}/{id}", ct);
         Assert.AreEqual(HttpStatusCode.NoContent, delResp.StatusCode);
 
         // VERIFY DELETED
-        var verifyResp = await client.GetAsync($"/api/{entities}/{id}");
+        var verifyResp = await client.GetAsync($"/api/{entities}/{id}", ct);
         Assert.AreEqual(HttpStatusCode.NotFound, verifyResp.StatusCode);
     }
 
@@ -221,11 +246,12 @@ public class {Entity}WorkflowTests
     [TestMethod]
     public async Task {Entity}_Search_ReturnsResults_AgainstRealSql()
     {
+        var ct = TestContext.CancellationToken;
         using var client = CreateClient();
 
         var marker = $"Searchable E2E {Guid.NewGuid():N}";
         await client.PostAsJsonAsync("/api/{entities}",
-            new DefaultRequest<{Entity}Dto> { Item = new {Entity}Dto { Name = $"{marker} Item" } });
+            new DefaultRequest<{Entity}Dto> { Item = new {Entity}Dto { Name = $"{marker} Item" } }, ct);
 
         var searchReq = new SearchRequest<{Entity}SearchFilter>
         {
@@ -233,12 +259,11 @@ public class {Entity}WorkflowTests
             PageSize = 50,
             Filter = new {Entity}SearchFilter { SearchTerm = marker }
         };
-        var searchResp = await client.PostAsJsonAsync("/api/{entities}/search", searchReq);
+        var searchResp = await client.PostAsJsonAsync("/api/{entities}/search", searchReq, ct);
         Assert.AreEqual(HttpStatusCode.OK, searchResp.StatusCode);
 
-        using var document = await JsonDocument.ParseAsync(await searchResp.Content.ReadAsStreamAsync());
-        var root = document.RootElement;
-        var total = root.GetProperty("total").GetInt32();
+        using var document = await JsonDocument.ParseAsync(await searchResp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+        var total = document.RootElement.GetProperty("total").GetInt32();
         Assert.IsGreaterThanOrEqualTo(total, 1, $"Expected at least 1 result, got {total}");
     }
 
@@ -247,6 +272,7 @@ public class {Entity}WorkflowTests
     [TestMethod]
     public async Task {Entity}_Search_PaginatesDistinctPages_AgainstRealSql()
     {
+        var ct = TestContext.CancellationToken;
         using var client = CreateClient();
 
         var marker = $"Paged Search E2E {Guid.NewGuid():N}";
@@ -254,9 +280,9 @@ public class {Entity}WorkflowTests
         {
             var dto = new {Entity}Dto { Name = $"{marker} {suffix}" };
             var resp = await client.PostAsJsonAsync("/api/{entities}",
-                new DefaultRequest<{Entity}Dto> { Item = dto });
+                new DefaultRequest<{Entity}Dto> { Item = dto }, ct);
             Assert.AreEqual(HttpStatusCode.Created, resp.StatusCode,
-                $"Seed create failed: {await resp.Content.ReadAsStringAsync()}");
+                $"Seed create failed: {await resp.Content.ReadAsStringAsync(ct)}");
         }
 
         async Task<(int Total, List<string> Names)> SearchPageAsync(int pageIndex)
@@ -267,19 +293,18 @@ public class {Entity}WorkflowTests
                 PageSize = 1,
                 Filter = new {Entity}SearchFilter { SearchTerm = marker }
             };
-            var response = await client.PostAsJsonAsync("/api/{entities}/search", request);
+            var response = await client.PostAsJsonAsync("/api/{entities}/search", request, ct);
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
 
-            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
             var root = document.RootElement;
-            var total = root.GetProperty("total").GetInt32();
             var names = root.GetProperty("data")
                 .EnumerateArray()
                 .Select(item => item.GetProperty("name").GetString())
                 .Where(n => !string.IsNullOrWhiteSpace(n))
                 .Cast<string>()
                 .ToList();
-            return (total, names);
+            return (root.GetProperty("total").GetInt32(), names);
         }
 
         var firstPage = await SearchPageAsync(1);
@@ -299,22 +324,23 @@ public class {Entity}WorkflowTests
     [TestMethod]
     public async Task {ChildEntity}_CrudCycle_AgainstRealSql()
     {
+        var ct = TestContext.CancellationToken;
         using var client = CreateClient();
 
         // Create parent
         var parentResp = await client.PostAsJsonAsync("/api/{entities}",
-            new DefaultRequest<{Entity}Dto> { Item = new {Entity}Dto { Name = "Parent for {ChildEntity}" } });
-        var parentId = (await parentResp.Content.ReadFromJsonAsync<DefaultResponse<{Entity}Dto>>(_json))!.Item!.Id!.Value;
+            new DefaultRequest<{Entity}Dto> { Item = new {Entity}Dto { Name = "Parent for {ChildEntity}" } }, ct);
+        var parentId = (await parentResp.Content.ReadFromJsonAsync<DefaultResponse<{Entity}Dto>>(_json, ct))!.Item!.Id!.Value;
 
         // Create child
         var childDto = new {ChildEntity}Dto { /* ... */ {Entity}Id = parentId };
         var createResp = await client.PostAsJsonAsync("/api/{child-entities}",
-            new DefaultRequest<{ChildEntity}Dto> { Item = childDto });
+            new DefaultRequest<{ChildEntity}Dto> { Item = childDto }, ct);
         Assert.AreEqual(HttpStatusCode.Created, createResp.StatusCode);
-        var created = (await createResp.Content.ReadFromJsonAsync<DefaultResponse<{ChildEntity}Dto>>(_json))!.Item;
+        var created = (await createResp.Content.ReadFromJsonAsync<DefaultResponse<{ChildEntity}Dto>>(_json, ct))!.Item;
 
         // Delete child
-        var delResp = await client.DeleteAsync($"/api/{child-entities}/{created!.Id}");
+        var delResp = await client.DeleteAsync($"/api/{child-entities}/{created!.Id}", ct);
         Assert.AreEqual(HttpStatusCode.NoContent, delResp.StatusCode);
     }
 }
@@ -339,15 +365,15 @@ public class {Entity}WorkflowTests
 
 Rich CRUD/health smoke proves the plumbing; it does not prove the app does its job. Generate at least
 one journey test that walks the primary business workflow end to end through the real API/gateway against
-real SQL - the path a real user takes from nothing to the outcome the app exists to produce.
+the real database - the path a real user takes from nothing to the outcome the app exists to produce.
 
-Shape (one class, sequential steps, real SQL):
+Shape (one class, sequential steps, real database):
 
 ```csharp
 [TestMethod]
 public async Task {PrimaryWorkflow}_EndToEnd_AgainstRealSql()
 {
-    var client = SqlApiFactory.CreateClient();
+    using var client = CreateClient();
 
     // 1. Create the parent aggregate via the same endpoint the UI calls.
     var parent = await CreateAsync(client, NewParentDto());
@@ -363,29 +389,23 @@ public async Task {PrimaryWorkflow}_EndToEnd_AgainstRealSql()
 Rules:
 - Drive **writes through the API/gateway**, not the browser - see [ui-blazor-forms.md](../skills/ui-blazor-forms.md) and the *Prefer the API/gateway path for write assertions* note below.
 - If the workflow invokes an AI agent, run it deterministically via the scripted-agent switch so the journey is offline and repeatable - see [ai-integration.md](../skills/ai-integration.md) section Deterministic agents for tests.
-- Seed through the API when it can create the rows the test acts on (reference pattern). When it cannot (user/tenant FK chain), use the shared `SqlAggregateSeeder` ([test-templates-endpoint.md](test-templates-endpoint.md) section SqlAggregateSeeder) - never inline per-test inserts.
+- Seed through the API when it can create the rows the test acts on (reference pattern). When it cannot (user/tenant FK chain), use the shared `DbAggregateSeeder` ([test-templates-endpoint.md](test-templates-endpoint.md) section DbAggregateSeeder) - never inline per-test inserts.
 
 ---
 
 ## Critical patterns
 
 ### Apply migrations once per class init
-Migrations are applied in `[ClassInitialize]` against the live container. If the test class uses `SqlApiFactory` without applying migrations, the InMemory-style behavior won't surface and the FK / projection drift the tier is meant to catch goes uncaught.
+Migrations are applied in `[ClassInitialize]` against the live container. A class that skips them never sees the FK / projection drift the tier is meant to catch.
 
-### JSON serializer must accept named enums
-The API host emits string enums via `ConfigureHttpJsonOptions`. Without `JsonStringEnumConverter`, the deserializer throws on `"status": "InProgress"`. Either share `JsonTestOptions.Default` from `Test.Support` (preferred - see [test-templates-endpoint.md](test-templates-endpoint.md) section Shared JSON Options) or instantiate a local `_json` field as shown above.
+### Shared containers, one teardown
+`StartContainerAsync` is static, gated, and idempotent: the bounded `DockerRuntimePreflight` runs once, then the database (and Redis on the default lane) starts; later calls return at once, so no reference counting. A disposed Testcontainer cannot restart, so class cleanup disposes only its factory and the containers stop once in `E2EAssemblyHooks.[AssemblyCleanup]`. `[ClassInitialize]` returns early after a preflight or startup failure so discovery continues; `[TestInitialize]` marks only `DockerUnavailableReason` inconclusive and fails a captured `StartupError` with the full exception.
 
-### `DefaultRequest<T>` / `DefaultResponse<T>` wrappers
-Every endpoint contract uses `DefaultRequest<T>` for body and `DefaultResponse<T>` for response. Tests must follow the same shape - `new DefaultRequest<{Entity}Dto> { Item = dto }` on POST/PUT, `ReadFromJsonAsync<DefaultResponse<{Entity}Dto>>` on GET/POST/PUT. Direct DTO POSTs will fail validation.
-
-### Missing Docker degrades to Inconclusive; container startup stays red
-`StartContainerAsync` runs the shared bounded `DockerRuntimePreflight` before creating the SQL container. `[ClassInitialize]` returns early when preflight or startup failed so discovery continues. Every test's `[TestInitialize]` marks only `DockerUnavailableReason` inconclusive; a captured `StartupError` after successful preflight fails with the full exception. This matches `Test.Integration` and Aspire-backed tiers without turning an image, port, configuration, or health failure into an environment skip.
-
-### Static container ownership
-The container is started and disposed via the **first and last** test class. With multiple workflow test classes, both call `SqlApiFactory.StartContainerAsync()`; the second call is a cheap idempotent return because `_started` is set. This is intentional - DO NOT add reference counting or "is anyone still using it" logic; the static `_started` flag is sufficient.
+### JSON and request wrappers
+Deserialize with `JsonTestOptions.Default` ([test-templates-endpoint.md](test-templates-endpoint.md) section Shared JSON Options) so string enums round-trip. Every endpoint contract uses `DefaultRequest<T>` for the body and `DefaultResponse<T>` for the response; direct DTO POSTs fail validation.
 
 ### Prefer the API/gateway path for write assertions
-Assert writes by calling the API/gateway directly (the `SqlApiFactory` client), not by driving the
+Assert writes by calling the API/gateway directly (the `DbApiFactory` client), not by driving the
 Blazor UI. A browser-driven write adds two failure modes unrelated to the behavior under test: a MudBlazor
 dialog + Refit `AddStandardResilienceHandler` can return 400 before the request leaves the client (the
 same payload sent direct-to-gateway succeeds), and `@bind-Value` commits on blur so a programmatic fill
@@ -397,21 +417,20 @@ interaction checks; prove create/update/delete through the API.
 
 ## Verification
 
-- [ ] `Test.E2E` references `Microsoft.AspNetCore.Mvc.Testing` + `Testcontainers.MsSql`.
-- [ ] `SqlApiFactory` derives from `WebApplicationFactoryBase<Program, {App}DbContextTrxn, {App}DbContextQuery>` - does **not** reimplement the swap-out logic.
-- [ ] `SqlApiFactory.StartContainerAsync` is idempotent, runs bounded Docker preflight once, and captures post-preflight `StartupError` without aborting discovery.
-- [ ] Every workflow class marks only `DockerUnavailableReason` inconclusive and fails a captured `StartupError` with the full exception.
-- [ ] Every workflow class applies migrations in `[ClassInitialize]` (skipped via early return when preflight or startup failed).
+- [ ] `Test.E2E` references `Microsoft.AspNetCore.Mvc.Testing` + `EF.IntegrationTesting`; the database container comes from `TestDatabaseContainer` on the resolved lane.
+- [ ] `DbApiFactory` derives from `WebApplicationFactoryBase<Program, {App}DbContextTrxn, {App}DbContextQuery>` - does **not** reimplement the swap-out logic.
+- [ ] Lane settings are host settings; every non-database data plane has an inert endpoint and a no-op replacement; containers stop once from `[AssemblyCleanup]`.
+- [ ] Every workflow class applies migrations in `[ClassInitialize]` and classifies preflight versus startup failure in `[TestInitialize]`.
 - [ ] Every test in `Test.E2E` carries `[TestCategory("E2E")]`.
-- [ ] JSON deserialization uses a configured `JsonSerializerOptions` (named-enum tolerant + case-insensitive).
 - [ ] Distinct-page pagination test exists for every searchable entity.
-- [ ] Class-level `<summary>` declares the SQL tier and why a lighter / heavier tier is wrong for this scope.
+- [ ] Class-level `<summary>` declares the database tier and why a lighter / heavier tier is wrong for this scope.
 - [ ] No `Test.E2E` test asserts on seeded counts that depend on shared state - each test seeds its own marker.
 
 ---
 
 **TaskFlow proof (local):**
-- `../scaffold-proof/tests/Test.E2E/SqlApiFactory.cs`
+- `../scaffold-proof/tests/Test.E2E/DbApiFactory.cs`
+- `../scaffold-proof/tests/Test.E2E/E2EAssemblyHooks.cs`
 - `../scaffold-proof/tests/Test.E2E/TaskItemCrudE2ETests.cs`
 
 **TaskFlow proof (remote fallback):**
