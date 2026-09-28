@@ -13,7 +13,7 @@ A clean-architecture C#/.NET solution with:
 - Entity Framework Core data access with audit/tenant interceptors and integration tests using Testcontainers SQL.
 - DDD aggregate boundaries enforced in the generated write surface (GR-15): aggregate roots get the full slice, while internal children (1:N owned, M:N junction) are mutated only through the root's `Add*`/`Remove*` methods, the `{Root}Updater`, and nested sub-resource routes - no standalone child write handlers/services/endpoints. See [../skills/domain-model.md](../skills/domain-model.md) section Aggregate Roots vs Internal Children.
 - ASP.NET Core minimal-API host with `WebApplicationFactoryBase` test infrastructure.
-- Aspire AppHost orchestration with an Azure default lane and optional independently tested portable provider/deployment lanes.
+- Aspire AppHost orchestration with a `NonAzure` default lane (PostgreSQL, RabbitMQ, S3-compatible storage) and an opt-in, independently tested `Azure` provider/deployment lane.
 - Optional hosts: YARP Gateway, Azure Functions, TickerQ scheduler, notifications, Blazor server/WASM, React/Vite SPA, Uno (desktop / WASM / mobile).
 - Shared base-type contracts (`EntityBase`, `DbContextBase`, `DomainResult`, `IRepositoryBase`, `IRequestContext`) sourced as `<packagePrefix>.*` packages via one of three strategies: `feed`, `local`, or `hybrid`.
 - Azure integrations as no-op stubs by default (Entra, Key Vault, AI Search, Foundry, ACS), promoted to live only when configured.

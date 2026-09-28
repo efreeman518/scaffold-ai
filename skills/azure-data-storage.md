@@ -11,6 +11,8 @@ Base types for each store come from dedicated `EF.*` packages - see [package-dep
 
 ## Overview
 
+These stores are the `Azure` lane arms. The default `NonAzure` lane replaces them: S3-compatible object storage for `blob` (`IObjectStorageRepository` from EF.Storage.Contracts, implemented by EF.Storage.S3; see [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Object Storage (EF.Storage.Contracts, EF.Storage.S3)), the relational audit sink for Table-backed audit ([data-persistence.md](data-persistence.md) section Audit Strategy), and the PostgreSQL JSONB read model for Cosmos documents. Application code depends on `IObjectStorageRepository`, so the `storageProvider` switch selects `S3` or `AzureBlob` in one registration branch; the Aspire S3 arm is an S3-compatible container (SeaweedFS or MinIO) whose bucket a startup task provisions through `IS3BucketProvisioner`.
+
 | Storage type | Best use | Partition strategy | Aspire resource |
 |---|---|---|---|
 | Blob Storage | Unstructured payloads (documents, media, exports, backups) | Container + blob path hierarchy | `AddAzureStorage().AddBlobs()` |

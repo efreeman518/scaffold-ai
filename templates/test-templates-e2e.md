@@ -7,6 +7,8 @@
 | **Phase** | Generated in Phase 4 (factory shell) and filled in during Phase 5b once services + endpoints are green |
 | **Protocol** | Tests-after. Unit + Endpoint tests in `Test.Endpoints` already pin per-endpoint behavior; E2E validates multi-endpoint **workflows** against real SQL - paging plans, FK constraints, projection translation, owned-type round-trip, and child-aggregate lifecycles. |
 
+> **Lane provider:** the snippets show the `Azure` lane database arm (`MsSqlContainerFixture` / `Testcontainers.MsSql`, `UseSqlServer`). On the default `NonAzure` lane generate the same shape with `PostgreSqlContainerFixture` (EF.IntegrationTesting.Testcontainers) or `Testcontainers.PostgreSql` and `UseNpgsql`, and replace Azurite-backed audit with the relational sink. The real provider is the deployed one: [../skills/testing.md](../skills/testing.md) section Capability-Gated Test Tiers (the early decision drives the rest).
+
 ## Why E2E exists separately
 
 | Tier | Backing store | What only this tier catches |

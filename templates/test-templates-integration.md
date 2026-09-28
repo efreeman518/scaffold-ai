@@ -44,6 +44,8 @@ as a deliberate change.
 
 ## Fixture model
 
+> **Lane provider:** the snippets show the `Azure` lane database arm (`MsSqlContainerFixture` / `Testcontainers.MsSql`, `UseSqlServer`). On the default `NonAzure` lane generate the same shape with `PostgreSqlContainerFixture` (EF.IntegrationTesting.Testcontainers) or `Testcontainers.PostgreSql` and `UseNpgsql`, and replace Azurite-backed audit with the relational sink. The real provider is the deployed one: [../skills/testing.md](../skills/testing.md) section Capability-Gated Test Tiers (the early decision drives the rest).
+
 Each store the app uses gets a **standalone Testcontainer fixture** under `tests/Test.Integration/Infrastructure/`. A single `IntegrationTestSetup` runs the shared bounded Docker preflight, starts the needed fixtures in parallel from `[AssemblyInitialize]`, and disposes them in `[AssemblyCleanup]`. Each fixture captures its `StartupError` rather than throwing so discovery continues, but each dependent test then fails with the full exception. Only the preflight-confirmed unavailable runtime is `Inconclusive`. Generate only the fixtures the app needs (SQL always; Azurite when audit/table storage is in scope; Redis when a distributed cache is in scope).
 
 > **Naming:** name each fixture for the store it owns (`SqlContainerFixture`, `AzuriteContainerFixture`, `RedisContainerFixture`). They are standalone - they do **not** wrap or depend on the Aspire host.

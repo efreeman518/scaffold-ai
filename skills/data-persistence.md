@@ -1,6 +1,6 @@
 # Data Persistence (EF Core)
 
-> **When to read:** Phase 5a, when building EF Core DbContexts, entity configurations, repositories (Trxn/Query split), or updater helpers for SQL Server / Azure SQL.
+> **When to read:** Phase 5a, when building EF Core DbContexts, entity configurations, repositories (Trxn/Query split), or updater helpers for PostgreSQL (default `NonAzure` lane) or SQL Server / Azure SQL (`Azure` lane).
 > **Skip if:** Cosmos/Table/Blob-only persistence (use `azure-data-storage.md` instead); pure domain work; phases 5b+ where data access is already wired.
 
 ## Repository Shape Ownership
@@ -22,13 +22,13 @@ Load [../support/data-persistence-advanced.md](../support/data-persistence-advan
 
 `AuditInterceptor<string, Guid?>` (from `EF.Data.Interceptors`) intercepts `SaveChangesAsync` on the transactional DbContext and publishes `AuditEntry<string, Guid?>` lists via `IInternalMessageBus` onto the background task queue. Construct it with an explicit empty sink list, `new AuditInterceptor<string, Guid?>(bus, [])`: its optional `IEnumerable<IAuditLogRepository>` parameter otherwise receives every registered sink from DI and awaits each inside the save, and a relational sink on the same context recurses.
 
-**Pipeline:** `EF SaveChanges` -> `AuditInterceptor` captures changed entities -> publishes to `IInternalMessageBus` (returns immediately) -> background `AuditHandler` dequeues -> `IAuditLogRepository.AppendAsync()` (EF.Audit.Contracts) -> the configured backend (Azure Table `{project}audit` table, or relational through EF.Audit.Data).
+**Pipeline:** `EF SaveChanges` -> `AuditInterceptor` captures changed entities -> publishes to `IInternalMessageBus` (returns immediately) -> background `AuditHandler` dequeues -> `IAuditLogRepository.AppendAsync()` (EF.Audit.Contracts) -> the lane's backend (relational through EF.Audit.Data on the default `NonAzure` lane; Azure Table `{project}audit` table on the `Azure` lane).
 
 **Key design points:**
 - `EntityBase` does **not** define audit properties (`CreatedDate`, `CreatedBy`, `UpdatedDate`, `UpdatedBy`). Do NOT inherit `AuditableBase<T>` unless audit fields must live on the entity itself.
-- Audit metadata is stored externally in Azure Table Storage, keyed by `PartitionKey` = tenant ID (or `"_system"`) and `RowKey` = reverse-ticks (newest-first).
+- Audit metadata is stored outside the entity: a relational `AuditLog` table in the application database by default (an app `RelationalAuditLogRepository` over the Trxn context, or EF.Audit.Data); on the `Azure` lane, Azure Table Storage keyed by `PartitionKey` = tenant ID (or `"_system"`) and `RowKey` = reverse-ticks (newest-first).
 - Fields tracked: `EntityType`, `EntityKey`, `Action` (Insert/Update/Delete), `RecordedUtc`, `Metadata` (serialized property changes).
-- **Fallback:** When Table Storage is unavailable (local dev without emulator), register `NoOpAuditLogRepository` - silently discards audit entries.
+- **Fallback:** When the selected sink is not provisioned (local dev without its store), register `NoOpAuditLogRepository` - silently discards audit entries.
 
 **Source files:**
 | File | Purpose |
@@ -36,7 +36,8 @@ Load [../support/data-persistence-advanced.md](../support/data-persistence-advan
 | `Bootstrapper/Registration/RegisterServices.Database.cs` | Registers `AuditInterceptor` on Trxn DbContext |
 | `Application.MessageHandlers/AuditHandler.cs` | Handles audit messages from internal bus |
 | `EF.Audit.Contracts.IAuditLogRepository` | Repository contract (package type; never redefine it in the app) |
-| `Infrastructure.Storage/AuditLogRepository.cs` | Azure Table Storage implementation |
+| `Infrastructure.Repositories/RelationalAuditLogRepository.cs` | Relational implementation (default lane) |
+| `Infrastructure.Storage/AuditLogRepository.cs` | Azure Table Storage implementation (`Azure` lane) |
 | `Infrastructure.Storage/NoOpAuditLogRepository.cs` | No-op fallback |
 
 ---

@@ -47,21 +47,21 @@ includeAzd: false
 includeAiServices: false
 useAspire: true
 migrationLifecycle: preserved-append-only  # preserved-append-only | unreleased-resettable
-databaseProviders: [SqlServer]              # every EF provider that owns migrations
-deployTarget: ContainerApps                 # default/legacy scalar
-deployTargets: [ContainerApps]              # every supported deployment topology
-hostingLanes: [Azure]                       # lane presets; keep one unless another lane is required
+databaseProviders: [PostgreSql]             # every EF provider that owns migrations
+deployTarget: DockerCompose                 # default/legacy scalar
+deployTargets: [DockerCompose]              # every supported deployment topology
+hostingLanes: [NonAzure]                    # default lane; Azure is the explicit opt-in lane
 hostingLaneDefaults:
-  Azure:
-    databaseProvider: SqlServer
-    messagingProvider: ServiceBus
-    storageProvider: AzureBlob
-    readModelProvider: Cosmos
-    auditProvider: AzureTable
+  NonAzure:
+    databaseProvider: PostgreSql
+    messagingProvider: RabbitMq
+    storageProvider: S3
+    readModelProvider: PostgreSqlJsonb
+    auditProvider: Relational
     searchProvider: Sql
     aiProvider: None
-    dataProtectionPersistence: AzureBlob
-    deploymentTarget: ContainerApps
+    dataProtectionPersistence: Redis
+    deploymentTarget: DockerCompose
 healthProbes: { live: /healthz/live, ready: /healthz/ready, aggregate: /healthz }
 ```
 
@@ -203,21 +203,23 @@ compliance:
 
 Binary content -> `blob`. Relational + complex queries -> `sql`. Simple key lookups -> `table`. Document aggregates -> `cosmosdb`. Uncertain -> default to `sql`. For detailed selection guidance, see [skills/data-persistence.md](../skills/data-persistence.md) and [skills/azure-data-storage.md](../skills/azure-data-storage.md).
 
-If a non-default database/search/vector store is selected because the Aspire catalog supports it locally (for example PostgreSQL, MongoDB, Qdrant, Meilisearch, Elasticsearch, or ClickHouse), record both the domain reason and the Aspire integration URL. Do not replace SQL as the source of truth with a search/vector service unless `.scaffold/DESIGN-DECISIONS.md` explicitly records that choice.
+`sql` is the lane's relational database: PostgreSQL on the default `NonAzure` lane, SQL Server / Azure SQL on the `Azure` lane. `blob` is the lane's object storage (S3-compatible or Azure Blob). `cosmosdb` and `table` are Azure-lane stores; the `NonAzure` lane maps document reads to the PostgreSQL JSONB read model and audit to the relational sink.
+
+If a non-default database/search/vector store is selected because the Aspire catalog supports it locally (for example MongoDB, Qdrant, Meilisearch, Elasticsearch, or ClickHouse), record both the domain reason and the Aspire integration URL. Do not replace SQL as the source of truth with a search/vector service unless `.scaffold/DESIGN-DECISIONS.md` explicitly records that choice.
 
 ### SQL Type Defaults
 
-| Domain kind | SQL type | Notes |
-|---|---|---|
-| `string` | `nvarchar(N)` | always specify maxLength |
-| `text` | `nvarchar(max)` | large text |
-| `number` | `int` or `long` | |
-| `money` | `decimal(P,S)` | always specify precision+scale |
-| `date` | `datetime2` or `DateTimeOffset` | |
-| `boolean` | `bit` | |
-| `identifier` | `Guid` or `int` | |
-| `enum` | `int` | stored as int, C# enum |
-| `flags_enum` | `int` | bitwise flags |
+| Domain kind | PostgreSQL type (default) | SQL Server type (Azure lane) | Notes |
+|---|---|---|---|
+| `string` | `varchar(N)` | `nvarchar(N)` | always specify maxLength |
+| `text` | `text` | `nvarchar(max)` | large text |
+| `number` | `integer` or `bigint` | `int` or `bigint` | C# `int` / `long` |
+| `money` | `numeric(P,S)` | `decimal(P,S)` | always specify precision+scale |
+| `date` | `timestamptz` | `datetimeoffset` | C# `DateTimeOffset`; Npgsql writes UTC offsets only |
+| `boolean` | `boolean` | `bit` | |
+| `identifier` | `uuid` | `uniqueidentifier` | C# `Guid` |
+| `enum` | `integer` | `int` | stored as int, C# enum |
+| `flags_enum` | `integer` | `int` | bitwise flags |
 
 ## Relationship Configuration
 
@@ -260,21 +262,23 @@ builder.HasIndex(e => new { e.EntityType, e.EntityId });
 When `useAspire: true`, map every external dependency through the Aspire catalog:
 
 ```yaml
-aspireResources:
-  - name: sql
-    service: Azure SQL Database
-    appHostApi: AddAzureSqlServer
+aspireResources:                            # NonAzure lane (default)
+  - name: postgres
+    service: PostgreSQL
+    appHostApi: AddPostgres
     localMode: RunAsContainer
-    publishMode: provision
+    publishMode: connection-string
     connectionNames: [{Project}DbContextTrxn, {Project}DbContextQuery]
-    docs: https://aspire.dev/integrations/cloud/azure/azuresql/
-  - name: servicebus
-    service: Azure Service Bus
-    appHostApi: AddAzureServiceBus
-    localMode: RunAsEmulator
-    publishMode: provision
-    connectionNames: [ServiceBus1]
-    docs: https://aspire.dev/integrations/cloud/azure/azureservicebus/
+    docs: https://aspire.dev/integrations/databases/postgres/postgres-host/
+  - name: rabbitmq
+    service: RabbitMQ
+    appHostApi: AddRabbitMQ
+    localMode: RunAsContainer
+    publishMode: connection-string
+    connectionNames: [RabbitMq1]
+    docs: https://aspire.dev/integrations/messaging/rabbitmq/
+# Azure lane arms: AddAzureSqlServer (RunAsContainer) and AddAzureServiceBus (RunAsEmulator),
+# publishMode: provision, connection names unchanged / ServiceBus1.
 ```
 
 Use this optional `aspireResources` block when the resource map includes anything beyond the baseline SQL/Redis/Storage set, or when a service has a non-obvious local mode. The block is documentation for later phases; it does not replace the concrete first-class fields below.
@@ -291,9 +295,9 @@ Selection rules:
 
 | Input | Default | Values |
 |---|---|---|
-| `database` | `AzureSQL` | `AzureSQL`, `SQLServer`, `PostgreSQL` |
+| `database` | `PostgreSQL` | `PostgreSQL`, `AzureSQL`, `SQLServer` (Azure lane) |
 | `migrationLifecycle` | `preserved-append-only` | `preserved-append-only`, `unreleased-resettable` |
-| `databaseProviders` | `[SqlServer]` | `SqlServer`, `PostgreSql`; non-empty unique list of configured EF providers; Azure SQL uses `SqlServer` |
+| `databaseProviders` | `[PostgreSql]` | `PostgreSql`, `SqlServer`; non-empty unique list of configured EF providers; Azure SQL uses `SqlServer` |
 | `caching` | `FusionCache+Redis` | `FusionCache+Redis`, `DistributedMemory`, `None` |
 | `includeKeyVault` | `false` | |
 
@@ -303,22 +307,22 @@ Selection rules:
 
 ```yaml
 messagingProviders:
-  - { name: ServiceBus, type: AzureServiceBus }
+  - { name: RabbitMq, type: RabbitMQ }          # Azure lane: { name: ServiceBus, type: AzureServiceBus }
 messagingChannels:
-  - { name: DomainEvents, provider: ServiceBus, pattern: topic }
+  - { name: DomainEvents, provider: RabbitMq, pattern: topic }
 messagingSemantics:
   - { channel: DomainEvents, deliveryMode: at-least-once, outboxEnabled: true, idempotencyKey: MessageId, deduplicationWindow: "PT1H" }
 ```
 
-Options: Azure Service Bus, RabbitMQ, Event Grid, Event Hubs. See [skills/messaging.md](../skills/messaging.md).
+Options: RabbitMQ (default lane), Azure Service Bus (Azure lane), Event Grid, Event Hubs. See [skills/messaging.md](../skills/messaging.md).
 
 ### Hosting
 
 | Input | Default | Values |
 |---|---|---|
-| `deployTarget` | `ContainerApps` | `ContainerApps`, `AppService`, `AKS` |
-| `deployTargets` | `[ContainerApps]` | `ContainerApps`, `AppService`, `AKS`, `DockerCompose`, `Kubernetes` |
-| `hostingLanes` | `[Azure]` | Named presets such as proven strict `Azure` and `NonAzure` lanes, or a project-defined lane; `Portable` is a deprecated input alias for `NonAzure` |
+| `deployTarget` | `DockerCompose` | `DockerCompose`, `ContainerApps`, `AppService`, `AKS` |
+| `deployTargets` | `[DockerCompose]` | `ContainerApps`, `AppService`, `AKS`, `DockerCompose`, `Kubernetes` |
+| `hostingLanes` | `[NonAzure]` | Named presets: the proven strict `NonAzure` default and the explicit opt-in `Azure` lane, or a project-defined lane; `Portable` is a deprecated input alias for `NonAzure` |
 | `hostingLaneDefaults` | one entry per lane | Per-lane compatible provider defaults and owned `deploymentTarget` |
 | `useAspire` | `true` | local orchestration |
 | `includeApi` | `true` | |
@@ -337,18 +341,8 @@ Options: Azure Service Bus, RabbitMQ, Event Grid, Event Hubs. See [skills/messag
 Declare a `hostingLaneDefaults` entry for each lane. Each provider resolver follows `environment > config > lane default > hard default`, then validates the selected value against that lane's allowed set. Explicit unknown and cross-lane values fail startup instead of silently selecting another provider. `Enum.TryParse` accepts numeric strings such as `"7"`, so a resolver rejects numeric input and requires `Enum.IsDefined` on the parsed value. Keep provider selection out of Domain and Application code, and keep each provider family independently overridable within its lane.
 
 ```yaml
-hostingLanes: [Azure, NonAzure]
+hostingLanes: [NonAzure, Azure]
 hostingLaneDefaults:
-  Azure:
-    databaseProvider: SqlServer
-    messagingProvider: ServiceBus
-    storageProvider: AzureBlob
-    readModelProvider: Cosmos
-    auditProvider: AzureTable
-    searchProvider: Sql
-    aiProvider: None
-    dataProtectionPersistence: AzureBlob
-    deploymentTarget: ContainerApps
   NonAzure:
     databaseProvider: PostgreSql
     messagingProvider: RabbitMq
@@ -359,17 +353,27 @@ hostingLaneDefaults:
     aiProvider: None
     dataProtectionPersistence: Redis
     deploymentTarget: DockerCompose
+  Azure:
+    databaseProvider: SqlServer
+    messagingProvider: ServiceBus
+    storageProvider: AzureBlob
+    readModelProvider: Cosmos
+    auditProvider: AzureTable
+    searchProvider: Sql
+    aiProvider: None
+    dataProtectionPersistence: AzureBlob
+    deploymentTarget: ContainerApps
 
-storageProviders: [AzureBlob, S3]
-readModelProviders: [Cosmos, PostgreSqlJsonb, MongoDb]
-auditProviders: [AzureTable, Relational]
-searchProviders: [AzureAiSearch, PgVector, Sql]
-aiProviders: [AzureInference, OpenAICompatible, None]
-dataProtectionPersistence: [AzureBlob, Redis, None]
-deployTargets: [ContainerApps, DockerCompose]
+storageProviders: [S3, AzureBlob]
+readModelProviders: [PostgreSqlJsonb, MongoDb, Cosmos]
+auditProviders: [Relational, AzureTable]
+searchProviders: [Sql, PgVector, AzureAiSearch]
+aiProviders: [None, OpenAICompatible, AzureInference]
+dataProtectionPersistence: [Redis, AzureBlob, None]
+deployTargets: [DockerCompose, ContainerApps]
 ```
 
-`Azure` and `NonAzure` use the strict compatibility matrix in [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md). Environment/configuration overrides may select only an allowed arm in the active lane. Keep `Sql` search and `None` AI as the default until their optional provider is provisioned. `NonAzure` rejects Azure services and provider arms from both configuration and environment sources. Use a separately named lane for an intentional mixed-provider profile. `Portable` remains a one-release input alias for `NonAzure`; do not emit it as a canonical lane. `Relational` remains a one-release input alias for `PostgreSqlJsonb`. `MongoDb` is an explicit NonAzure read-model alternative, not the default.
+`NonAzure` (default) and `Azure` (opt-in) use the strict compatibility matrix in [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md). Environment/configuration overrides may select only an allowed arm in the active lane. Keep `Sql` search and `None` AI as the default until their optional provider is provisioned. `NonAzure` rejects Azure services and provider arms from both configuration and environment sources. Use a separately named lane for an intentional mixed-provider profile. `Portable` remains a one-release input alias for `NonAzure`; do not emit it as a canonical lane. `Relational` remains a one-release input alias for `PostgreSqlJsonb`. `MongoDb` is an explicit NonAzure read-model alternative, not the default.
 
 Record per-host runtime choices only when measured or required, and keep the common probe contract explicit:
 
@@ -387,7 +391,7 @@ Full decision, runtime, and verification rules: [../support/scalability-and-host
 | Platform | Hosting |
 |---|---|
 | Mobile (iOS/Android) | App store distribution |
-| Web (WASM / SPA) | Azure Static Web Apps / Container Apps |
+| Web (WASM / SPA) | Static container in the lane's deployment target (Compose; Azure lane: Static Web Apps / Container Apps) |
 | Desktop (Windows) | MSIX / direct distribution |
 
 ### Security
@@ -403,8 +407,8 @@ Full decision, runtime, and verification rules: [../support/scalability-and-host
 
 | Input | Default |
 |---|---|
-| `includeIaC` | `true` |
-| `azureRegion` | `eastus2` |
+| `includeIaC` | `true` (Bicep for an `Azure` lane; the `NonAzure` lane deploys through its `DockerCompose` target) |
+| `azureRegion` | `eastus2` (Azure lane) |
 | `iacEnvironments` | `[dev, staging, prod]` |
 | `includeGitHubActions` | `false` |
 | `includeAzd` | `false` |
@@ -627,11 +631,11 @@ Work through these in order during Phase 2. **Question 1 is asked first and must
 
    `packagePrefix` is required in every mode. `EF` is the canonical example prefix used throughout these instructions, not a default.
 2. **Scaffold mode** - full, lite, or api-only? What optional hosts are needed? For web UI, choose Blazor, Uno WASM, React/Vite SPA, or explicit siblings; do not add a second UI stack by default. **Exception - multi-head by persona:** if Phase 1 produced a persona -> UI-surface mapping that calls for a distinct admin/operator portal alongside the end-user app (see [shared-understanding-interview.md section Multi-Head UI Decision](shared-understanding-interview.md#multi-head-ui-decision)), enable the second per-stack host flag deliberately and offer explicit siblings under `src/UI/` (e.g. a React end-user app plus a Blazor Server admin head). Multi-head = two of `includeUnoUI` / `includeBlazorUI` / `includeReactUI` set true; record which persona drives which head in `DESIGN-DECISIONS.md`.
-3. **Data store mapping** - for each entity: SQL (default), Cosmos, Table, or Blob? Binary content -> blob, relational -> sql, key-value -> table, document aggregates -> cosmosdb.
+3. **Hosting lane and data store mapping** - keep the default `NonAzure` lane or opt into `Azure` (record the `D-###`)? Then for each entity: SQL (default; the lane's relational database), Cosmos, Table, or Blob? Binary content -> blob, relational -> sql, key-value -> table, document aggregates -> cosmosdb.
 4. **Property details** - add types, maxLength, precision/scale to every property. Resolve ambiguous Phase 1 kinds.
 5. **Relationship config** - join entities for many-to-many, cascade behavior, FK naming.
 6. **External dependencies** - declare a scaffold mode for each (emulator, lazy-optional, no-op stub, deployment-only). When `useAspire: true`, consult [skills/aspire.md](../skills/aspire.md) section Official Integration Catalog Awareness and record any non-baseline service in `aspireResources` with docs URL, local mode, publish mode, and connection names.
-7. **Messaging & events** - which events need Service Bus topics? Which are in-process channel dispatches?
+7. **Messaging & events** - which events need broker topics (RabbitMQ; Service Bus on the Azure lane)? Which are in-process channel dispatches?
 8. **AI services** - if enabled: which entities need search indexes? Which decisions need agents? What models?
 9. **Testing profile & surfaces** - minimal, balanced, or comprehensive? Which optional test types (E2E, architecture, load)? **Test surfaces are derived from the hosts/UI chosen in Question 2, not asked independently:** UI model/presentation coverage -> `Test.UI`; Uno -> `WasmUI` (Skia canvas bridge) + `Test.Mobile`; Blazor/React -> `Test.PlaywrightUI` (DOM); `useAspire` + comprehensive (or explicit `includeAspireTests`) -> `Test.Aspire` mesh; `api-only` / no UI -> none of these. Record the resulting tier set; the [Capability-Gated Test Tiers](../skills/testing.md#capability-gated-test-tiers-the-early-decision-drives-the-rest) table is authoritative for the mapping.
 

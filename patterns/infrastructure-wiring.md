@@ -102,20 +102,37 @@ Readiness is host-specific. Exclude an optional cache or telemetry sink when the
 
 Canonical tokens (see [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md)): `{Host}` = host project prefix, `{Project}` = DB/connection-name prefix, `{Gateway}` = `{Host}`. Aspire maps `.csproj` dots/hyphens to `_` in `Projects.*` (derivation rule 7).
 
-Wire a secret SQL password parameter (persistent volume + fixed port in dev; non-persistent + random port under test so each run is clean), then Redis, then each host keyed by `connectionName`. **Give each pooled DbContext its own `WithReference(db, connectionName: ...)`** even when they map to one database - the runtime binds by connection name (`{Project}DbContextTrxn`, `{Project}DbContextQuery`, plus any extra contexts). Reference Redis as `Redis1`.
+Wire the lane's relational server with a secret password parameter (PostgreSQL on the default `NonAzure` lane, SQL Server on the `Azure` lane; persistent volume + fixed port in dev; non-persistent + random port under test so each run is clean), then Redis, then each host keyed by `connectionName`. **Give each pooled DbContext its own `WithReference(db, connectionName: ...)`** even when they map to one database - the runtime binds by connection name (`{Project}DbContextTrxn`, `{Project}DbContextQuery`, plus any extra contexts). Reference Redis as `Redis1`.
 
 ```csharp
 var builder = DistributedApplication.CreateBuilder(args);
 var isTesting = builder.Environment.EnvironmentName == "Testing";
 
-// -- Shared infrastructure (persistent in dev, fresh per test run)
-var sqlPassword = builder.AddParameter("sql-password", secret: true);
-var sql = builder.AddSqlServer("sql", sqlPassword, port: isTesting ? null : 38433)
-    .WithImageTag("<resolved-reviewed-sql-tag>")
-    .WithImageSHA256("<resolved-sql-manifest-sha256>");
-if (!isTesting)
-    sql = sql.WithLifetime(ContainerLifetime.Persistent).WithDataVolume("{project}-sql-data");
-var db = sql.AddDatabase("{project}db");
+var lane = HostingLaneResolver.Resolve(builder.Configuration);
+
+// -- Shared infrastructure (persistent in dev, fresh per test run). Exactly one relational server.
+IResourceBuilder<IResourceWithConnectionString> db;
+if (lane.Database == "PostgreSql") // NonAzure lane (default)
+{
+    var pgPassword = builder.AddParameter("postgres-password", secret: true);
+    var postgres = builder.AddPostgres("postgres", password: pgPassword, port: isTesting ? null : 35432)
+        .WithImageTag("<resolved-reviewed-postgres-tag>")
+        .WithImageSHA256("<resolved-postgres-manifest-sha256>")
+        .WithEnvironment("POSTGRES_DB", "{project}db");
+    if (!isTesting)
+        postgres = postgres.WithLifetime(ContainerLifetime.Persistent).WithDataVolume("{project}-postgres-data");
+    db = postgres.AddDatabase("{project}db");
+}
+else // Azure lane
+{
+    var sqlPassword = builder.AddParameter("sql-password", secret: true);
+    var sql = builder.AddSqlServer("sql", sqlPassword, port: isTesting ? null : 38433)
+        .WithImageTag("<resolved-reviewed-sql-tag>")
+        .WithImageSHA256("<resolved-sql-manifest-sha256>");
+    if (!isTesting)
+        sql = sql.WithLifetime(ContainerLifetime.Persistent).WithDataVolume("{project}-sql-data");
+    db = sql.AddDatabase("{project}db");
+}
 
 var redis = builder.AddRedis("redis")
     .WithImageTag("<resolved-reviewed-redis-tag>")
@@ -124,7 +141,7 @@ if (!isTesting)
     redis = redis.WithLifetime(ContainerLifetime.Persistent).WithDataVolume("{project}-redis-data");
 
 // -- Database migrator: sole migration owner, runs to completion before any runtime host.
-//    One local SQL database, multiple schemas + logical connection names (extra names only
+//    One local database, multiple schemas + logical connection names (extra names only
 //    when the matching feature is enabled).
 var migrator = builder.AddProject<Projects.{Host}_DatabaseMigrator>("{host}migrator")
     .WithReference(db, connectionName: "{Project}DbContextTrxn")

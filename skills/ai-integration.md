@@ -87,8 +87,8 @@ Model and deployment names age the same way package versions do, and a copied on
 
 ## Technology Choices
 
-- **Foundry Models / Azure OpenAI client:** default model host for completions, embeddings, and tool-calling.
-- **Azure AI Search:** default retrieval tier.
+- **Model host:** `Provider=None` on both lanes until one is selected. The default `NonAzure` lane opts into an `OpenAICompatible` endpoint; the `Azure` lane opts into Foundry Models / Azure OpenAI (`AzureInference`) for completions, embeddings, and tool-calling.
+- **Retrieval:** `Sql` search on both lanes; opt-in `PgVector` (`NonAzure`) or Azure AI Search (`Azure`).
 - **Microsoft Agent Framework:** default code-side agent SDK (`ChatClientAgent` over the injected `IChatClient`).
 - **Foundry projects + server-hosted agents:** optional hosted agent backend - Aspire `AddProject` + `AddPromptAgent`, or a pre-existing portal/IaC agent consumed via `AIProjectClient.AsAIAgent(...)`. Azure-only.
 - **Agent Framework Workflows:** optional explicit orchestration layer.

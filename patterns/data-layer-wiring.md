@@ -10,9 +10,9 @@ For base types used here (`DbContextBase`, `DbContextScopedFactory`, `AuditInter
 
 **Source:** `{App}.Bootstrapper/Registration/RegisterServices.Database.cs`
 
-Dual-context registration: pooled factories only after their option delegates and interceptors pass lifetime validation, `DbContextScopedFactory` wrappers for scoped resolution, audit interceptor on Trxn only, `ConnectionNoLockInterceptor` on both, Azure vs local SQL detection, `ReadOnly` intent injection for Query.
+Dual-context registration: pooled factories only after their option delegates and interceptors pass lifetime validation, `DbContextScopedFactory` wrappers for scoped resolution, audit interceptor on Trxn only, `ConnectionNoLockInterceptor` on SQL Server contexts that need it, one provider branch (PostgreSQL on the default `NonAzure` lane; SQL Server or Azure SQL on the `Azure` lane), `ReadOnly` intent injection for SQL Server Query contexts.
 
-Set all SQL Server and Azure SQL EF registrations to compatibility level 170. This is SQL Server 2025 compatibility and enables native JSON type support, vector data types, and related indexing features.
+On the `Azure` lane, set all SQL Server and Azure SQL EF registrations to compatibility level 170. This is SQL Server 2025 compatibility and enables native JSON type support, vector data types, and related indexing features.
 
 ### DbSet Declarations
 
@@ -61,13 +61,13 @@ private static void AddDatabaseServices(IServiceCollection services, IConfigurat
 **Dual context wiring with pooling compatibility proof:**
 
 ```csharp
-private static void ConfigureSqlDatabase(IServiceCollection services,
+private static void ConfigureSqlDatabase(IServiceCollection services, {App}DbProvider provider,
     string dbConnectionStringTrxn, string dbConnectionStringQuery)
 {
     // -- TRXN context: audit interceptor + exception processor
     services.AddPooledDbContextFactory<{App}DbContextTrxn>((sp, options) =>
     {
-        ConfigureTrxnDbContext(options, dbConnectionStringTrxn);
+        ConfigureTrxnDbContext(options, provider, dbConnectionStringTrxn);
         var auditInterceptor = sp.GetRequiredService<AuditInterceptor<string, Guid?>>();
         options.UseExceptionProcessor().AddInterceptors(auditInterceptor);
     });
@@ -75,10 +75,10 @@ private static void ConfigureSqlDatabase(IServiceCollection services,
     services.AddScoped(sp => sp.GetRequiredService<DbContextScopedFactory<{App}DbContextTrxn, string, Guid?>>()
         .CreateDbContext());
 
-    // -- QUERY context: no audit interceptor, no-tracking, ReadOnly intent
+    // -- QUERY context: no audit interceptor, no-tracking, ReadOnly intent on SQL Server
     services.AddPooledDbContextFactory<{App}DbContextQuery>((sp, options) =>
     {
-        ConfigureQueryDbContext(options, dbConnectionStringQuery);
+        ConfigureQueryDbContext(options, provider, dbConnectionStringQuery);
         options.UseExceptionProcessor();
     });
     services.AddScoped<DbContextScopedFactory<{App}DbContextQuery, string, Guid?>>();
@@ -87,15 +87,24 @@ private static void ConfigureSqlDatabase(IServiceCollection services,
 }
 ```
 
-**Azure vs local detection + ReadOnly intent for Query:**
+**Provider branch + ReadOnly intent for SQL Server Query:** `provider` comes from the shared lane resolver (`HostingLaneResolver.Resolve(config).Database`).
 
 ```csharp
 private const string SchemaName = "{app}";
 private const string HistoryTableName = "__EFMigrationsHistory";
 
-private static void ConfigureSqlOptions(DbContextOptionsBuilder options, string connectionString)
+private static void ConfigureSqlOptions(DbContextOptionsBuilder options, {App}DbProvider provider, string connectionString)
 {
-    if (connectionString.Contains("database.windows.net"))
+    if (provider == {App}DbProvider.PostgreSql) // NonAzure lane (default)
+    {
+        options.UseNpgsql(connectionString, npgsqlOptions =>
+        {
+            npgsqlOptions.MigrationsHistoryTable(HistoryTableName, SchemaName);
+            npgsqlOptions.EnableRetryOnFailure(maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(30), errorCodesToAdd: null);
+        });
+    }
+    else if (connectionString.Contains("database.windows.net")) // Azure lane: Azure SQL
     {
         options.UseAzureSql(connectionString, sqlOptions =>
         {
@@ -105,7 +114,7 @@ private static void ConfigureSqlOptions(DbContextOptionsBuilder options, string 
                 maxRetryDelay: TimeSpan.FromSeconds(30), errorNumbersToAdd: null);
         });
     }
-    else
+    else // Azure lane: SQL Server container or instance
     {
         options.UseSqlServer(connectionString, sqlOptions =>
         {
@@ -117,13 +126,13 @@ private static void ConfigureSqlOptions(DbContextOptionsBuilder options, string 
     }
 }
 
-private static void ConfigureQueryDbContext(DbContextOptionsBuilder options, string connectionString)
+private static void ConfigureQueryDbContext(DbContextOptionsBuilder options, {App}DbProvider provider, string connectionString)
 {
-    var readOnlyConnectionString = connectionString.Contains("ApplicationIntent=")
-        ? connectionString
-        : connectionString + ";ApplicationIntent=ReadOnly";
+    // ApplicationIntent is a SQL Server keyword; Npgsql rejects it. PostgreSQL routes replica reads by connection string.
+    if (provider == {App}DbProvider.SqlServer && !connectionString.Contains("ApplicationIntent="))
+        connectionString += ";ApplicationIntent=ReadOnly";
     options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
-    ConfigureSqlOptions(options, readOnlyConnectionString);
+    ConfigureSqlOptions(options, provider, connectionString);
 }
 ```
 
@@ -131,7 +140,7 @@ Pooling is an optimization, not a blanket context rule. Every service resolved b
 
 Leave one DI composition test that builds with `new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true }`, creates a scope, resolves each `IDbContextFactory<T>`, and creates a context. This catches scoped-from-root capture and recursive factory construction before host startup. Test both selected database providers when their registrations differ.
 
-Keep schema and history-table configuration inside this central provider-options helper so runtime, migrator, tests, and design-time factories cannot drift. Non-default providers use the same rule; Npgsql must call `MigrationsHistoryTable(HistoryTableName, SchemaName)` explicitly rather than relying on PostgreSQL `search_path`.
+Keep schema and history-table configuration inside this central provider-options helper so runtime, migrator, tests, and design-time factories cannot drift. Every provider arm uses the same rule; Npgsql must call `MigrationsHistoryTable(HistoryTableName, SchemaName)` explicitly rather than relying on PostgreSQL `search_path`.
 
 ---
 

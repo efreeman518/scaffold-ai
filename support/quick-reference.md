@@ -146,10 +146,12 @@ Tools below are the **recommended human-facing inspectors** for each local Aspir
 
 **Connection-string defaults** (full forms in [../skills/aspire.md](../skills/aspire.md) -> *Local Explorer Tooling*):
 
+- PostgreSQL host (default lane): `Host=localhost;Port=35432;Database={project}db;Username=postgres;Password={postgres-password}`
+- RabbitMQ (default lane): the `rabbitmq` resource connection string from the Aspire dashboard; `WithManagementPlugin()` adds the management UI endpoint
 - Azurite: `UseDevelopmentStorage=true` (or the full `DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;...` string)
 - Service Bus SDK: `Endpoint=sb://localhost;...;UseDevelopmentEmulator=true;`
 - Service Bus admin client: `Endpoint=sb://localhost:5300;...;UseDevelopmentEmulator=true;`
-- SQL host: `Server=localhost,38433;Database={project}db;User Id=sa;Password={sql-password};Encrypt=True;TrustServerCertificate=True;`
+- SQL host (Azure lane): `Server=localhost,38433;Database={project}db;User Id=sa;Password={sql-password};Encrypt=True;TrustServerCertificate=True;`
 
 ---
 

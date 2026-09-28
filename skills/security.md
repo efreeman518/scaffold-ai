@@ -152,8 +152,8 @@ Phase 2 maps `hostingLaneDefaults.<active>.dataProtectionPersistence` to runtime
 
 | Arm | Required input | Provisioning rule |
 |---|---|---|
-| `AzureBlob` | Either an absolute `DataProtectionKeysFileUrl`, or the named `BlobStorage1` endpoint/connection string injected by Aspire or deployment configuration | Infrastructure creates the production container. A local Azurite connection may create its test container on first use. Endpoint authentication uses `DefaultAzureCredential`; connection-string authentication uses the connection string. |
-| `Redis` | Named `Redis1` connection string | Reuse a registered `IConnectionMultiplexer` when the app exposes one; otherwise record the extra eager connection as a bounded shortcut. |
+| `Redis` (`NonAzure` default) | Named `Redis1` connection string | Reuse a registered `IConnectionMultiplexer` when the app exposes one; otherwise record the extra eager connection as a bounded shortcut. |
+| `AzureBlob` (`Azure` lane default) | Either an absolute `DataProtectionKeysFileUrl`, or the named `BlobStorage1` endpoint/connection string injected by Aspire or deployment configuration | Infrastructure creates the production container. A local Azurite connection may create its test container on first use. Endpoint authentication uses `DefaultAzureCredential`; connection-string authentication uses the connection string. |
 | `None` | None | Development and isolated tests only. Log that keys do not survive restart or work across replicas. Do not use as a scaled deployment default. |
 
 Key persistence and key encryption are independent. `DataProtectionEncryptionKeyUrl`, when supplied, adds Azure Key Vault protection after persistence is selected. It is required only when the deployment policy requires at-rest key encryption, and it is rejected by a strict zero-Azure NonAzure lane. Do not require a Key Vault URL merely because Azure Blob persistence was selected.
