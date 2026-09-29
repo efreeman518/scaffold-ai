@@ -46,7 +46,6 @@ src/Host/{App}.Functions/
 |-- FunctionHttpTrigger.cs
 |-- FunctionTimerTrigger.cs
 |-- Infrastructure/
-|   |-- GlobalExceptionHandler.cs
 |   `-- GlobalLogger.cs
 `-- Model/
 ```
@@ -81,7 +80,6 @@ builder.Services
     .RegisterApplicationServices(config)
     .RegisterBackgroundServices(config);
 
-builder.UseMiddleware<GlobalExceptionHandler>();
 builder.UseMiddleware<GlobalLogger>();
 
 var app = builder.Build();
@@ -140,6 +138,28 @@ services.AddScoped<IRequestContext<string, Guid?>>(sp =>
 ```
 
 A **singleton admin** `IRequestContext` is acceptable only for triggers that legitimately span tenants (cross-tenant reporting jobs, system maintenance timers). Document that decision per-trigger; do not let it leak into webhook ingestion.
+
+### Integration event triggers
+
+Service Bus integration-event triggers are one line each over EF.Messaging.Functions: the dispatcher reads the envelope, runs the `IntegrationEventConsumerBase` consumer (inbox claim included), and settles the delivery - dead-letter an unreadable envelope, complete a consumed or duplicate one, abandon an in-progress one, rethrow a failure. Consumers run under the no-request system context and read the owning tenant from the envelope payload, never from a request context. One function per subscription, so each consumer gets its own delivery count and dead-letter queue.
+
+```csharp
+public class Function{Entity}ProjectionTrigger(
+    ILogger<Function{Entity}ProjectionTrigger> logger,
+    {Entity}ProjectionConsumer consumer,
+    IOptions<IntegrationEnvelopeReaderOptions> readerOptions)
+{
+    [Function(nameof(Process{Entity}Projection))]
+    public Task Process{Entity}Projection(
+        [ServiceBusTrigger("%DomainEventsTopic%", {Entity}ProjectionConsumer.Name, Connection = "ServiceBus1")]
+        ServiceBusReceivedMessage message,
+        ServiceBusMessageActions actions,
+        CancellationToken ct)
+        => ServiceBusIntegrationEventDispatcher.DispatchAsync(message, actions, consumer, readerOptions.Value, logger, ct);
+}
+```
+
+Turn auto-complete off (`"autoCompleteMessages": false` under `extensions.serviceBus` in `host.json`, or `AutoCompleteMessages = false` on the trigger): the dispatcher settles the message itself, with `CancellationToken.None`, so a shutdown after the effect ran cannot turn it into a redelivery.
 
 ---
 
@@ -296,8 +316,8 @@ The API host gates real Azure client registration on connection-string presence 
 The Functions worker participates in the **shared** telemetry pipeline through `AddServiceDefaults()` (the Azure Monitor OpenTelemetry distro, gated on `APPLICATIONINSIGHTS_CONNECTION_STRING` - owned by [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section Telemetry Export). Two isolated-worker-specific hazards must be respected, or the app breaks at startup or double-reports:
 
 - **No direct App Insights integration in the worker.** Do NOT add `Microsoft.Azure.Functions.Worker.ApplicationInsights` / call `ConfigureFunctionsApplicationInsights()`. Combined with an Aspire orchestration and the Azure Monitor distro it errors on startup. Rely only on the shared exporter in ServiceDefaults.
-- **Suppress ASP.NET Core instrumentation in the worker.** The Functions host process already emits request telemetry per invocation. The Azure Monitor distro's `AddAspNetCoreInstrumentation()` would report the same request a second time with the same `OperationId` (duplicate requests). `ConfigureOpenTelemetry` gates ASP.NET Core metric/trace instrumentation off when `{APP}_SUPPRESS_ASPNETCORE_INSTRUMENTATION=true`; the Functions host is the one host that sets it. **Set the flag in both places** so local (Aspire) and cloud (Container Apps) behave identically:
-  - AppHost: `.WithEnvironment("{APP}_SUPPRESS_ASPNETCORE_INSTRUMENTATION", "true")` on the Functions resource.
+- **Suppress ASP.NET Core instrumentation in the worker.** The Functions host process already emits request telemetry per invocation. The Azure Monitor distro's `AddAspNetCoreInstrumentation()` would report the same request a second time with the same `OperationId` (duplicate requests). EF.OpenTelemetry leaves ASP.NET Core instrumentation out, and switches Azure Monitor to per-signal exporters so the suppression holds, when `OpenTelemetry:SuppressAspNetCoreInstrumentation=true`; the Functions host is the one host that sets it. **Set the flag in both places** so local (Aspire) and cloud (Container Apps) behave identically:
+  - AppHost: `.WithEnvironment("OpenTelemetry__SuppressAspNetCoreInstrumentation", "true")` on the Functions resource.
   - `infra/modules/functions.bicep`: the same env var `= 'true'` on the Functions app.
 
 A naive "add App Insights to Functions" instruction breaks the app - this is the correct approach.

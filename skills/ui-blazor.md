@@ -313,12 +313,14 @@ public interface I{Project}ApiClient
 
     [Put("/api/task-items/{id}")]
     Task<DefaultResponse<TaskItemDto>> UpdateTaskItemAsync(
-        Guid id, [Body] DefaultRequest<TaskItemDto> request, CancellationToken ct = default);
+        Guid id, [Body] DefaultRequest<TaskItemDto> request, [Header("If-Match")] string ifMatch, CancellationToken ct = default);
 
     [Delete("/api/task-items/{id}")]
-    Task DeleteTaskItemAsync(Guid id, CancellationToken ct = default);
+    Task DeleteTaskItemAsync(Guid id, [Header("If-Match")] string ifMatch, CancellationToken ct = default);
 }
 ```
+
+PUT and DELETE pass the DTO's `Version` as `ifMatch` (`dto.Version.ToString()`; the API accepts the bare version or the strong tag `"{version}"`). The API answers 428 without it and 412 on a stale one, so a component keeps the `Version` from the latest response current for the next write and surfaces a 412 as "changed by someone else, reload".
 
 ### Request / Response Envelope Rules
 
@@ -328,62 +330,13 @@ The wire contract is a server concern and is owned by [api.md](api.md) -> *Reque
 
 Pass a `SystemTextJsonContentSerializer` with `PropertyNameCaseInsensitive = true`, `JsonIgnoreCondition.WhenWritingNull`, and `JsonStringEnumConverter`. Enums flow over the wire as string names, which matches the API and keeps payloads human-readable.
 
-## Dev Tenant Header
+## Tenant on Outbound Calls
 
-When the API host is multi-tenant **and** auth is off (the default scaffold first-vertical-slice state), Refit calls land at the API with no `userTenantId` claim. The EF tenant query filter then evaluates to `TenantId == null` against every row and the UI looks silently empty - every list returns zero items, no error. See [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) -> *Dev-Mode Tenant Fallback* for the API-side middleware.
+The Blazor host sends no tenant header. The API and Gateway authenticate every request as a principal that carries the tenant (the `Scaffold` fixed principal's `tenant_id` claim in scaffold mode, the user's token claims in live modes), and the fail-closed tenant filter reads nothing for a request without one ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section No Tenant Means No Rows). Generate no tenant-header handler and no dev tenant setting.
 
-Ship a `DelegatingHandler` that injects a project-scoped tenant header on every Refit call:
-
-```csharp
-// Services/TenantHeaderHandler.cs
-public sealed class TenantHeaderHandler(IConfiguration config) : DelegatingHandler
-{
-    private const string HeaderName = "X-{Project}-Tenant";
-
-    protected override Task<HttpResponseMessage> SendAsync(
-        HttpRequestMessage request, CancellationToken ct)
-    {
-        var tenantId = config["{Project}:DefaultTenantId"];
-        if (!string.IsNullOrWhiteSpace(tenantId) && !request.Headers.Contains(HeaderName))
-        {
-            request.Headers.Add(HeaderName, tenantId);
-        }
-        return base.SendAsync(request, ct);
-    }
-}
-```
-
-Register and attach to every Refit client:
-
-```csharp
-builder.Services.AddTransient<TenantHeaderHandler>();
-
-builder.Services
-    .AddRefitClient<I{Project}ApiClient>(...)
-    .ConfigureHttpClient(c => c.BaseAddress = new Uri(gatewayUrl))
-    .AddHttpMessageHandler<TenantHeaderHandler>()
-    // Auth handler (when wired) goes AFTER the tenant handler so claims-based
-    // tenant resolution can override the dev header.
-    .AddStandardResilienceHandler();
-```
-
-Attach handlers with `AddHttpMessageHandler` only. Never clear a client's handler list (for example `ConfigureAdditionalHttpMessageHandlers((handlers, _) => handlers.Clear())`): it silently removes the resilience and service-discovery handlers registered by defaults.
-
-`appsettings.Development.json`:
-
-```json
-{
-  "{Project}": { "DefaultTenantId": "<seeded-tenant-guid>" }
-}
-```
-
-Use the same GUID the data-seed step inserts into the `Tenants` table. When real auth lands, delete `{Project}:DefaultTenantId` (or leave it for dev-only use); production tenant resolution then flows from the `userTenantId` claim.
-
-**Non-negotiables:**
-- Register the handler as **Transient** - `DelegatingHandler` instances are pooled per-message by `IHttpMessageHandlerFactory`; scoped/singleton causes lifetime errors.
-- The header name must match the API's `DevRequestContextMiddleware` exactly. Centralize the literal in a shared constant if both projects can see it.
-- Do **not** read the tenant id from a Blazor `IRequestContext` - Blazor Server runs server-side per circuit and there is no inbound tenant header to read from. The configuration value is the source of truth in dev.
-- This config-value rule is for the **read** path (tenant header on outbound calls) only. Create DTOs must **not** carry a client-populated `TenantId` or owner - the API stamps both server-side from the request context. See [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Dev-Mode Write Identity. The UI sends the domain fields; identity is the server's job.
+- Do **not** read the tenant id from a Blazor `IRequestContext` - Blazor Server runs server-side per circuit and there is no inbound tenant header to read from.
+- Create DTOs must **not** carry a client-populated `TenantId` or owner - the API stamps both server-side from the request context. See [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Dev-Mode Write Identity. The UI sends the domain fields; identity is the server's job.
+- Read-only list clients use `AddReadHedging(configuration)` (EF.Http.Resilience) on a dedicated read client; clients that write keep the standard handler, which never retries unsafe methods ([resilience.md](resilience.md) section Hedging).
 
 ## Forms & Interaction Patterns
 
@@ -436,7 +389,7 @@ builder.Services.AddRefitClient<I{Project}ApiClient>(...)
 
 ### Server -> cookie + forward bearer
 
-For Blazor Server, auth at the edge is a cookie (OIDC), and the server forwards a service-principal bearer token to the Gateway. Use Microsoft.Identity.Web server-side; the Gateway's `TokenService` pattern handles the rest.
+For Blazor Server, auth at the edge is a cookie (OIDC), and the server forwards a service-principal bearer token to the Gateway. Use Microsoft.Identity.Web server-side; the Gateway's cluster `TokenScope` (EF.Gateway over the EF.Auth `AccessTokenCache`) acquires the downstream token.
 
 See [identity-management.md](identity-management.md) for Entra External ID registration details - the UI app registration values slot into the `EntraExternal` section of `appsettings.json`.
 

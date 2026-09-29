@@ -116,25 +116,28 @@ Add a mode-matrix test for every supported value. Assert the selected handler re
 
 ```csharp
 // File: Host/{Host}.Api/Auth/AuthConfiguration.cs
+using EF.Auth.Fixed;
+
 public static class AuthConfiguration
 {
     public static IServiceCollection AddAuth(this IServiceCollection services, IConfiguration config)
     {
-        var mode = config["AuthMode"] ?? "Scaffold";
+        var mode = AuthModeResolver.Resolve(config["AuthMode"]);   // unknown value fails startup
 
-        if (mode.Equals("Scaffold", StringComparison.OrdinalIgnoreCase))
+        if (mode == AuthMode.Scaffold)
         {
-            // Scaffold principal: all requests succeed with a predictable test identity
-            services.AddAuthentication("Scaffold")
-                .AddScheme<AuthenticationSchemeOptions, ScaffoldAuthHandler>("Scaffold", _ => { });
+            // Scaffold principal: every request authenticates as the fixed identity (EF.Auth).
+            services.AddAuthentication(ScaffoldPrincipal.SchemeName)
+                .AddFixedPrincipal(ScaffoldPrincipal.SchemeName, o =>
+                {
+                    o.Claims = [.. ScaffoldPrincipal.Claims.Select(c => new FixedClaim(c.Type, c.Value))];
+                    o.AllowedEnvironments = [.. ScaffoldPrincipal.AllowedEnvironments];
+                });
             return services;
         }
 
-        if (mode.Equals("Local", StringComparison.OrdinalIgnoreCase))
+        if (mode == AuthMode.Local)
             return services.AddLocalSessionAuthentication(config);
-
-        if (!mode.Equals("Entra", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"Unsupported AuthMode '{mode}'");
 
         // Selected live mode fails fast when required configuration is missing.
         var section = config.GetRequiredSection("AzureAd");
@@ -150,54 +153,45 @@ public static class AuthConfiguration
 ```
 
 ```csharp
-// File: Host/{Host}.Api/Auth/ScaffoldAuthHandler.cs
-// TODO: [CONFIGURE] Remove or gate this handler when deploying with a real identity provider
-public class ScaffoldAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>
+// File: Application.Contracts/ScaffoldPrincipal.cs - shared by the Api and the Gateway so both register one identity
+public static class ScaffoldPrincipal
 {
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
-    {
-        var claims = new[]
-        {
-            // Audit id: RequestContext reads oid > NameIdentifier > sub. Use the FIXED seeded dev-user
-            // GUID (SeedConstants.DevUserId) so a stamped owner FK resolves - never a random/string id.
-            new Claim(ClaimTypes.NameIdentifier, SeedConstants.DevUserId.ToString()),
-            new Claim(ClaimTypes.Name, "Scaffold Principal"),
-            // Roles MUST use ClaimTypes.Role - RequestContext reads c.Type == ClaimTypes.Role. A bare
-            // "roles" string leaves RequestRoles empty and the global-admin bypass never fires.
-            new Claim(ClaimTypes.Role, AppConstants.ROLE_GLOBAL_ADMIN),
-            // Tenant MUST use the "userTenantId" claim RequestContext reads; the seeded dev tenant GUID
-            // (SeedConstants.DevTenantId, same as {App}:DefaultTenantId). Omit it and tenant is null.
-            new Claim("userTenantId", SeedConstants.DevTenantId.ToString()),
-        };
-        var identity = new ClaimsIdentity(claims, "Scaffold");
-        var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), "Scaffold");
-        return Task.FromResult(AuthenticateResult.Success(ticket));
-    }
+    public const string SchemeName = "Scaffold";
+
+    // Environments the fixed identity may run in; kept in code so configuration can never widen it.
+    // A login-free app that deploys as Production lists it deliberately; any other environment fails host start.
+    public static IReadOnlyList<string> AllowedEnvironments { get; } = ["Development", "Testing"];
+
+    public static IReadOnlyList<(string Type, string Value)> Claims { get; } =
+    [
+        // Audit id: the request context reads oid > NameIdentifier > sub. Use the FIXED seeded dev-user GUID
+        // (SeedConstants.DevUserId) so a stamped owner FK resolves - never a random/string id.
+        ("oid", SeedConstants.DevUserId.ToString()),
+        (ClaimTypes.NameIdentifier, SeedConstants.DevUserId.ToString()),
+        (ClaimTypes.Name, "Scaffold Principal"),
+        // Tenant: the request context reads tenant_id; the seeded dev tenant GUID. Omit it and tenant is null.
+        ("tenant_id", SeedConstants.DevTenantId.ToString()),
+        // Roles MUST use ClaimTypes.Role; a bare "roles" string leaves roles empty.
+        (ClaimTypes.Role, AppConstants.ROLE_GLOBAL_ADMIN)
+    ];
 }
 ```
 
-The scaffold principal authenticates HTTP requests only. Code running outside a request resolves the explicit system context ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Request Context Resolution), never this principal, its global-admin role, or the dev tenant.
+`AddFixedPrincipal` authenticates every request as the configured claims, fails host start outside `AllowedEnvironments` (default `Development`, `Testing`) or with no claims, and logs one warning per scheme the first time it authenticates; generate no authentication handler. The scaffold principal authenticates HTTP requests only. Code running outside a request resolves the explicit system context ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Request Context Resolution), never this principal, its global-admin role, or the dev tenant.
 
 ### Claim-type contract (non-negotiable)
 
-The handler and the `RequestContext` reader must use the SAME claim types, or the dev principal is
-silently broken end to end - see [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) -> Request Context Resolution. They must agree on:
+The fixed principal, JwtBearer, the rate limiter and the `AddHttpRequestContext` reader must use the SAME claim types, or the dev principal is silently broken end to end - see [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) -> Request Context Resolution. They must agree on:
 
-| Concern | Handler emits | RequestContext reads |
+| Concern | Principal carries | Request context reads (`HttpRequestContextOptions`) |
 |---|---|---|
-| Audit id (owner) | `ClaimTypes.NameIdentifier` = seeded dev-user GUID | `oid` > `NameIdentifier` > `sub` |
-| Roles | `ClaimTypes.Role` | `c.Type == ClaimTypes.Role` |
-| Tenant | `userTenantId` = seeded dev tenant GUID | `c.Type == "userTenantId"` |
+| Audit id (owner) | `oid` / `ClaimTypes.NameIdentifier` = seeded dev-user GUID | `UserIdClaimTypes`: `oid` > name identifier > `sub` |
+| Roles | `ClaimTypes.Role` | `RoleClaimType` (`ClaimTypes.Role`) |
+| Tenant | `tenant_id` = seeded dev tenant GUID | `TenantClaimType` (`tenant_id`); also `RateLimiting:Tenants:TenantClaimType` and `ForwardedClaims:ClaimTypes` |
 
-A mismatch (e.g. `new Claim("roles", ...)`) yields empty roles -> global-admin tenant-bypass never
-fires; a missing `userTenantId` yields a null tenant -> every list silently returns zero rows.
+A mismatch (e.g. `("roles", ...)`) yields empty roles -> the cross-tenant check never passes; a missing `tenant_id` yields a null tenant -> the fail-closed tenant filter returns zero rows for every list.
 
-With Microsoft.Identity.Web's inbound claim mapping active, `oid` arrives renamed to
-`http://schemas.microsoft.com/identity/claims/objectidentifier` - a chain that checks short `oid`
-then falls to a non-Guid `sub` misses it and silently collapses **every** authenticated user to the
-fallback/audit-empty identity. The `oid` step must check both the short name and the objectidentifier
-URI (or the handler disables mapping). Only an authenticated post-deploy smoke catches this class.
-
+**JwtBearer `MapInboundClaims` is an explicit decision on every host that relays or reads claims.** With the default (`true`), short claim names are remapped to URIs: `oid` arrives as `http://schemas.microsoft.com/identity/claims/objectidentifier`, `tid` as `.../tenantid`, `scp` as `.../scope`. The claims relay (`ForwardedClaims:ClaimTypes`, `TrustedCallerClaimTypes`, `DelegatedScopeClaimTypes`), the request context's `UserIdClaimTypes` and the rate limiter's `TenantClaimType` then miss the claim, silently collapsing every user to the anonymous identity, one IP partition, or an unrelayed principal. Set `MapInboundClaims = false` on the Gateway and the API (the EF.Auth relay's documented configuration), or list the mapped URI in every one of those settings. Only an authenticated post-deploy smoke catches this class.
 ## Dev-Mode Auth Patterns
 
 ### UI: Custom Auth Provider (dev) to MSAL (production)
@@ -226,7 +220,9 @@ public static void AddAuthentication(this IServiceCollection services, IConfigur
     var mode = config["AuthMode"] ?? "Scaffold";
     if (mode.Equals("Scaffold", StringComparison.OrdinalIgnoreCase))
     {
-        services.AddScaffoldAuthentication();
+        // The same EF.Auth fixed principal as the API (ScaffoldPrincipal claims and environments).
+        services.AddAuthentication(ScaffoldPrincipal.SchemeName)
+            .AddFixedPrincipal(ScaffoldPrincipal.SchemeName, ConfigureScaffoldPrincipal);
         return;
     }
     if (mode.Equals("Local", StringComparison.OrdinalIgnoreCase))
@@ -273,6 +269,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     {
         options.Authority = $"https://{tenantName}.ciamlogin.com/{tenantId}/v2.0";
         options.Audience = configuration["AzureAd:ClientId"];
+        options.MapInboundClaims = false;   // the relay and the request context read short claim names
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -291,6 +288,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     {
         options.Authority = $"https://login.microsoftonline.com/{tenantId}/v2.0";
         options.Audience = configuration["AzureAd:ClientId"];
+        options.MapInboundClaims = false;   // keep oid, tid, azp, scp as issued (section Claim-type contract)
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -441,7 +439,8 @@ Rule: secrets come from Key Vault/User Secrets only.
 
 - [ ] App boots and all endpoints are reachable with `AuthMode: Scaffold` and no live identity provider
 - [ ] Config-driven auth toggle present in `appsettings.Development.json` (`AuthMode: Scaffold`)
-- [ ] `ScaffoldAuthHandler` (or equivalent) registered only when `AuthMode` is `Scaffold`
+- [ ] EF.Auth `AddFixedPrincipal` registered only when `AuthMode` is `Scaffold`, with `ScaffoldPrincipal.AllowedEnvironments` in code; no app authentication handler
+- [ ] Every JwtBearer registration sets `MapInboundClaims` deliberately and the relay, request context and rate limiter claim types match it
 - [ ] Auth mode controls all three legs: DI registration, endpoint mapping, and client affordances
 - [ ] Anonymous `GET /auth/mode` returns only a validated public mode in every supported mode
 - [ ] `/auth/login`, `/auth/register`, and `/auth/refresh` are not mapped under `AuthMode: Entra`

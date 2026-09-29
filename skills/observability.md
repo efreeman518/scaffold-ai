@@ -51,39 +51,22 @@ internal class TodoItemService(ILogger<TodoItemService> logger, ...) : ITodoItem
 
 ### Aspire Automatic Wiring
 
-ServiceDefaults calls `ConfigureOpenTelemetry()` which wires `Activity.Current` automatically for HTTP and EF spans. No manual setup needed for standard request flows.
+ServiceDefaults calls `ConfigureOpenTelemetry()`, which is EF.OpenTelemetry's `AddEfOpenTelemetry(...)`: logs, traces and metrics with HTTP, runtime and ASP.NET Core instrumentation, plus the app meters and sources it names. No manual setup needed for standard request flows.
 
 ### Cross-Service Correlation
 
-Middleware pattern for `X-Correlation-Id` header propagation:
-
-```csharp
-public class CorrelationIdMiddleware(RequestDelegate next)
-{
-    public async Task InvokeAsync(HttpContext context)
-    {
-        var correlationId = context.Request.Headers["X-Correlation-Id"].FirstOrDefault()
-            ?? Activity.Current?.Id
-            ?? Guid.NewGuid().ToString();
-
-        context.Response.Headers["X-Correlation-Id"] = correlationId;
-        using (logger.BeginScope(new Dictionary<string, object> { ["CorrelationId"] = correlationId }))
-        {
-            await next(context);
-        }
-    }
-}
-```
+EF.AspNetCore owns `X-Correlation-Id`; generate no correlation middleware. ServiceDefaults calls `services.AddCorrelationId()` and `http.AddCorrelationIdPropagation()` in `ConfigureHttpClientDefaults`, and each HTTP host calls `app.UseCorrelationId()`. An inbound id is accepted only when it is 1 to 128 characters of `[A-Za-z0-9._:-]`; otherwise the W3C trace id is used, then a new GUID. The id becomes `HttpContext.TraceIdentifier`, the `requestId` of every problem response, and the `CorrelationId` of the request context. Outbound calls made outside a request (consumers, jobs, a Blazor circuit) send no header and never throw.
 
 ### Background Services
 
-Create explicit `Activity` spans for job execution:
+Scheduled jobs run through the TickerQ `ScheduledJobRunner`, which starts one `{job} execute` activity on source `EF.Scheduler` and records `scheduler.job.*` metrics; export that source and meter. Other background loops create explicit `Activity` spans:
 
 ```csharp
 using var activity = ActivitySource.StartActivity("ProcessDueReminders");
 activity?.SetTag("job.name", "ProcessDueReminders");
-activity?.SetTag("tenant.id", tenantId.ToString());
 ```
+
+Keep tenant ids on the span only when the loop runs per tenant; never as a metric tag.
 
 ### Gateway -> API
 
@@ -91,11 +74,11 @@ YARP preserves correlation headers by default. Forward: `X-Correlation-Id`, `tra
 
 ### Broker Hops
 
-HTTP instrumentation does not propagate trace context through a broker automatically. Producers start a Producer activity and inject W3C `traceparent`/`tracestate` into transport headers. Consumers extract that context and start a Consumer activity with the extracted parent. Keep correlation/business identifiers in the versioned message envelope, but do not substitute them for trace parenting. Each transport adapter needs a parent-continuity test; see [messaging.md](messaging.md) section Broker Trace Context.
+HTTP instrumentation does not propagate trace context through a broker automatically. The EF.Messaging transports start a Producer activity parented on the outbox row's stored context and inject W3C `traceparent`/`tracestate` into transport headers; the consumer adapters extract that context and start a Consumer activity with the extracted parent. Keep correlation/business identifiers in the versioned message envelope, but do not substitute them for trace parenting. Export `MessagingActivitySource.Name` and `OutboxActivitySource.Name`, and keep one parent-continuity test per transport; see [messaging.md](messaging.md) section Broker Trace Context.
 
 ### Signal and Deployment Sink Contract
 
-Telemetry signals are independently selectable. Metrics stay enabled unless cost, volume, or sink capability justifies disabling them. One configuration switch must gate every application meter and metrics exporter; disabling it must not remove log or trace providers, OTLP log/trace export, or a provider-specific log/trace exporter. Add a registration test that resolves no `MeterProvider` when disabled while tracer and logger exporters remain registered.
+Telemetry signals are independently selectable. Metrics stay enabled unless cost, volume, or sink capability justifies disabling them. `OpenTelemetry:MetricsEnabled` gates every meter and metrics exporter and leaves log and trace providers and their exporters in place; exporters follow `OTEL_EXPORTER_OTLP_ENDPOINT` and `APPLICATIONINSIGHTS_CONNECTION_STRING`. A host that registers its own meters (the cache) reads the same switch. Keep a registration test that resolves no `MeterProvider` when disabled while tracer and logger exporters remain registered.
 
 The local Aspire Dashboard is local inspection, not evidence for a deployed telemetry sink. When a self-hosted or managed deployment sink is selected:
 
@@ -118,13 +101,11 @@ Use `System.Diagnostics.Metrics` (not legacy `EventCounters`):
 
 `{Project}.{Layer}` - e.g., `TaskFlow.Api`, `TaskFlow.Domain`.
 
-### Registration in Bootstrapper
+### Registration in ServiceDefaults
 
-```csharp
-// In RegisterInfrastructureServices or a dedicated RegisterObservability method
-services.AddSingleton(new Meter("{Project}.Api"));
-services.AddSingleton(new Meter("{Project}.Domain"));
-```
+Name every app and package meter and activity source once, in ServiceDefaults' `AddEfOpenTelemetry` call ([../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section Telemetry Export (`ConfigureOpenTelemetry`)), so each host that loads the library exports it.
+
+Create meters from `IMeterFactory` in DI-constructed classes; a static `Meter` is acceptable only for a type DI never builds.
 
 ### Counter & Histogram Examples
 
@@ -143,7 +124,7 @@ s_cacheHit.Add(1, new KeyValuePair<string, object?>("cache", cacheName));
 ### Telemetry at Scale
 
 - Metric tags have bounded cardinality: entity type, cache name, route template, status class. Never tag a metric with a tenant, user, entity id, cache key, or raw path - each distinct value is a new time series. Put identifiers on traces and logs instead.
-- Sample traces in production with parent-based ratio sampling, configured per environment; keep errors and slow traces through collector tail sampling where the sink supports it. Development samples everything.
+- Sample traces in production with parent-based ratio sampling (`OpenTelemetry:Tracing:SampleRatio`, validated 0 to 1 at startup), configured per environment; keep errors and slow traces through collector tail sampling where the sink supports it. Development samples everything.
 - Hot-path logging uses `[LoggerMessage]` source-generated methods, which skip argument boxing and formatting when the level is disabled.
 
 ---
@@ -153,9 +134,9 @@ s_cacheHit.Add(1, new KeyValuePair<string, object?>("cache", cacheName));
 **Required:** SQL connectivity (all hosts), Redis connectivity (if caching enabled).
 **Optional:** Downstream API (Gateway -> API), Blob storage, Service Bus, Cosmos DB.
 
-Implementation: Use `IHealthCheck` per dependency. Register with `services.AddHealthChecks().AddCheck<T>(name, tags: ["ready"])`. Map `/healthz/live` to `"live"` checks only, `/healthz/ready` to `"ready"` checks, and `/healthz` to the operator aggregate. See [health-check-template.md](../templates/health-check-template.md) for the implementation pattern.
+Implementation: the package check per dependency where one exists (Redis, Blob, S3, Cosmos DB, Service Bus, RabbitMQ, outbox backlog, scheduler stall, downstream API) and an app `IHealthCheck` otherwise (SQL). `MapEfHealthEndpoints()` maps `/healthz/live` to `"live"` checks only, `/healthz/ready` to `"ready"` checks, and `/healthz` to the operator aggregate. See [health-check-template.md](../templates/health-check-template.md) for the registration.
 
-Aspire wiring: ServiceDefaults calls `AddDefaultHealthChecks()` to register the `"self"` liveness check. Add host-specific critical readiness checks in host registration. Dependency outages make readiness fail without triggering liveness restart loops. Optional dependencies with a proven degraded path report telemetry but do not make readiness fail.
+Aspire wiring: ServiceDefaults calls `AddDefaultHealthChecks()` to register the `"self"` liveness check (`AddSelfCheck()`) and `AddHostLifecycle()`, whose `draining` readiness check fails before shutdown stops hosted services. Add host-specific critical readiness checks in host registration. Dependency outages make readiness fail without triggering liveness restart loops. Optional dependencies with a proven degraded path report telemetry but do not make readiness fail.
 
 ---
 
@@ -164,7 +145,7 @@ Aspire wiring: ServiceDefaults calls `AddDefaultHealthChecks()` to register the 
 - [ ] All log statements use structured placeholders, never string interpolation
 - [ ] No PII/PHI in log output - entity IDs and tenant IDs only
 - [ ] `ILogger<T>` injected per class (not `ILoggerFactory`)
-- [ ] Correlation ID middleware registered in API pipeline
+- [ ] `AddCorrelationId` / `AddCorrelationIdPropagation` in ServiceDefaults and `UseCorrelationId()` in each HTTP pipeline; no app correlation middleware
 - [ ] Background jobs create explicit `Activity` spans
 - [ ] Custom metrics use `System.Diagnostics.Metrics` with `{Project}.{Layer}` naming and no unbounded tag values
 - [ ] Production trace sampling is configured, not left at always-on

@@ -11,7 +11,7 @@ Base types (error interceptors, registration helpers) come from the `EF.Grpc` pa
 
 ## Overview
 
-gRPC support uses `EF.Grpc` which provides **error interceptors** for both client and service sides. These interceptors standardize error handling across gRPC calls - catching exceptions, mapping to gRPC status codes, and surfacing structured error information.
+gRPC support uses `EF.Grpc`, which provides **error interceptors** for both client and service sides and the client registration. The server interceptor maps exceptions through the same `ExceptionClassifier` as the HTTP host, so one mapping serves both transports.
 
 > **When to use gRPC vs REST:** Use gRPC for internal service-to-service communication where performance, streaming, and strong typing matter. Use REST (Minimal APIs) for external/public APIs, browser clients, and third-party integrations.
 
@@ -19,57 +19,12 @@ gRPC support uses `EF.Grpc` which provides **error interceptors** for both clien
 
 ## Package Types
 
-### Client Error Interceptor
+Types and signatures: [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section gRPC (EF.Grpc). Generate no interceptor, status mapper or client-registration helper.
 
-Intercepts gRPC client calls and translates `RpcException` into structured error responses:
-
-```csharp
-// Provided by package - catches RpcException on client calls
-// and logs structured error details
-public class ClientErrorInterceptor : Interceptor
-{
-    // Wraps unary, client streaming, server streaming, and duplex calls
-    // Catches RpcException and logs StatusCode, Detail, and trailers
-}
-```
-
-### Service Error Interceptor
-
-Intercepts incoming gRPC service calls and translates unhandled exceptions into appropriate gRPC status codes:
-
-```csharp
-// Provided by package - catches exceptions in service methods
-// and maps to gRPC StatusCode with structured details
-public class ServiceErrorInterceptor : Interceptor
-{
-    // Maps exceptions:
-    // - ValidationException -> StatusCode.InvalidArgument
-    // - NotFoundException -> StatusCode.NotFound
-    // - UnauthorizedAccessException -> StatusCode.PermissionDenied
-    // - OperationCanceledException -> StatusCode.Cancelled
-    // - Other -> StatusCode.Internal
-}
-```
-
-### Error Interceptor Settings
-
-```csharp
-public class ErrorInterceptorSettings
-{
-    public bool IncludeExceptionDetails { get; set; } = false;  // true in Development only
-}
-```
-
-### Service Collection Extensions
-
-```csharp
-// Provided by package for easy DI registration
-public static class IServiceCollectionExtensions
-{
-    public static IServiceCollection AddGrpcClientInterceptors(this IServiceCollection services);
-    public static IServiceCollection AddGrpcServiceInterceptors(this IServiceCollection services);
-}
-```
+- **`ServiceErrorInterceptor`** (server): intercepts unary and all streaming calls, rethrows a service's own `RpcException` unchanged, and maps every other exception through the shared `ExceptionClassifier` - the same taxonomy and the same `MapExceptions` the HTTP exception handler uses - to a `StatusCode` (`GrpcStatusCodes.For(category)`: `Validation` -> `InvalidArgument`, `NotFound` -> `NotFound`, `PreconditionFailed` -> `FailedPrecondition`, `Forbidden` -> `PermissionDenied`, `Cancelled` -> `Cancelled`, `Timeout` -> `DeadlineExceeded`, `Internal` -> `Internal`). The status detail is the category name; exception text stays in the server log.
+- **`ErrorInterceptorSettings`**: one member, `IncludeExceptionMessageInResponse` (default `false`); leave it off outside Development.
+- **`ClientErrorInterceptor`** (client): logs the `RpcException` status and detail of a failed call.
+- **`AddEFGrpcClient<TClient>(settings, bearerTokenProvider, serverCertificateValidation)`** with `GrpcClientSettings` (`Address`, `MaxConnectionsPerServer`, `HandlerLifetimeSeconds`, `ClientCertificatesBase64`): a `SocketsHttpHandler` primary handler that opens multiple HTTP/2 connections, a per-call bearer token through call credentials, and optional mTLS client certificates as base64 PKCS#12.
 
 ---
 
@@ -129,8 +84,8 @@ public class {Entity}GrpcService(
                 Name = entity.Name,
                 Description = entity.Description
             },
-            errors => throw new RpcException(new Status(StatusCode.NotFound,
-                string.Join("; ", errors))),
+            errors => throw new RpcException(new Status(StatusCode.InvalidArgument,
+                string.Join("; ", errors.Select(e => e.Error)))),
             () => throw new RpcException(new Status(StatusCode.NotFound, "Entity not found")));
     }
 }
@@ -143,31 +98,21 @@ public class {Entity}GrpcService(
 ### Service Side (API hosting gRPC)
 
 ```csharp
-// In Program.cs or Bootstrapper
-builder.Services.AddGrpc(options =>
-{
-    options.Interceptors.Add<ServiceErrorInterceptor>();
-    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
-});
-
-builder.Services.Configure<ErrorInterceptorSettings>(options =>
-{
-    options.IncludeExceptionDetails = builder.Environment.IsDevelopment();
-});
+// RegisterApiServices: the host already calls AddExceptionClassifier(MapExceptions) for HTTP.
+builder.Services.AddGrpc(options => options.Interceptors.Add<ServiceErrorInterceptor>());
+builder.Services.Configure<ErrorInterceptorSettings>(builder.Configuration.GetSection("ErrorInterceptorSettings"));
 
 // Map gRPC services
-app.MapGrpcService<{Entity}GrpcService>();
+app.MapGrpcService<{Entity}GrpcService>().RequireAuthorization();
 ```
 
 ### Client Side (Consuming gRPC service)
 
 ```csharp
-// Register typed gRPC client with error interceptor
-builder.Services.AddGrpcClient<{Entity}Service.{Entity}ServiceClient>(options =>
-{
-    options.Address = new Uri(config["GrpcServices:{Entity}ServiceUrl"]!);
-})
-.AddInterceptor<ClientErrorInterceptor>();
+var settings = config.GetSection("GrpcServices:{Entity}").Get<GrpcClientSettings>()
+    ?? throw new InvalidOperationException("GrpcServices:{Entity} is required.");
+builder.Services.AddEFGrpcClient<{Entity}Service.{Entity}ServiceClient>(settings)
+    .AddInterceptor<ClientErrorInterceptor>();
 ```
 
 ### Load Balancing and Deadlines
@@ -183,10 +128,10 @@ HTTP/2 multiplexes every call over one long-lived connection, so a layer-4 balan
 ```json
 {
   "GrpcServices": {
-    "{Entity}ServiceUrl": ""
+    "{Entity}": { "Address": "", "MaxConnectionsPerServer": 200 }
   },
   "ErrorInterceptorSettings": {
-    "IncludeExceptionDetails": false
+    "IncludeExceptionMessageInResponse": false
   }
 }
 ```
@@ -196,10 +141,10 @@ HTTP/2 multiplexes every call over one long-lived connection, so a layer-4 balan
 ```json
 {
   "GrpcServices": {
-    "{Entity}ServiceUrl": "https://localhost:5201"
+    "{Entity}": { "Address": "https://localhost:5201" }
   },
   "ErrorInterceptorSettings": {
-    "IncludeExceptionDetails": true
+    "IncludeExceptionMessageInResponse": true
   }
 }
 ```
@@ -226,7 +171,7 @@ After generating gRPC code, confirm:
 - [ ] `.proto` files define service contracts with appropriate message types
 - [ ] `ServiceErrorInterceptor` registered on server-side gRPC pipeline
 - [ ] `ClientErrorInterceptor` registered on client-side gRPC channel
-- [ ] `ErrorInterceptorSettings.IncludeExceptionDetails` is `false` in Production
+- [ ] `ErrorInterceptorSettings.IncludeExceptionMessageInResponse` is `false` in Production; gRPC and HTTP share one `ExceptionClassifier` mapping
 - [ ] Service implementations delegate to application layer services (not direct DB access)
-- [ ] Typed gRPC clients registered via `AddGrpcClient<T>` with service discovery URL
+- [ ] Typed gRPC clients registered via `AddEFGrpcClient<T>` with a configured `GrpcClientSettings.Address`
 - [ ] Cross-references: Aspire service discovery provides gRPC URLs; [api.md](api.md) for REST counterpart

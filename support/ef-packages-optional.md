@@ -6,22 +6,65 @@ Companion to [ef-packages-reference.md](ef-packages-reference.md), which owns de
 
 ### Authentication (EF.Auth)
 
-Add when the app needs outbound auth (calling protected APIs) or role/scope-based authorization.
+Add for outbound service tokens, the trusted-gateway claims relay, role/scope authorization, or the scaffold fixed principal. Auth-mode policy: [../skills/identity-management.md](../skills/identity-management.md).
 
 | Type | Package | Used For |
 |---|---|---|
-| `IOAuth2TokenProvider` | EF.Auth | Token acquisition contract |
-| `OAuth2TokenProvider` | EF.Auth | Generic OAuth2 token provider |
-| `OAuth2Options` | EF.Auth | OAuth2 configuration options |
-| `Auth0TokenProvider` | EF.Auth | Auth0-specific token provider |
-| `Auth0Options` | EF.Auth | Auth0 configuration |
-| `AzureAdTokenProviderConfidentialClientApp` | EF.Auth | Azure AD MSAL confidential client token provider |
-| `AzureADOptions` | EF.Auth | Azure AD configuration |
-| `IAzureDefaultCredTokenProvider` | EF.Auth | Contract for DefaultAzureCredential token acquisition |
-| `AzureDefaultCredTokenProvider` | EF.Auth | DefaultAzureCredential-based token provider |
-| `BaseDefaultAzureCredsAuthMessageHandler` | EF.Auth | `DelegatingHandler` for outbound HTTP auth with Azure credentials |
-| `RolesOrScopesAuthorizationHandler` | EF.Auth | Flexible role or scope-based ASP.NET Core authorization handler |
-| `RolesOrScopesRequirement` | EF.Auth | Authorization requirement for role/scope check |
+| `AccessTokenCache`, `AccessTokenCacheOptions` (`RefreshWindow`), `AddAccessTokenCache(credential)` | EF.Auth (`EF.Auth.Tokens`) | Single-flight token cache over one `TokenCredential` (the registered one, else one `DefaultAzureCredential`); failures are not cached, tokens never logged |
+| `BearerTokenHandler`, `AddBearerToken(scopes)` | EF.Auth (`EF.Auth.Tokens`) | `Authorization: Bearer` on every outbound request of an `HttpClient` |
+| `OAuth2ClientCredentialsCredential`, `AddOAuth2ClientCredentials(section)` | EF.Auth (`EF.Auth.Tokens`) | Client-credentials grant for non-Entra providers, behind the same cache |
+| `ForwardedClaimsOptions` (section `ForwardedClaims`), `ForwardedClaimsCodec`, `AddForwardedClaimsTransformation(config)` | EF.Auth (`EF.Auth.Relay`) | API side of the gateway user-claims relay: honored only for an app-only token from a `TrustedCallerIds` caller with no delegated-scope claim; empty `TrustedCallerIds` disables it |
+| `RolesOrScopesAuthorizationHandler`, `RolesOrScopesRequirement` | EF.Auth (`EF.Auth.Handlers`) | Policy met by any listed role or scope; splits space-separated `scp` |
+| `AddFixedPrincipal(scheme, o => ...)`, `FixedPrincipalOptions` (`Claims`, `AllowedEnvironments`), `FixedClaim` | EF.Auth (`EF.Auth.Fixed`) | Every request authenticates as the configured claims; the host fails to start outside `AllowedEnvironments` (default `Development`, `Testing`) or with no claims |
+
+### Gateway (EF.Gateway)
+
+YARP helpers for the edge gateway. Trust-boundary policy: [../skills/gateway.md](../skills/gateway.md).
+
+| Type | Package | Used For |
+|---|---|---|
+| `AddDownstreamAuthTransforms(config)`, `DownstreamAuthOptions` | EF.Gateway | Per-cluster `Metadata`: `TokenScope` sets a bearer token from `AccessTokenCache`; `RelayUserClaims` writes the relay header. Every route strips the inbound relay header |
+| `DownstreamHealthCheck`, `AddDownstreamHealthCheck(name, o => ...)` | EF.Gateway | GET probe of a downstream health URL; a missing or relative `Url` fails startup |
+
+### Rate Limiting (EF.RateLimiting, EF.RateLimiting.Redis)
+
+Pipeline placement and budget policy: [../skills/security.md](../skills/security.md) section Rate Limiting.
+
+| Type | Package | Used For |
+|---|---|---|
+| `AddTenantRateLimiting(config)`, `TenantRateLimitSettings` (section `RateLimiting:Tenants`), `RequireTenantBudget(name)`, `TenantBudgetMetadata` | EF.RateLimiting | Per-tenant partitions with tiers and named budgets, 429 with `Retry-After`; throws when `UseRateLimiter` runs before `UseAuthentication` |
+| `UseEdgeLimiter(settings)`, `EdgeRateLimitSettings` (section `RateLimiting:Edge`), `AddPerClientIpFixedWindowPolicy`, `AddRetryAfter`, `ClientPartitionKey` | EF.RateLimiting | Gateway edge limiter: per-client token bucket plus a process concurrency cap |
+| `FailOpenRateLimiter`, `RateLimitingTelemetry` (meter `EF.RateLimiting`: `ratelimit.rejected`, `ratelimit.backend_failure`) | EF.RateLimiting | Admits requests when a distributed backend fails, and counts it |
+| `AddRedisRateLimiting(serviceKey)`, `RedisSlidingWindowRateLimiter` | EF.RateLimiting.Redis | One shared sliding window per budget in Redis over the EF.Cache `IConnectionMultiplexer` from DI |
+
+### Messaging Contracts (EF.Messaging.Contracts)
+
+Broker-free, AOT-compatible primitives that domain, application and consumer projects reference instead of `EF.Messaging`. Outbox, inbox and consumer policy: [../skills/messaging.md](../skills/messaging.md).
+
+| Type | Package | Used For |
+|---|---|---|
+| `IntegrationEventEnvelope`, `EnvelopeSerializer` | EF.Messaging.Contracts (`EF.Messaging`) | Versioned wire frame (`Id`, `Type`, `Version`, `OccurredAtUtc`, `CorrelationId`, `Payload`) and its serializer; trimmed apps pass their source-generated context options |
+| `MessagingActivitySource`, `MessagingTraceContext` | EF.Messaging.Contracts (`EF.Messaging.Tracing`) | `send {destination}` / `process {destination}` spans and W3C `traceparent` inject, extract and parse |
+| `MessagingMetrics` | EF.Messaging.Contracts (`EF.Messaging`) | Meter `EF.Messaging`: `ef.outbox.*`, `ef.work.*`, `ef.inbox.*`, `ef.consumer.duration` |
+| `IOutboxTransport`, `OutboxItem`, `OutboxSendResult`, `OutboxSendFailure`, `OutboxHeaders`, `OutboxBodyBuffer` | EF.Messaging.Contracts (`EF.Messaging.Outbox`) | The broker port the dispatcher sends through; packaged for Service Bus and RabbitMQ |
+| `OutboxEntry`, `IOutboxEventMapper`, `IOutboxStaging` | EF.Messaging.Contracts (`EF.Messaging.Outbox`) | Domain event to outbox row mapping, and explicit staging for events no aggregate raises |
+| `IInboxStore`, `InboxClaim`, `InboxClaimStatus`, `InboxClaimOptions` (section `Messaging:Inbox`) | EF.Messaging.Contracts (`EF.Messaging`) | Two-state consumer inbox contract and its lease timings |
+| `IntegrationEnvelopeReader`, `IntegrationEnvelopeReaderOptions` | EF.Messaging.Contracts (`EF.Messaging`) | Transport-independent body parse with dead-letter reasons (`MalformedEnvelope`, `UnsupportedEventType`) |
+| `IntegrationEventConsumerBase`, `ConsumeDisposition` | EF.Messaging.Contracts (`EF.Messaging`) | Idempotent consumer: `ConsumerName`, `Handles(eventType)`, `ConsumeAsync(envelope, ct)`; claim, renewal, bounded wait and completion live in the base |
+
+### Outbox and Inbox Stores (EF.Data.Outbox)
+
+Provider-neutral EF Core (PostgreSQL and SQL Server); does not reference `EF.Data`.
+
+| Type | Package | Used For |
+|---|---|---|
+| `AddOutbox<TContext>(o => ...)`, `OutboxOptions` (`DefaultDestination`, `SerializerOptions`), `OutboxStagingInterceptor`, `OutboxMessage`, `DefaultOutboxEventMapper` | EF.Data.Outbox | Stages every `IHasDomainEvents` event as an `OutboxMessage` row in the same `SaveChanges`; register the interceptor on the write context |
+| `AddOutboxDispatcher()`, `OutboxDispatcherService`, `OutboxDispatcherOptions` (`SendTimeout`) | EF.Data.Outbox | Leased dispatcher on every replica with a transport; host start fails unless `LeaseDuration > SendTimeout + SettlementTimeout` |
+| `AddInbox<TContext>()`, `InboxStore<TContext>`, `InboxEntry` | EF.Data.Outbox | `IInboxStore` on table `ConsumerInbox`; needs `IDbContextFactory<TContext>` for lease renewal |
+| `ApplyOutboxModel(schema)`, `ApplyInboxModel(schema)` | EF.Data.Outbox | Model mappings for the two tables, called from `OnModelCreating` |
+| `LeasedWorkItem`, `LeasedWorkConfiguration<TWork>`, `LeasedWorkTableWorker<TWork, TOptions>`, `WorkBatchResult`, `AddLeasedWorkStore<TContext>()` | EF.Data.Outbox | App work tables claimed with a lease, retried with backoff, parked after `MaxAttempts` |
+| `AddLeasedWorkBacklogCheck<TWork>(name, configure, tags)` | EF.Data.Outbox | Backlog health check per work table (lag and pending thresholds) |
+| `OutboxActivitySource` | EF.Data.Outbox | `{WorkType} drain` spans; add `OutboxActivitySource.Name` to tracing |
 
 ### Messaging (EF.Messaging)
 
@@ -45,8 +88,16 @@ Add when the app publishes or consumes Azure Service Bus, Event Grid, or Event H
 | `EventHubProcessorBase` | EF.Messaging | Abstract Event Hub processor |
 | `EventHubProcessorSettingsBase` | EF.Messaging | Settings base for processor configuration |
 | `IServiceBusReceiver`, `ServiceBusSenderPool` | EF.Messaging | Receiver contract for `ServiceBusProcessorBase`; pooled senders per entity |
-| `IntegrationEventEnvelope` / `EnvelopeSerializer` | EF.Messaging | Versioned integration envelope and its serializer |
-| `MessagingActivitySource` / `MessagingTraceContext` | EF.Messaging (`EF.Messaging.Tracing`) | Producer/consumer activities and W3C trace context propagation |
+| `AddServiceBusOutboxTransport(o => ...)`, `ServiceBusOutboxOptions` | EF.Messaging (`EF.Messaging.ServiceBus`) | Service Bus `IOutboxTransport` for the dispatcher |
+| `AddServiceBusHealthCheck(clientName, entityPath, name, tags)` | EF.Messaging (`EF.Messaging.ServiceBus`) | Service Bus entity health check |
+
+The envelope, tracing and metrics types are in EF.Messaging.Contracts (same namespaces).
+
+### Service Bus Triggers (EF.Messaging.Functions)
+
+| Type | Package | Used For |
+|---|---|---|
+| `ServiceBusIntegrationEventDispatcher.DispatchAsync(message, actions, consumer, readerOptions, logger, ct)` | EF.Messaging.Functions | One-line Functions isolated-worker trigger body: reads the envelope, runs the `IntegrationEventConsumerBase`, settles (dead-letter unreadable, complete, abandon on in-progress, rethrow on failure) with `CancellationToken.None`. The host turns auto-complete off |
 
 ### RabbitMQ (EF.Messaging.RabbitMq)
 
@@ -56,9 +107,23 @@ Framework-free RabbitMQ transport.
 |---|---|---|
 | `IRabbitMqPublisher` (`PublishAsync`, `PublishBatchAsync`), `RabbitMqMessage`, `RabbitMqPublishException` | EF.Messaging.RabbitMq | Confirmed publishing |
 | `IRabbitMqMessageHandler` (`Task<ConsumeResult> HandleAsync(RabbitMqDelivery, ct)`), `ConsumeResult`, `ConsumeOutcome`, `RabbitMqConsumerHostedService<THandler>` | EF.Messaging.RabbitMq | Consumers |
+| `RabbitMqIntegrationEventHandler<TConsumer>` | EF.Messaging.RabbitMq | Adapter from a delivery to an `IntegrationEventConsumerBase`: unreadable dead-letters, consumed or duplicate acks, in-progress retries |
+| `AddRabbitMqOutboxTransport(o => o.DefaultExchange = ...)`, `RabbitMqOutboxOptions` | EF.Messaging.RabbitMq | RabbitMQ `IOutboxTransport`; only unconfirmed indices fail |
 | `RabbitMqTopology`, `RabbitMqExchange`, `RabbitMqQueue`, `RabbitMqBinding`, `IRabbitMqTopologyDeclarer` | EF.Messaging.RabbitMq | Topology declaration |
-| `RabbitMqOptions`, `RabbitMqConsumerOptions` | EF.Messaging.RabbitMq | Connection and consumer options |
+| `RabbitMqOptions`, `RabbitMqConsumerOptions` (section `Messaging:RabbitMq:Consumers:<queue>`: `RetryBaseDelay`, `RetryMaxDelay`, `AttemptTrackingWindow`) | EF.Messaging.RabbitMq | Connection and consumer options; a failed delivery waits its retry delay before the requeue |
 | `AddRabbitMqMessaging(config, "Messaging:RabbitMq")`, `AddRabbitMqConsumer<THandler>(...)`, `AddRabbitMqTopology(...)`, `AddRabbitMqHealthCheck(...)` | EF.Messaging.RabbitMq | Registration |
+
+### Scheduling (EF.BackgroundServices.TickerQ)
+
+TickerQ over the scheduler's operational store. Cron declaration and health policy: [../skills/background-services.md](../skills/background-services.md).
+
+| Type | Package | Used For |
+|---|---|---|
+| `AddEFTickerQ<TDbContext>(config, configureDbContext, schema, configure)` / `AddEFTickerQ(config, configure)`, `TickerQSchedulerSettings` (section `Scheduling`) | EF.BackgroundServices.TickerQ | Registration with UTC, `{MachineName}:{ProcessId}` node identity and a distributed lock around cron seeding; the in-memory overload suits one replica and tests |
+| `ScheduledJobRunner.RunAsync<THandler>(context, ct)` | EF.BackgroundServices.TickerQ | Runs an `IScheduledJobHandler` in TickerQ's execution scope with one span, `scheduler.job.*` metrics and TickerQ's cancellation contract |
+| `TickerQSchemaValidator.ValidateAsync<TDbContext>(services)` | EF.BackgroundServices.TickerQ | Names every missing TickerQ table; never creates schema |
+| `TickerQOccurrenceRetentionHandler<TDbContext>`, `TickerQRetentionSettings` (section `Scheduling:Retention`) | EF.BackgroundServices.TickerQ | Deletes finished occurrences past retention |
+| `AddSchedulerHealthCheck<TDbContext>(tags)`, `SchedulerHealthSettings` (section `Scheduling:Health`, `StallThreshold` required) | EF.BackgroundServices.TickerQ | Stall check on the latest cron execution |
 
 ### Azure Storage (EF.Storage)
 
@@ -71,6 +136,7 @@ Add when the app needs Blob Storage access. Do not hand-roll blob logic - extend
 | `BlobRepositorySettingsBase` | EF.Storage | Settings base (requires `BlobServiceClientName`) |
 | `ContainerInfo` | EF.Storage | Container configuration model |
 | `ContainerPublicAccessType` | EF.Storage | Enum for container access level |
+| `BlobContainerHealthCheck`, `AddBlobContainerHealthCheck(name, clientName, containerName, tags)` | EF.Storage | Existence check of the container the app uses (least privilege) |
 
 **Constructor constraint:** `BlobRepositoryBase(ILogger<BlobRepositoryBase>, IOptions<BlobRepositorySettingsBase>, IAzureClientFactory<BlobServiceClient>)` - the settings parameter uses the base type. Register via `services.Configure<BlobRepositorySettingsBase>(...)` or use covariant DI binding.
 
@@ -85,7 +151,8 @@ Provider-neutral object storage. `BlobRepositoryBase` (Azure) and `S3ObjectStora
 | `IObjectStorageRepository` | EF.Storage.Contracts | `UploadAsync(containerName, objectName, content, contentType, metadata, ct)`, `DownloadAsync`, `DeleteAsync`, `ExistsAsync`, `GetPresignedUrlAsync`, `ListAsync` |
 | `ObjectStorageItem`, `ObjectStoragePage`, `ObjectStoragePermissions` | EF.Storage.Contracts | List results and presigned-URL permissions |
 | `S3ObjectStorageRepositoryBase` / `S3ObjectStorageRepository` | EF.Storage.S3 | S3 implementation |
-| `S3StorageSettings` (section `Storage:S3`), `IS3BucketProvisioner`, `AddS3ObjectStorage(settings)` | EF.Storage.S3 | Settings, bucket provisioning, registration |
+| `S3StorageSettings` (section `Storage:S3`), `IS3BucketProvisioner` (`CheckBucketAsync`, `EnsureBucketExistsAsync`), `AddS3ObjectStorage(settings)` | EF.Storage.S3 | Settings, bucket provisioning, registration |
+| `S3BucketHealthCheck`, `AddS3BucketHealthCheck(name, bucketName, tags)` | EF.Storage.S3 | Scoped `HeadBucket` check of the bucket the app uses |
 
 ### Azure Table Storage (EF.Table)
 
@@ -110,6 +177,8 @@ Add when the app needs Cosmos DB document storage.
 | `CosmosDbRepositoryBase` | EF.CosmosDb | Abstract Cosmos DB repository |
 | `CosmosDbRepositorySettingsBase` | EF.CosmosDb | Settings base (requires `CosmosClient` and `CosmosDbId`); ctor `CosmosDbRepositoryBase(ILogger<CosmosDbRepositoryBase>, IOptions<CosmosDbRepositorySettingsBase>)` |
 | `CosmosDbEntity` | EF.CosmosDb | Base entity with `PartitionKey` property and `id` alias |
+| `CosmosClientSettings` (`PreferredRegions`, `HedgingEnabled`, `HedgingThresholdMs`, `HedgingThresholdStepMs`), `CosmosClientOptionsFactory.Create` | EF.CosmosDb | Client options with cross-region read hedging when enabled |
+| `CosmosDbHealthCheck`, `AddCosmosDbHealthCheck(name, tags)` | EF.CosmosDb | Account check through the registered client |
 
 ### Azure Key Vault (EF.KeyVault)
 
@@ -127,8 +196,10 @@ Add when the app exposes or consumes gRPC services.
 
 | Type | Package | Used For |
 |---|---|---|
-| `ClientErrorInterceptor` / `ServiceErrorInterceptor` / `ErrorInterceptorSettings` | EF.Grpc | Consistent gRPC error handling on client and server |
-| `AddGrpcClient2<TClient>(...)` | EF.Grpc | gRPC client registration with `AddStandardResilienceHandler` |
+| `ServiceErrorInterceptor`, `ErrorInterceptorSettings` (`IncludeExceptionMessageInResponse`, default false) | EF.Grpc | Server interceptor for unary and streaming calls: rethrows a service's own `RpcException`, maps everything else through `ExceptionClassifier` with the category name as detail |
+| `ClientErrorInterceptor` | EF.Grpc | Client-side error logging |
+| `GrpcStatusCodes.For(ExceptionCategory)` | EF.Grpc | Category to `StatusCode` table |
+| `AddEFGrpcClient<TClient>(settings, bearerTokenProvider, serverCertificateValidation)`, `GrpcClientSettings` | EF.Grpc | Client registration over `SocketsHttpHandler` (multiple HTTP/2 connections), per-call bearer token, optional mTLS (base64 PKCS#12) |
 
 ### AI (EF.AI)
 
@@ -138,6 +209,9 @@ Provider-agnostic chat and embeddings over Microsoft.Extensions.AI. Provider sel
 |---|---|---|
 | `AddEFChatClient()`, `AddEFChatClients()`, `AddEFChatClientFromAspire()`, `EFChatClientSettings`, `EFChatClientProvider` | EF.AI (`EF.AI.Chat`) | `IChatClient` registration; providers `Disabled`, `OpenAICompatible`, `GitHubModels`, `OpenAI`, `Foundry`, `AzureAIInference`, `OpenRouter`, `Ollama`, `VLlm` |
 | `AddEFEmbeddingGenerator()`, `EFEmbeddingGeneratorSettings`, `EFEmbeddingGeneratorProvider` | EF.AI (`EF.AI.Embeddings`) | `IEmbeddingGenerator` registration |
+| `EFAIDisabledException`, `IsDisabled()` | EF.AI | Every call on a `Disabled` client throws `EFAIDisabledException`; hosts map it with `Map<EFAIDisabledException>(ExceptionCategory.Unavailable)` (503) |
+
+Test doubles for both interfaces are in EF.AI.Testing (section Testing (EF.Testing, EF.Testing.Architecture, EF.AI.Testing, EF.IntegrationTesting.*) below).
 
 ### Microsoft Graph (EF.MSGraph)
 
@@ -150,20 +224,112 @@ Add when the app calls Microsoft Graph APIs.
 
 ### Durable Audit (EF.Audit.Contracts, EF.Audit.Data, EF.Audit.AzureTable)
 
-`AuditInterceptor` appends to every registered `IAuditLogRepository`; pick one backend. Both packaged backends key on the write clock, so the scaffold implements its sinks app-side ([../skills/data-persistence.md](../skills/data-persistence.md) section Audit Strategy).
+`AuditInterceptor` appends to the `IAuditLogRepository` sinks it is given; the scaffold persists through the internal bus instead ([../skills/data-persistence.md](../skills/data-persistence.md) section Audit Strategy). Both packaged backends derive `RecordedUtc` and every key from the UUIDv7 timestamp of the entry id, so a replayed entry writes the same row.
 
 | Type | Package | Used For |
 |---|---|---|
-| `IAuditLogRepository` (`AppendAsync`, `QueryAsync(AuditLogQuery, ct)`, `PurgeOlderThanAsync`) | EF.Audit.Contracts | Backend-neutral audit sink and query contract |
-| `AuditRecord`, `AuditLogQuery`, `AuditLogPage`, `AuditLogSettingsBase`, `AuditSettings` | EF.Audit.Contracts | Query and settings models |
-| `AuditDbContext`, `RelationalAuditLogRepository`, `RelationalAuditLogSettings`, `AddRelationalAuditLog()` | EF.Audit.Data | EF Core relational backend |
-| `AzureTableAuditLogRepository`, `AzureTableAuditLogSettings`, `AddAzureTableAuditLog(configure)` | EF.Audit.AzureTable | Azure Table backend built on EF.Table |
+| `IAuditLogRepository` (`AppendAsync`, `QueryAsync(AuditLogQuery, ct)`, `PurgeOlderThanAsync`) | EF.Audit.Contracts | Backend-neutral audit sink and query contract; `QueryAsync` accepts page sizes 1 to `AuditLogQuery.MaxPageSize` (1000) |
+| `AuditRecord` (`StartedAtUtc`), `AuditLogQuery`, `AuditLogPage`, `AuditLogSettingsBase`, `AuditSettings` | EF.Audit.Contracts | Query and settings models |
+| `RelationalAuditLogRepository<TContext>`, `AddRelationalAuditLog<TContext>(configure)`, `AuditLogRecordConfiguration(tableName, schema)`, `RelationalAuditLogSettings` | EF.Audit.Data | Relational backend over the app's own context: map the row with `AuditLogRecordConfiguration` so it shares the app migration set; append is one idempotent upsert, continuation tokens are keyset tokens |
+| `AzureTableAuditLogRepository` (`EnsureTableAsync`), `AzureTableAuditLogSettings`, `AddAzureTableAuditLog(configure)` | EF.Audit.AzureTable | Azure Table backend built on EF.Table, a singleton; appends never create the table, so a startup task calls `EnsureTableAsync` |
+
+### Client Resilience (EF.Http.Resilience)
+
+No ASP.NET Core dependency, so UI and console clients use it too. Hedging policy: [../skills/resilience.md](../skills/resilience.md) section Hedging.
+
+| Type | Package | Used For |
+|---|---|---|
+| `AddReadHedging(config, sectionName)`, `ReadHedgingSettings` (section `Resilience:Hedging`) | EF.Http.Resilience | GET/HEAD-only hedging on a dedicated read client; each hedged attempt sends its own request snapshot |
+| `AddCustomResilience(excludedStatusCodes, retryUnsafeMethods, configure)` | EF.Http.Resilience | Standard resilience handler that never retries unsafe methods unless asked |
+
+### UI Client (EF.UI.Client, EF.UI.Refit)
+
+UI-framework-neutral, AOT-compatible client plumbing (Uno, Blazor, MAUI). Uno wiring: [../templates/uno-ui-client-layer.md](../templates/uno-ui-client-layer.md).
+
+| Type | Package | Used For |
+|---|---|---|
+| `IUiDispatcher` (`HasThreadAccess`, `Post`, `Inline`), `AddUiClient(configure)` | EF.UI.Client | Registers `IBusyTracker` and `INotificationService`; the app registers its platform `IUiDispatcher` (a missing one fails at resolution) |
+| `IBusyTracker` / `BusyTracker`, `INotificationService` / `NotificationService`, `Notification`, `NotificationOptions` | EF.UI.Client (`EF.UI.Client.Notifications`) | Reference-counted busy indicator; notification queue with per-severity auto-dismiss, `DedupeKey`, `ShowProblem` |
+| `AddBusyTracking()`, `AddProblemDetailsNotifications(configure)`, `BusyDelegatingHandler`, `ProblemDetailsDelegatingHandler`, `ProblemDetailsPayload`, `ProblemDetailsException` | EF.UI.Client (`EF.UI.Client.Http`) | `HttpClient` handlers: busy scope per send, problem+json translated once into a notification; register both before any resilience handler |
+| `EntityTags` (`ForVersion`, `Parse`), `IfMatchHttpClientExtensions` (`PutAsJsonAsync`, `DeleteAsync`) | EF.UI.Client (`EF.UI.Client.Http`) | Strong `If-Match` writes from hand-written clients |
+| `RuntimeClientConfiguration` (`LoadBaseUrlAsync`, `ParseBaseUrl`) | EF.UI.Client (`EF.UI.Client.Configuration`) | Validated `/app-config.json` runtime base URL for static-hosted clients |
+| `RefitCallHelper` (`TryApiCallAsync`, `TryApiCallIfAsync`, `TryApiCallWithMetaAsync`), `RefitCallOptions`, `ApiResult` / `ApiResult<T>`, `RefitExtensions` | EF.UI.Refit | Refit call wrapper mapping every failure to a `ProblemDetails` result; `OnAuthError` is per call |
+
+### Column Encryption (EF.Data.Encryption)
+
+Provider-neutral application-layer column encryption.
+
+| Type | Package | Used For |
+|---|---|---|
+| `IColumnEncryptor` / `AesGcmColumnEncryptor` / `PlaintextColumnEncryptor` | EF.Data.Encryption | Encrypt and decrypt column values |
+| `BlindIndex` / `BlindIndexInterceptor` | EF.Data.Encryption | Deterministic lookup index over an encrypted value |
+| `ColumnEncryptionOptions`, `ColumnEncryptionKeys`, `KeyVaultDekProvider` | EF.Data.Encryption | Key material and Key Vault DEK unwrap |
+| `UseColumnEncryption()`, `AddColumnEncryption()`, `GetColumnEncryptor()` | EF.Data.Encryption | Options-builder, DI, and `DbContext` wiring |
+
+### Observability and Data Protection (EF.OpenTelemetry, EF.AspNetCore.DataProtection)
+
+| Type | Package | Used For |
+|---|---|---|
+| `AddEfOpenTelemetry(o => ...)`, `OpenTelemetrySettings` (section `OpenTelemetry`) | EF.OpenTelemetry | Logs, traces and metrics; OTLP / Azure Monitor exporter matrix from configuration; validated `Tracing:SampleRatio`; `SuppressAspNetCoreInstrumentation`; the app adds its `MeterNames` and `ActivitySourceNames` |
+| `FilterActivityProcessor` | EF.OpenTelemetry | Drops matching activities from export |
+| `AddEfDataProtection(settings, credential)`, `DataProtectionSettings` (section `DataProtection`), `DataProtectionPersistence` (`None`, `AzureBlob`, `Redis`) | EF.AspNetCore.DataProtection | Persisted key ring, optional Key Vault key encryption; Redis resolves the shared `IConnectionMultiplexer` when no connection string is set |
+
+### Testing (EF.Testing, EF.Testing.Architecture, EF.AI.Testing, EF.IntegrationTesting.*)
+
+No package references a test framework: the test decides skip or fail.
+
+| Package | Types | Used By |
+|---|---|---|
+| EF.Testing | `EF.Testing.Load`: `LoadRunner`, `LoadResult`. `EF.Testing.Environment`: `EnvironmentVariableScope`, `TestEnvironment`, `RepositoryRoot`, `FunctionsCoreToolsDiscovery`. `EF.Testing.Processes`: `ProcessRunner`, `DockerRuntimePreflight`. `EF.Testing.Http`: `StubHttpMessageHandler`, `HttpReadiness`, `ConcurrencyHttpExtensions`. `EF.Testing.Json`: `JsonNodeDiff` | `Test.Support` (every tier), `Test.Load`, `Test.UI`, `Test.Mobile` |
+| EF.Testing.Architecture | `DependencyRules`, `ConstructorRules`, `MethodCallRules`, `SourceFiles` / `SourceRules`, `JsonContextRules`, `ConventionRules`, all returning `ArchitectureRuleResult` | `Test.Architecture` |
+| EF.AI.Testing | `FakeChatClient`, `FakeChatCall`, `FakeEmbeddingGenerator` | Tests over `IChatClient` / `IEmbeddingGenerator` |
+| EF.IntegrationTesting | `EF.IntegrationTesting.AspNetCore`: `EfWebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>`, `EfTestDbContextFactory<T>`, `RouteInventory`. `EF.IntegrationTesting.EntityFramework`: `DbContextOptionsFactory.BuildInMemoryOptions`, `RecordingCommandInterceptor`, `InsertInBatchesAsync`. `EF.IntegrationTesting.Testcontainers`: `ContainerFixture<TContainer>` | `Test.Support` WAF adapter ([../templates/test-templates-endpoint.md](../templates/test-templates-endpoint.md)), `Test.Integration`, `Test.E2E` |
+| EF.IntegrationTesting.PostgreSql | `PostgreSqlContainerFixture` (`CreateDatabaseAsync`), `PostgreSqlTestDbContextOptions.Build<T>` | `TestDatabaseContainer` |
+| EF.IntegrationTesting.SqlServer | `MsSqlContainerFixture` (`CreateDatabaseAsync`), `SqlServerTestDbContextOptions.Build<T>` | `TestDatabaseContainer` on a SQL Server arm |
+| EF.IntegrationTesting.Aspire | `AspireTestHostContext`, `AspireTestHostOptions`, `AspireTestingHelpers` | `Test.Aspire` mesh fixtures ([../templates/test-templates-aspire.md](../templates/test-templates-aspire.md)) |
+
+---
+
+### CQRS (EF.CQRS)
+
+Add when `applicationStyle` is `cqrs` or `switch`. In local mode, generate this as `src/Packages/<packagePrefix>.CQRS` and consume it through `<ProjectReference>`.
+
+| Type | Package | Used For |
+|---|---|---|
+| `ICommand<TResponse>` | EF.CQRS (`EF.CQRS.Abstractions`) | Write request marker |
+| `IQuery<TResponse>` | EF.CQRS (`EF.CQRS.Abstractions`) | Read request marker |
+| `IRequestHandler<in TRequest,TResponse>` | EF.CQRS (`EF.CQRS.Abstractions`) | Single request handler contract |
+| `IRequestValidator<TRequest>` | EF.CQRS | Optional request validator contract |
+| `RequestValidationResult` | EF.CQRS | Validator result with one or more errors; `Failure` with no non-blank error throws `ArgumentException` |
+| `IValidationFailureResponseFactory<out TResponse>` | EF.CQRS | `CreateFailure(IReadOnlyCollection<DomainError>)` converts validation errors to the app response shape |
+| `StaticFailureValidationResponseFactory<TResponse>` | EF.CQRS | Reflection-based factory for common static `Failure(...)` result shapes |
+| `ValidationRequestHandlerDecorator<TRequest,TResponse>` / `LoggingRequestHandlerDecorator<TRequest,TResponse>` | EF.CQRS | Validation and logging decorators around handlers |
+| `AddDecoratedRequestHandler<TRequest,TResponse,THandler>(ServiceLifetime lifetime = Scoped, Action<DecoratedRequestHandlerOptions>? configure = null)` | EF.CQRS | Registers the concrete handler and the interface wrapped in validation and logging decorators (`DecoratedRequestHandlerOptions.EnableValidation` / `EnableLogging`, both default true). Also `AddDecoratedRequestHandlers`, `AddRequestHandler`, `AddRequestValidator` |
+
+**Dispatch rule:** EF.CQRS has no MediatR dependency, dispatcher, request bus, or generic `Send` method. Minimal API endpoints inject the exact `IRequestHandler<TRequest,TResponse>` they call. Scaffold request records, handlers, validators, and per-feature registration fragments under `Application.Cqrs/Features/{Entity}`.
+
+### Tenancy (EF.Tenancy)
+
+Add when the domain is multi-tenant. Policy (who may cross the boundary, the system identity): [../skills/multi-tenant.md](../skills/multi-tenant.md).
+
+| Type | Package | Used For |
+|---|---|---|
+| `ITenantBoundaryValidator` / `TenantBoundaryValidator` | EF.Tenancy | Singleton: `EnsureTenantBoundary(callerTenantId, callerRoles, entityTenantId, operation, entityName, entityId)`, `EnsureCrossTenantRole(callerRoles, operation)`, `PreventTenantChange(existing, incoming, entityName, entityId)`, `EnforceTenantFilter(filter, callerTenantId, callerRoles, operation)`; each returns `Result` (or the forced filter) and logs security events 4100-4104 |
+| `ITenantScopedFilter` | EF.Tenancy | `Guid? TenantId` on the app's search filter, forced by `EnforceTenantFilter` |
+| `AddTenancy(o => o.CrossTenantRoles = [...])`, `TenancyOptions`, `TenantBoundaryErrorCodes` (`tenant.forbidden`, `tenant.change`) | EF.Tenancy | Registration; only a role in `CrossTenantRoles` (default `GlobalAdmin`) passes the boundary |
+
+### SQL Server Extras (EF.Data.SqlServer)
+
+| Type | Package | Used For |
+|---|---|---|
+| `ConnectionNoLockInterceptor` / `ReadUncommittedInterceptor` | EF.Data.SqlServer (`EF.Data.SqlServer.Interceptors`) | `READ UNCOMMITTED` isolation for query contexts |
+| `WithReadUncommittedAsync(read, ct)` | EF.Data.SqlServer | One dirty read on `DatabaseFacade` outside a repository |
+| `MigrationSupport` | EF.Data.SqlServer | Always Encrypted DDL inside a migration: ctor `(MigrationBuilder, DefaultAzureCredential)`, `CreateColumnMasterKey`, `CreateColumnEncryptionKey`, `AlterColumnEncryption` - see [data-persistence-advanced.md](data-persistence-advanced.md) -> Always Encrypted |
 
 ### Other Packages
 
 | Package | Types | Used For |
 |---|---|---|
-| EF.Utility.UI | `RefitCallHelperFull`, `RefitCallHelperSlim`, `ApiResult` / `ApiResult<T>`, `RefitExtensions`, `HttpClientBuilderExtensions` | Refit client call helpers for UI hosts |
 | EF.Utility | `Scraper`, `ScrapedData` (`EF.Utility.Webscraper`) | Web scraping |
 | EF.BlandAI | `IBlandAIRestClient`, `BlandAIRestClient`, `BlandAISettings` | Bland AI voice API |
 | EF.Cosmic | `ICosmicService`, `CosmicService`, `CosmicServiceSettings` | Swiss Ephemeris calculations |

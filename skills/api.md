@@ -136,22 +136,17 @@ Client-side symptoms of a drifted envelope (inspect the raw request/response JSO
 
 ### ProblemDetails Correlation Contract
 
-Configure correlation once through `AddProblemDetails` so typed endpoint errors and the global exception handler expose the same fields. `requestId` is `HttpContext.TraceIdentifier`; `traceId` and `spanId` are the W3C identifiers from `Activity.Current`. Never label the request identifier as `traceId`, and remove the ambiguous `activityId` field. The exception handler must write through `IProblemDetailsService`, not serialize its own body and bypass the customizer. Pin both a typed 400/412 response and an unhandled-exception response, including concurrent requests with distinct IDs. Canonical registration: [exception-handler-template.md](../templates/exception-handler-template.md).
+`AddEfProblemDetails()` (EF.AspNetCore) installs the one customizer, so typed endpoint errors and the exception handler expose the same fields: `instance` (`"{Method} {Path}"`), `requestId` (`HttpContext.TraceIdentifier`, the correlation id), and the W3C `traceId` / `spanId` from `Activity.Current`; no `activityId`. Register no second `AddProblemDetails` customizer. Pin both a typed 400/412 response and an unhandled-exception response, including concurrent requests with distinct IDs. Canonical registration: [exception-handler-template.md](../templates/exception-handler-template.md).
 
 ### Standalone CORS (Without Aspire)
 
-When the API runs without Aspire orchestration (e.g. `dotnet run --launch-profile https` directly), the browser WASM client cannot reach it without an explicit CORS policy. Add this before authentication middleware:
+When the API runs without Aspire orchestration (e.g. `dotnet run --launch-profile https` directly), the browser WASM client cannot reach it without an explicit CORS policy. Register the EF.AspNetCore policy from configuration (origins validated at registration) and use it before authentication middleware:
 
 ```csharp
-const string UiPolicy = "UiCors";
-builder.Services.AddCors(options =>
-    options.AddPolicy(UiPolicy, policy =>
-        policy.WithOrigins("https://localhost:{uiPort}", "http://localhost:{uiPort}")
-              .AllowAnyHeader()
-              .AllowAnyMethod()));
+builder.Services.AddCorsPolicyFromConfiguration("UiCors", config.GetSection("Cors"));   // Cors:AllowedOrigins
 
 // In pipeline, before UseAuthentication:
-app.UseCors(UiPolicy);
+app.UseCors("UiCors");
 ```
 
 Note: Aspire-hosted deployments typically handle CORS through the gateway - only add direct API CORS for standalone dev scenarios.
@@ -160,11 +155,11 @@ Note: Aspire-hosted deployments typically handle CORS through the gateway - only
 
 `RegisterApiServices.cs` owns API-only concerns (public method: `AddApiServices`):
 
-- Entra auth + authorization policies (admin role, user role)
-- `DefaultExceptionHandler` + `ProblemDetails`
-- OpenAPI/Scalar (feature-flagged via `OpenApiSettings:Enable`)
-- Rate limiting
-- `IClaimsTransformation` for Gateway-forwarded claims
+- Auth per `AuthMode` (EF.Auth `AddFixedPrincipal` in scaffold mode, JwtBearer otherwise) + authorization policies (admin role, user role)
+- `AddEfProblemDetails()` + `AddExceptionClassifier(MapExceptions)` ([exception-handler-template.md](../templates/exception-handler-template.md))
+- OpenAPI/Scalar (feature-flagged via `OpenApiSettings:Enable`) plus `AddConcurrencyOpenApiContract()` for the `If-Match` / `ETag` contract
+- Rate limiting (`AddTenantRateLimiting`, [security.md](security.md) section Rate Limiting)
+- `AddForwardedClaimsTransformation(config)` for Gateway-forwarded claims ([gateway.md](gateway.md))
 
 ## Pipeline + Versioned Groups
 
@@ -196,7 +191,7 @@ internal sealed record ApiDocument(ApiVersion Version, string GroupName)
 ```
 
 `WebApplicationBuilderExtensions.cs` must preserve middleware order:
-SecurityHeaders -> CorrelationId -> ExceptionHandler -> CORS -> Authentication -> Authorization -> RateLimiter (limiter placement: [security.md](security.md) section Pipeline Registration).
+ProxyForwarding -> SecurityHeaders -> CorrelationId -> ExceptionHandler -> CORS -> Authentication -> Authorization -> RateLimiter -> RequestTimeouts (limiter placement: [security.md](security.md) section Pipeline Registration). `UseProxyForwarding()` runs first because everything after it reads scheme, host or client IP.
 
 Map versioned groups and apply policy at the group level (adjust route pattern to project needs - tenant-scoped, versioned, or simple `/api/` prefix):
 
@@ -205,7 +200,8 @@ Map versioned groups and apply policy at the group level (adjust route pattern t
 app.MapGroup("/api/categories")
     .WithTags("Categories")
     .RequireAuthorization()
-    .MapCategoryEndpoints(problemDetailsIncludeStackTrace);
+    .WithETag()
+    .MapCategoryEndpoints();
 
 // Versioned public contract pattern.
 var apiVersionSetBuilder = app.NewApiVersionSet()
@@ -221,7 +217,8 @@ var api = app.MapGroup(ApiContract.VersionedRoutePrefix)
     .RequireAuthorization("TenantMatch");
 
 api.MapGroup("/categories")
-    .MapCategoryEndpoints(problemDetailsIncludeStackTrace);
+    .WithETag()
+    .MapCategoryEndpoints();
 ```
 
 ## Endpoint Contract
@@ -238,17 +235,13 @@ Required endpoint rules:
    // Typed result (3 branches)
    return result.Match<IResult>(
        value  => TypedResults.Ok(new DefaultResponse<T>(value)),
-       errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
-                     errors: errors, statusCodeOverride: StatusCodes.Status400BadRequest,
-                     includeStackTrace: _problemDetailsIncludeStackTrace)),
+       errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)),
        ()     => TypedResults.NotFound());
 
    // Non-generic Result (2 branches - fire-and-forget commands)
    return result.Match<IResult>(
        ()     => TypedResults.Ok(),
-       errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
-                     errors: errors, statusCodeOverride: StatusCodes.Status400BadRequest,
-                     includeStackTrace: _problemDetailsIncludeStackTrace)));
+       errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)));
    ```
 4. **Handler signature:** `HttpContext httpContext`, when needed for request data such as the created-resource path, is the first parameter. Correlation fields come from the centralized ProblemDetails customizer, not each handler. `CancellationToken` is the last parameter. **Every service-typed parameter MUST carry an explicit `[FromServices]` attribute.** This is non-negotiable.
    ```csharp
@@ -262,11 +255,12 @@ Required endpoint rules:
    This is especially fragile when a feature is gated per host (Cosmos-only services, Service Bus senders - see [bootstrapper.md](bootstrapper.md) section Conditional (Per-Host) Dependency Pattern). The endpoint still references the service interface; the host that opted out of registering it then refuses to start with a misleading body-inference error.
 
    **No exceptions:** add `[FromServices]` on the service parameter even for trivially-registered types. Treat any handler missing `[FromServices]` on a service parameter as a Phase 5b regression and fix it before the gate.
-5. Return `ProblemDetails` for errors (no raw strings). Always use `ProblemDetailsHelper.BuildProblemDetailsResponseMultiple` (or the singular variant for single-error cases) - never `TypedResults.BadRequest(string)`. Every error branch passes an explicit `statusCodeOverride`: 400 for validation failures, 404 or 409 when the error type is not-found or conflict. Without it the helper answers 500.
-6. Validate route/body ID consistency on update.
-7. Add OpenAPI metadata (`Produces*`, summary/tags).
-8. Use POST for complex search filters.
-9. Ensure `global using EF.AspNetCore;` is present in `GlobalUsings.cs` for `ProblemDetailsHelper` to resolve.
+5. Return `ProblemDetails` for errors (no raw strings). Always use `ProblemDetailsHelper.FromErrors(errors, status)` for a `Match` failure branch (it emits `extensions.errors` as ordered `{code, message}` pairs; status defaults to 400) or `ProblemDetailsHelper.Create(status, detail)` for a single message - never `TypedResults.BadRequest(string)`. Pass the status explicitly when the error type is not-found or conflict (404, 409).
+6. **Concurrency:** PUT/DELETE (and any action that changes a versioned aggregate) bind `IfMatch ifMatch`, add `.RequireIfMatch()`, and pass `ifMatch.ExpectedVersion` to the service; the group carries `.WithETag()`. The package filter answers 428 without `If-Match`, 400 for a malformed or weak tag, and 412 with the current `ETag` when the service's `ConcurrencyGuard` throws `PreconditionFailedException` ([data-persistence.md](data-persistence.md) section Provider Branch and Concurrency Discipline). Generate no `If-Match` parsing or ETag filter.
+7. Validate route/body ID consistency on update.
+8. Add OpenAPI metadata (`Produces*`, summary/tags).
+9. Use POST for complex search filters.
+10. Ensure `global using EF.AspNetCore;` and `global using EF.AspNetCore.Concurrency;` are present in `GlobalUsings.cs` for `ProblemDetailsHelper` and `IfMatch` to resolve.
 
 ## Service/CQRS Route Switch
 
@@ -307,14 +301,14 @@ group.MapPost("/{id:guid}/reschedule", Reschedule)
 
 **Cross-entity queries.** When the operation reads across multiple entities and does not naturally belong to one of them (e.g. `POST /reports/search/sla-breaches` aggregating SLA, Order, and Customer), put it in a dedicated `{Domain}QueryEndpoints.cs` mapper. Apply the same Result-mapping rules; do not bypass `ProblemDetails` for these.
 
-**What stays out.** Do not add custom action routes purely to expose internal admin operations - those belong in a separate admin-scoped endpoint group with its own auth policy. Do not route domain events through HTTP; events are an internal contract surfaced via `IIntegrationEventPublisher`, not an API resource.
+**What stays out.** Do not add custom action routes purely to expose internal admin operations - those belong in a separate admin-scoped endpoint group with its own auth policy. Do not route domain events through HTTP; events are an internal contract the outbox publishes ([messaging.md](messaging.md)), not an API resource.
 
 ## Error Handling Strategy
 
-Two complementary layers - **Result pattern for expected outcomes, `DefaultExceptionHandler` for unexpected exceptions**:
+Two complementary layers - **Result pattern for expected outcomes, the EF.AspNetCore exception handler for unexpected exceptions**:
 
 1. **Result flow (primary path):** Services return `Result<T>` / `DomainResult<T>`. Endpoints use `Result.Match()` to map success/failure/not-found to `TypedResults` + `ProblemDetails`. No exceptions thrown for validation, business rules, or not-found cases. DomainResult mechanics (factory results, Bind/Map chaining, error surface): [domain-model.md](domain-model.md) section DomainResult Pattern.
-2. **`DefaultExceptionHandler` (safety net):** A global `IExceptionHandler` registered via `AddExceptionHandler<DefaultExceptionHandler>()`. Catches only truly unexpected exceptions (null refs, timeouts, infra failures) and maps them to `ProblemDetails` with appropriate HTTP status codes. This is a last-resort handler, not a control-flow mechanism. See [exception-handler-template](../templates/exception-handler-template.md) for implementation.
+2. **`ProblemDetailsExceptionHandler` (safety net):** The package `IExceptionHandler` registered by `AddEfProblemDetails()`, with status from the shared `ExceptionClassifier` and the app's `MapExceptions`. Catches only truly unexpected exceptions (null refs, timeouts, infra failures) and the few exception types the app maps, and writes `ProblemDetails`. This is a last-resort handler, not a control-flow mechanism. See [exception-handler-template](../templates/exception-handler-template.md) for the registration.
 
 Reference: See [exception-handler-template](../templates/exception-handler-template.md) for the implementation pattern. Outbound HTTP resilience defaults (retry, circuit breaker, timeout): [resilience.md](resilience.md).
 
@@ -327,7 +321,7 @@ Reference: See [exception-handler-template](../templates/exception-handler-templ
                down
 [Endpoint] result.Match(ok -> TypedResults, errors -> ProblemDetails, notFound -> NotFound)
                down
-[Global]   DefaultExceptionHandler (IExceptionHandler)  - unexpected exceptions only -> ProblemDetails
+[Global]   ProblemDetailsExceptionHandler (EF.AspNetCore) - unexpected exceptions only -> ProblemDetails
 ```
 
 ### Error Type Mapping
@@ -338,7 +332,7 @@ Reference: See [exception-handler-template](../templates/exception-handler-templ
 | Domain | `DomainError.NotFound` | 404 Not Found |
 | Domain | `DomainError.Conflict` | 409 Conflict |
 | Domain | `DomainError.Unauthorized` | 403 Forbidden |
-| Service | `Result.Failure` (generic) | 400 Bad Request (explicit `statusCodeOverride`) |
+| Service | `Result.Failure` (generic) | 400 Bad Request (`FromErrors` default) |
 | Service | `Result.None` | 404 Not Found |
 | Service | `StructureValidator` failure | 400 Bad Request |
 | Global | Unexpected exceptions, concurrency, cancellation | [exception-handler-template](../templates/exception-handler-template.md) section Exception-to-Status Mapping |
@@ -348,7 +342,7 @@ Reference: See [exception-handler-template](../templates/exception-handler-templ
 - **Throwing exceptions for business logic** - Use `DomainResult.Failure()` / `Result.Failure()` instead.
 - **Swallowing errors silently** - Every failure must propagate through the Result chain or be logged explicitly.
 - **Returning raw error strings** - Always wrap in `ProblemDetails` at the API boundary.
-- **Catching generic `Exception` in services** - Let `DefaultExceptionHandler` handle the rest.
+- **Catching generic `Exception` in services** - Let the exception handler handle the rest.
 - **Exposing stack traces in production** - Only include outside production.
 - **Catching `OperationCanceledException` in services or handlers** - Cancellation and request timeouts propagate; the exception handler maps them ([exception-handler-template](../templates/exception-handler-template.md) section Rules).
 - **Returning provider error text from a save** - Never put `ex.Message` in a `Result`; see [service-template](../templates/service-template.md) section Common Mistakes (Verified via Test Failures).

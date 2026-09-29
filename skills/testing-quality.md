@@ -4,9 +4,9 @@ Use this skill for Phase 5d quality suites and release hardening (architecture, 
 
 ## Quality Gate Suites
 
-- `Test.Architecture`: layering rules (NetArchTest)
+- `Test.Architecture`: layering rules (EF.Testing.Architecture)
 - `Test.PlaywrightUI`: hosted browser UI checks
-- `Test.Load`: in-house `LoadRunner` scenario thresholds (no load-test package)
+- `Test.Load`: EF.Testing `LoadRunner` scenario thresholds
 - `Test.Benchmarks`: BenchmarkDotNet regression tracking
 - `Test.Mutation`: Stryker.NET mutation testing over high-value domain/service paths
 

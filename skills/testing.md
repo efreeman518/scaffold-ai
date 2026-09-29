@@ -85,7 +85,7 @@ MSTest's `MSTEST0049` is on by default at **info** severity - it does not fail t
 - **Private helper methods count too.** A helper inside a test class that makes a cancellable call (e.g. one that creates a parent entity over HTTP) must accept and flow the token - this is the cluster generators and `dotnet format` miss most often.
 - **Declare an instance `TestContext` property on any class with async test methods:** `public TestContext TestContext { get; set; } = null!;` (null-forgiving default). This is what the test methods and their helpers read the token from.
 - **Static `[ClassInitialize]` hook vs. instance `TestContext` are two separate concerns that coexist.** `[ClassInitialize] static Task ClassInit(TestContext context)` receives its own parameter for class-level setup; the instance property is separate and is what per-test cancellation uses. A class with class-level init *and* async tests needs both - do not discard the `ClassInitialize` parameter (`TestContext _`) and assume the instance property is covered.
-- **EF Core `FindAsync` in tests: array-wrap the key + token as the second argument** - `await db.{Entities}.FindAsync([id], TestContext.CancellationToken)`. The named-argument form (`FindAsync(id, cancellationToken: ct)`) binds to the wrong overload and is a **compile break**, not a warning: `FindAsync(object?[]? keyValues, CancellationToken)` needs the key array-wrapped.
+- **EF Core `FindAsync` in tests: array-wrap the key + token as the second argument** - `await db.{Entities}.FindAsync([id], TestContext.CancellationToken)`. The named-argument form (`FindAsync(id, cancellationToken: ct)`) binds to the wrong overload and is a **compile break**, not a warning: `FindAsync(object?[]? keyValues, CancellationToken)` needs the key array-wrapped. A tenant-owned entity has the tenant-first key, so it is `FindAsync([row.TenantId, id], ct)`.
 
 ```csharp
 [TestClass]
@@ -223,8 +223,8 @@ When any of `Test.Aspire`, the `WasmUI` bridge tier, or `Test.Mobile` is in scop
 | `Test.Integration` | Standalone Testcontainers (database / Redis / RabbitMQ / S3; Azurite on the Azure arm) | Component: one class vs one real store - repo CRUD/migrations, tenant filter, M:N, audit-repo round-trip, broker transport, projection pipeline | [test-templates-integration.md](../templates/test-templates-integration.md) |
 | `Test.Aspire` | Aspire `DistributedApplicationTestingBuilder` | Mesh: full AppHost graph over HTTP - outbox -> broker -> consumer, Azure-arm audit pipelines, Blazor-mesh smoke | [test-templates-aspire.md](../templates/test-templates-aspire.md) |
 | `Test.PlaywrightUI` | Real hosted stack (Aspire / docker-compose / preview) | Browser-driven UI - hosts both the `PlaywrightUI` DOM lane and the `WasmUI` canvas-bridge lane (`WasmUI` is a category here, not a separate project) | [testing-quality.md](testing-quality.md) section Hosted Browser UI |
-| `Test.Architecture` | `NetArchTest.Rules` | Layer dependency rules | [test-templates-quality.md](../templates/test-templates-quality.md) |
-| `Test.Load` | In-house `LoadRunner` (no package) | Throughput / latency / error-rate thresholds | [test-templates-quality.md](../templates/test-templates-quality.md) |
+| `Test.Architecture` | EF.Testing.Architecture | Layer dependency rules | [test-templates-quality.md](../templates/test-templates-quality.md) |
+| `Test.Load` | EF.Testing `LoadRunner` | Throughput / latency / error-rate thresholds | [test-templates-quality.md](../templates/test-templates-quality.md) |
 | `Test.Benchmarks` | BenchmarkDotNet | Per-operation micro-benchmarks | [test-templates-quality.md](../templates/test-templates-quality.md) |
 | `Test.Mutation` | Stryker.NET + MSTest | Focused mutation testing for high-value domain/service paths | [test-templates-quality.md](../templates/test-templates-quality.md) |
 
@@ -267,7 +267,8 @@ Keeping them in separate assemblies means the fast component tier never pays the
 - MSTest: `MSTest.TestFramework`, `MSTest.TestAdapter`
 - Mocks: `Moq`
 - Endpoint/E2E harness: `Microsoft.AspNetCore.Mvc.Testing`
-- Architecture: `NetArchTest.Rules`
+- Architecture: EF.Testing.Architecture
+- Test infrastructure: EF.Testing, EF.IntegrationTesting (+ `.PostgreSql` / `.SqlServer` / `.Aspire`), EF.AI.Testing
 - Hosted UI: `Microsoft.Playwright.MSTest`
 - Benchmarks: `BenchmarkDotNet`
 - Mutation: `dotnet-stryker` local tool
@@ -345,7 +346,7 @@ Apply `= null!` to every non-nullable field in every generated test class.
 
 `[AssemblyInitialize]` methods must **never throw**. A throwing `AssemblyInitialize` causes MSTest to abort the entire assembly - including tests that have no dependency on the failed setup. Preserve the failure, but classify only Docker-unavailable as inconclusive.
 
-For test assemblies that start external infrastructure (e.g., Testcontainers): `[AssemblyInitialize]` runs the bounded `DockerRuntimePreflight` first and returns when it reports a reason; each fixture's start then catches its own exception into a `StartupError` without rethrowing. Each dependent test's `[TestInitialize]` calls `Assert.Inconclusive` with the Docker reason, or `Assert.Fail` with the full `StartupError` after preflight succeeded. Shape: `IntegrationTestSetup` and `DbContainerFixture` in [../templates/test-templates-integration.md](../templates/test-templates-integration.md).
+For test assemblies that start external infrastructure (e.g., Testcontainers): `[AssemblyInitialize]` runs the bounded EF.Testing `DockerRuntimePreflight` first and returns when it reports a reason; each fixture's start then catches its own exception into a `StartupError` without rethrowing. Each dependent test's `[TestInitialize]` calls `Assert.Inconclusive` with the Docker reason, or `Assert.Fail` with the full `StartupError` after preflight succeeded. Shape: `IntegrationTestSetup` and `DbContainerFixture` in [../templates/test-templates-integration.md](../templates/test-templates-integration.md).
 
 Apply the readiness check only to infrastructure-dependent tests so unrelated tests remain runnable. Do not downgrade Testcontainers image parsing, pull, create, or container startup failures after a successful preflight.
 
@@ -375,7 +376,7 @@ public void Projection_And_ToDto_Agree()
 }
 ```
 
-**Tenant-admin bypass.** When `enableMultiTenant: true`, pin both paths against the role-claim path owned by [multi-tenant.md](multi-tenant.md): a principal carrying `AppConstants.ROLE_GLOBAL_ADMIN` on `ClaimTypes.Role` passes `EnsureGlobalAdmin(...)` and reads cross-tenant rows on the explicitly authorized admin path; a non-admin cross-tenant access returns 404. The negative path must be a separate test so a regression in either direction surfaces independently. Assert the claim type itself - a bare `"roles"` claim leaves roles empty and the bypass never fires ([identity-management.md](identity-management.md) section Claim-type contract), which reads as a passing negative test for the wrong reason.
+**Tenant-admin bypass.** When `enableMultiTenant: true`, pin both paths against the role-claim path owned by [multi-tenant.md](multi-tenant.md): a principal carrying `AppConstants.ROLE_GLOBAL_ADMIN` on `ClaimTypes.Role` passes `EnsureCrossTenantRole(...)` and reads cross-tenant rows on the explicitly authorized admin path; a non-admin cross-tenant access returns 404. The negative path must be a separate test so a regression in either direction surfaces independently. Assert the claim type itself - a bare `"roles"` claim leaves roles empty and the bypass never fires ([identity-management.md](identity-management.md) section Claim-type contract), which reads as a passing negative test for the wrong reason.
 
 Do **not** introduce a request header (`X-{App}-Admin` or similar) that flips tenant filtering. An ambient header bypass is reachable in Production by anyone who can set a header, and it proves nothing about the boundary validator that actually enforces isolation. If a test-only header affordance is genuinely unavoidable, it falls under the rule above: permitted only behind an explicit Testing guard, with a negative test proving Production rejects it.
 
@@ -453,7 +454,7 @@ For React/Vite, use the same pattern around `AddViteApp(...)` and pass the Gatew
 
 ### Async call discipline
 
-- **Run every startup operation through one `AspireTestHostContext`,** which holds this tier's [One Startup Budget](#one-startup-budget) deadline, passes a linked token, and applies `WaitAsync(remaining, ct)`.
+- **Run every startup operation through one EF.IntegrationTesting.Aspire `AspireTestHostContext`,** which holds this tier's [One Startup Budget](#one-startup-budget) deadline, passes a linked token, and applies `WaitAsync(remaining, ct)`.
 - **Gate on health, not status.** Aspire reports `Running` before the database accepts connections, the broker accepts a channel, or Functions warms up. Call `WaitForResourceHealthyAsync(name, ct)` before talking to a resource.
 - **Connection/endpoint lookup consumes remaining time.** Convert a `ValueTask` to `Task` only when the shared runner requires it; never grant a fresh timeout.
 - **Bound shutdown and disposal together.** `[AssemblyCleanup(TestContext)]` calls `StopAndDisposeAsync(testContext.CancellationToken)`; one cleanup deadline covers both operations, and environment restoration remains in `finally`.

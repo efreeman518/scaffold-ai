@@ -10,7 +10,7 @@ The **Bootstrapper project** is the centralized DI registration hub. It wires up
 ## Project Structure
 
 > Reference patterns: [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) (API Startup), [../patterns/data-layer-wiring.md](../patterns/data-layer-wiring.md) (DB Wiring).
-> `IStartupTask` and `RunStartupTasks()` are app-level Bootstrapper types generated below, not package types ([../support/ef-packages-reference.md](../support/ef-packages-reference.md) section App-Level Types (NOT in EF.Packages)).
+> `IStartupTask`, `AddStartupTask<T>()` and `RunStartupTasksAsync()` are EF.Host package types ([../support/ef-packages-reference.md](../support/ef-packages-reference.md) section Application Host (EF.Host, EF.AspNetCore)); the Bootstrapper generates only its `RunStartupTasks()` host extension and the tasks themselves.
 > `StaticLogging`: from `EF.Common` package (used in Program.cs for early logger).
 
 ```
@@ -22,7 +22,6 @@ Host/{Host}.Bootstrapper/
 |   |-- RegisterServices.Database.cs           # DbContext pooling, repositories
 |   |-- RegisterServices.Infrastructure.cs     # Blob storage, service bus, health checks
 |   `-- RegisterServices.RequestContext.cs     # Scoped IRequestContext factory
-|-- IStartupTask.cs                           # Startup task interface
 |-- IHostExtensions.cs                        # Host extension for running startup tasks
 `-- StartupTasks/
     `-- WarmupDependencies.cs
@@ -166,34 +165,27 @@ The Phase 5c gate (`function-app`, `background-services`, `messaging`) must veri
 
 > See [../patterns/data-layer-wiring.md](../patterns/data-layer-wiring.md).
 
-### Interface
+### Registration
 
 ```csharp
-public interface IStartupTask
-{
-    Task ExecuteAsync(CancellationToken cancellationToken = default);
-}
+// RegisterServices: registration order is run order; each task gets its own DI scope and the host's token.
+services.AddStartupTask<WarmupDependencies>();
 ```
 
 ### Host Extension
 
 ```csharp
-public static void AutoRegisterMessageHandlers(this IHost host)
-{
-    var msgBus = host.Services.GetRequiredService<IInternalMessageBus>();
-    msgBus.AutoRegisterHandlers(host.Services, typeof(SomeMessageHandler).Assembly);
-}
+public static void AutoRegisterMessageHandlers(this IHost host) =>
+    host.Services.GetRequiredService<IInternalMessageBus>().AutoRegisterHandlers(typeof(SomeMessageHandler).Assembly);
 
-public static async Task RunStartupTasks(this IHost host)
+public static async Task RunStartupTasks(this IHost host, CancellationToken ct = default)
 {
     host.AutoRegisterMessageHandlers();
-    using var scope = host.Services.CreateScope();
-    foreach (var task in scope.ServiceProvider.GetServices<IStartupTask>())
-        await task.ExecuteAsync();
+    await host.RunStartupTasksAsync(ct);   // EF.Host
 }
 ```
 
-`[ScopedMessageHandler]` marks the handler for scoped resolution during dispatch. It does **not** add the handler to DI. Register each `IMessageHandler<T>` implementation explicitly in `RegisterApplicationServices()`.
+`AutoRegisterHandlers` throws at the call for a discovered handler that is not registered in DI, so register each `IMessageHandler<T>` implementation explicitly in `RegisterApplicationServices()`; every dispatch resolves the handler from a new scope. A task's exception is fatal to startup.
 
 ### Example Startup Tasks
 
@@ -201,9 +193,9 @@ Startup tasks cover runtime warm-up concerns only: cache preload, dependency war
 
 ```csharp
 // Warm critical downstream dependencies before accepting traffic
-public class WarmupDependencies(IFusionCacheProvider cache, ILogger<WarmupDependencies> logger) : IStartupTask
+public class WarmupDependencies(ITypedCache cache, ILogger<WarmupDependencies> logger) : IStartupTask
 {
-    public async Task ExecuteAsync(CancellationToken ct = default)
+    public async Task ExecuteAsync(CancellationToken ct)
     {
         logger.LogInformation("Startup warmup start");
         // Preload hot cache entries, prime connection pools
@@ -275,7 +267,7 @@ After generating the Bootstrapper, confirm:
 - [ ] All `IMessageHandler<T>` implementations are registered in DI (typically scoped)
 - [ ] `AutoRegisterMessageHandlers()` called after `Build()` to bind handler assemblies into `IInternalMessageBus`
 - [ ] FusionCache registered with Redis backplane (if caching is enabled)
-- [ ] Startup tasks registered as `IStartupTask` (cache warmup, dev seeding - never schema migrations)
+- [ ] Startup tasks registered with `AddStartupTask<T>()` (cache warmup, dev seeding - never schema migrations); no app `IStartupTask` interface
 - [ ] No host-specific concerns (no endpoints, no triggers, no YARP) - those belong in the host project
 - [ ] Cross-references: Every service/repository in [solution-structure.md](solution-structure.md) reference map is registered here
 

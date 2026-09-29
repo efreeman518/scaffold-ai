@@ -17,10 +17,10 @@ Enforce tenant isolation through data, service, and request-context layers with 
 ## Non-Negotiables
 
 1. Tenant-scoped entities implement `ITenantEntity<TenantId>`.
-2. DbContext applies tenant query filters automatically for tenant entities.
+2. DbContext applies the fail-closed tenant query filter (`ApplyTenantQueryFilters`) to every tenant entity, and every scoped context factory carries an explicit all-tenants rule.
 3. Services validate tenant boundary before returning/modifying entity data.
 4. Create/update flows derive tenant from request context, not client payload.
-5. Global-admin bypass is explicit and auditable, and is derived from the role claim (`AppConstants.ROLE_GLOBAL_ADMIN` on `ClaimTypes.Role`) checked by `EnsureGlobalAdmin(...)`.
+5. Cross-tenant access is explicit and auditable, and is derived from a role in `TenancyOptions.CrossTenantRoles` (`AppConstants.ROLE_GLOBAL_ADMIN` on `ClaimTypes.Role` for users, `ROLE_SYSTEM` for the no-request system identity) checked by `EnsureCrossTenantRole(...)`.
 6. DTOs retain `TenantId` for response/round-trip compatibility, but clients never own write-side tenant selection.
 7. No request header, query parameter, or environment flag flips tenant filtering. An ambient bypass is reachable in Production by anyone who can set it, and it sidesteps the boundary validator that enforces isolation; the role-claim path above is the only bypass.
 
@@ -46,24 +46,19 @@ public class TodoItem : EntityBase<TodoItemId>, ITenantEntity<TenantId>
 
 ## Automatic Query Filters
 
-```csharp
-private void ConfigureTenantQueryFilters(ModelBuilder modelBuilder)
-{
-    var tenantEntityClrTypes = modelBuilder.Model.GetEntityTypes()
-        .Where(et => typeof(ITenantEntity<TenantId>).IsAssignableFrom(et.ClrType))
-        .Select(et => et.ClrType);
+`{App}DbContextBase.OnModelCreating` ends with `ApplyTenantQueryFilters<TenantId>(modelBuilder)` (EF.Data), which puts the named filter `DbContextBase.TenantQueryFilterName` (`"Tenant"`) on every root `ITenantEntity<TenantId>`; generate no filter loop. `IgnoreQueryFilters([DbContextBase.TenantQueryFilterName])` bypasses only this filter, for explicitly authorized cross-tenant paths (migrations, maintenance, a system repository for scheduler scans).
 
-    foreach (var clrType in tenantEntityClrTypes)
-    {
-        var filter = BuildTenantFilter(clrType);
-        modelBuilder.Entity(clrType).HasQueryFilter(filter);
-    }
-}
+**The filter fails closed.** A context with `TenantId` set reads only that tenant; a context with no tenant reads **nothing** unless it is marked `AllTenants`; setting both throws `InvalidOperationException`. `AllTenants` is never inferred from a missing tenant, so every scoped context factory needs an explicit all-tenants rule:
+
+```csharp
+// Bootstrapper: a caller with no tenant reads every tenant only when it holds a cross-tenant role.
+internal static bool AllowsAllTenants(IRequestContext<string, Guid?> rc) =>
+    rc.TenantId is null && (rc.RoleExists(AppConstants.ROLE_SYSTEM) || rc.RoleExists(AppConstants.ROLE_GLOBAL_ADMIN));
 ```
 
-Use `IgnoreQueryFilters()` only for explicitly authorized cross-tenant paths (for example, global admin tooling).
+Pass it as the last `DbContextScopedFactory` constructor argument on both the Trxn and Query factories ([../patterns/data-layer-wiring.md](../patterns/data-layer-wiring.md) section Database Context Pooling & Scoped Wrappers); `true` sets `AllTenants` and clears `TenantId` on the leased context. A caller that carries a tenant stays pinned to it, global admin included; a tenant-less caller with neither role reads nothing. Test harness contexts built outside DI set `AllTenants = true` explicitly, and tenant isolation is proven by the container-backed tests.
 
-**Hand-written tenant filters** (when `BuildTenantFilter` does not fit - e.g. entities implement `ITenantEntity<Guid>` while the context is `DbContextBase<string, Guid?>`): use lifted nullable equality - `e => TenantId == null || e.TenantId == TenantId`. Never `e => !TenantId.HasValue || e.TenantId == TenantId!.Value` - EF parameterizes the captured `TenantId.Value` eagerly regardless of the `||` short-circuit and throws `InvalidOperationException: Nullable object must have a value` at query time when the context tenant is null.
+**Hand-written tenant filters** (a non-root entity the package filter does not cover, or a tenant id type that does not convert to the context's): use lifted nullable equality - `e => TenantId == null || e.TenantId == TenantId`. Never `e => !TenantId.HasValue || e.TenantId == TenantId!.Value` - EF parameterizes the captured `TenantId.Value` eagerly regardless of the `||` short-circuit and throws `InvalidOperationException: Nullable object must have a value` at query time when the context tenant is null.
 
 ## Tenant Input Models
 
@@ -76,65 +71,51 @@ The scaffold baseline is **server-authoritative with a DTO-carried field**:
 
 **Why:** Stamping before validation and mapping makes every downstream check use the same server-owned tenant; validating first either rejects normal empty DTOs or evaluates an attacker-controlled value. Therefore every write path overwrites the DTO first.
 
-Generic service/CQRS create and update paths are tenant-local even for global admins. A cross-tenant admin mutation is a separate, explicitly authorized path: call `EnsureGlobalAdmin`, load the target outside normal query filters, then stamp an update DTO from the loaded entity tenant. A cross-tenant create derives its target from a separately authorized admin contract, never the shared DTO field. Do not route either case through the ordinary request-context stamp.
+Generic service/CQRS create and update paths are tenant-local even for global admins. A cross-tenant admin mutation is a separate, explicitly authorized path: call `EnsureCrossTenantRole`, load the target outside normal query filters, then stamp an update DTO from the loaded entity tenant. A cross-tenant create derives its target from a separately authorized admin contract, never the shared DTO field. Do not route either case through the ordinary request-context stamp.
 
 ---
 
 ## Request Context Contract
 
+`IRequestContext<string, Guid?>` (EF.Common.Contracts) exposes `CorrelationId`, `AuditId`, `TenantId`, `Roles`, `RoleExists(role)`. Register EF.AspNetCore's claims-based implementation; generate no request-context middleware or factory:
+
 ```csharp
-public interface IRequestContext<TAuditId, TTenantId>
-{
-    string CorrelationId { get; }
-    TAuditId AuditId { get; }
-    TTenantId TenantId { get; }
-    IReadOnlyCollection<string> Roles { get; }
-}
+services.AddHttpRequestContext<Guid?>(
+    value => Guid.TryParse(value, out var tenantId) ? tenantId : null,
+    options =>
+    {
+        options.SystemAuditId = AppConstants.SYSTEM_USER_ID;
+        options.SystemRoles = [AppConstants.ROLE_SYSTEM];
+    });
 ```
 
-Registration pattern:
+- HTTP path: audit id from `oid`, then the name identifier, then `sub`; tenant from `tenant_id`; roles from role claims. An unauthenticated request gets no tenant and no roles.
+- No-request path (message consumers, scheduled jobs, Functions triggers): the explicit system context - no tenant, `SystemAuditId`, and every role in `SystemRoles`.
+- Every `SystemRoles` entry is stripped from an inbound token, so a token can never claim `System`.
 
-- HTTP path: resolve correlation id, audit id, tenant claim, and roles.
-- background path: create fallback context with no tenant and synthetic audit id.
+## System Identity Across Tenants
+
+**EF.Tenancy lets only a cross-tenant role past the tenant boundary, so the background system identity crosses tenants by role, never by a hand-built context.** Configure both lists together:
+
+```csharp
+services.AddTenancy(o => o.CrossTenantRoles = [AppConstants.ROLE_GLOBAL_ADMIN, AppConstants.ROLE_SYSTEM]);
+// and, above: HttpRequestContextOptions.SystemRoles = [AppConstants.ROLE_SYSTEM]
+```
+
+The no-request context then carries `System`, `EnsureTenantBoundary` / `EnsureCrossTenantRole` / `EnforceTenantFilter` admit it, and `AllowsAllTenants` marks its contexts all-tenants. It acts for the tenant the data names; it must not borrow a user identity, which would pin background reads to one tenant through the query filter and attribute background writes to that user.
 
 ---
 
 ## Tenant Boundary Validator
 
-Keep centralized service-level checks in `Application.Services/Rules/`.
+`ITenantBoundaryValidator` / `TenantBoundaryValidator` is EF.Tenancy's stateless singleton (`AddTenancy`); generate no validator, helper or logging-extension class. Its checks, each returning `Result`:
 
-Core responsibilities:
+1. `EnsureTenantBoundary(callerTenantId, callerRoles, entityTenantId, operation, entityName, entityId)`: a cross-tenant role passes; no roles, a global (null-tenant) entity or a tenant mismatch fail with `tenant.forbidden`.
+2. `EnsureCrossTenantRole(callerRoles, operation)`: `tenant.forbidden` unless the caller holds a role in `CrossTenantRoles`.
+3. `PreventTenantChange(existingTenantId, incomingTenantId, entityName, entityId)`: `tenant.change` when the ids differ.
+4. `EnforceTenantFilter(filter, callerTenantId, callerRoles, operation)`: a cross-tenant caller gets the filter back untouched; any other caller gets a filter (created when null) forced to its tenant, and a non-cross-tenant caller with no tenant throws `UnauthorizedAccessException`. The app's `DefaultSearchFilter` implements `ITenantScopedFilter`.
 
-1. allow global-admin bypass (`AppConstants.ROLE_GLOBAL_ADMIN`),
-2. fail when caller has no roles (missing authentication context),
-3. fail when non-admin attempts to access a global (null-tenant) entity,
-4. fail on tenant mismatch,
-5. prevent tenant reassignment after entity creation.
-
-Implementation pattern - `TenantBoundaryValidator` is a thin `internal sealed class` that delegates all logic to static `ValidationHelper`:
-
-```csharp
-internal sealed class TenantBoundaryValidator : ITenantBoundaryValidator
-{
-    public Result EnsureTenantBoundary(ILogger logger, Guid? requestTenantId,
-        IReadOnlyCollection<string> roles, Guid? entityTenantId,
-        string operation, string entityName, Guid? entityId = null)
-        => ValidationHelper.EnsureTenantBoundary(logger, requestTenantId, roles,
-            entityTenantId, operation, entityName, entityId);
-
-    public Result EnsureGlobalAdmin(IReadOnlyCollection<string> callerRoles, string operation)
-        => ValidationHelper.EnsureGlobalAdmin(callerRoles, operation);
-
-    public Result PreventTenantChange(ILogger logger, Guid? currentTenantId, Guid? newTenantId,
-        string entityName, Guid entityId)
-        => ValidationHelper.PreventTenantChange(logger, currentTenantId, newTenantId, entityName, entityId);
-}
-```
-
-Supporting files in `Application.Services/Rules/`:
-
-- **`ValidationHelper`** - static class with the actual boundary logic; uses `[LoggerMessage]` extensions for structured logging.
-- **`TenantBoundaryLoggingExtensions`** - `[LoggerMessage]` source-generated extensions (`LogTenantFilterManipulation`, `LogTenantChangeAttempt`, `LogTenantBoundaryMismatch`).
+Violations are logged as source-generated security events 4100-4104 (no roles, global entity, mismatch, tenant change, filter manipulation).
 
 ---
 
@@ -148,8 +129,7 @@ For entity reads/writes:
 
 For searches:
 
-- non-admin requests must force filter tenant to request context tenant,
-- log tenant filter manipulation when client supplies a different tenant ID via `LogTenantFilterManipulation`,
+- `request.Filter = tenantBoundaryValidator.EnforceTenantFilter(request.Filter, RequestTenantId, RequestRoles, "{Entity}Search")` before querying; the validator logs a supplied foreign tenant,
 - never trust client-supplied tenant filter as-is.
 
 For updates:
@@ -171,14 +151,7 @@ For updates:
 
 ## Data-Access Performance Rule
 
-Use composite tenant access index on hot entities:
-
-```csharp
-builder.HasIndex(e => new { e.TenantId, e.Id })
-       .HasDatabaseName("CIX_{Entity}_TenantId_Id")
-       .IsUnique()
-       .IsClustered();
-```
+Tenant-owned entities use the tenant-first key `(TenantId, Id)` from `TenantEntityTypeConfiguration`, so one tenant's rows are a key range; every secondary index leads with `TenantId` ([../templates/ef-configuration-template.md](../templates/ef-configuration-template.md)).
 
 ---
 
@@ -200,12 +173,12 @@ Drive case 3 with the role claim, never a test-only header. Assert the claim typ
 ## Verification
 
 - [ ] tenant entities implement `ITenantEntity<TenantId>`
-- [ ] DbContext applies tenant query filters for tenant entities
-- [ ] request context resolves tenant/roles from claims (with background fallback)
-- [ ] `TenantBoundaryValidator` is used in service operations
+- [ ] DbContext calls `ApplyTenantQueryFilters<TenantId>`; both scoped context factories pass the `AllowsAllTenants` rule
+- [ ] `AddHttpRequestContext` resolves tenant/roles from claims; `SystemRoles` and `CrossTenantRoles` both include the system role
+- [ ] EF.Tenancy `ITenantBoundaryValidator` is used in service operations; no app validator class
 - [ ] DTO retains `TenantId`, but create/update flows overwrite it from request context before validation/mapping
 - [ ] no write path uses `RequestTenantId ?? dto.TenantId` or otherwise falls back to payload tenant
-- [ ] global-admin bypass is explicit and limited, derived from the role claim via `EnsureGlobalAdmin(...)`
+- [ ] cross-tenant access is explicit and limited, derived from a `CrossTenantRoles` role via `EnsureCrossTenantRole(...)`
 - [ ] no request header, query parameter, or env flag bypasses tenant filtering
 - [ ] generic create/update paths remain tenant-local; any cross-tenant admin mutation has a separate authorization contract
 - [ ] tests cover same-tenant, cross-tenant, admin-bypass, forged-payload, and missing-context scenarios

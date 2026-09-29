@@ -162,7 +162,6 @@ else
 
 ```powershell
 dotnet user-secrets init --project src/Host/{Host}.Api
-dotnet user-secrets set "ServiceAuth:api-cluster:ClientSecret" "your-client-secret" --project src/Host/{Host}.Api
 dotnet user-secrets set "ConnectionStrings:Redis1" "localhost:6379" --project src/Host/{Host}.Api
 ```
 
@@ -170,46 +169,35 @@ dotnet user-secrets set "ConnectionStrings:Redis1" "localhost:6379" --project sr
 
 ## Shared Azure Credential (Program.cs)
 
-Create a single `DefaultAzureCredential` instance in `Program.cs` and reuse it for all Azure services (App Configuration, Data Protection, Key Vault config provider). This avoids redundant token cache instances.
+One `DefaultAzureCredential` per process, from EF.Host, reused for every Azure client (App Configuration, Data Protection, Key Vault, downstream tokens) so they share one token cache. Generate no credential factory.
 
 ```csharp
-var credential = CreateAzureCredential(config);
-
-static DefaultAzureCredential CreateAzureCredential(IConfiguration config)
-{
-    var options = new DefaultAzureCredentialOptions();
-    var managedIdentityClientId = config.GetValue<string?>("ManagedIdentityClientId", null);
-    if (managedIdentityClientId is not null)
-        options.ManagedIdentityClientId = managedIdentityClientId;
-    var sharedTokenCacheTenantId = config.GetValue<string?>("SharedTokenCacheTenantId", null);
-    if (sharedTokenCacheTenantId is not null)
-        options.SharedTokenCacheTenantId = sharedTokenCacheTenantId;
-    return new DefaultAzureCredential(options);
-}
+var credential = AzureCredentialFactory.Create(builder.Configuration);
+builder.Services.AddAzureTokenCredential(builder.Configuration);   // TryAddSingleton<TokenCredential>
 ```
 
 - `ManagedIdentityClientId`: set for user-assigned managed identity in Azure.
-- `SharedTokenCacheTenantId`: set for local dev when the default tenant doesn't match.
-- Omit both in simple Aspire dev - `DefaultAzureCredential` chains through developer credentials automatically.
+- `AzureTenantId`: set for local dev when the default tenant does not match.
+- Omit both in simple Aspire dev - `DefaultAzureCredential` chains through developer credentials automatically. Service-to-service tokens come from this credential (EF.Auth `AccessTokenCache`); no client secret is configured.
 
 ---
 
 ## Azure App Configuration
 
 ```csharp
-builder.Configuration.AddAzureAppConfiguration(options =>
-{
-    options.Connect(new Uri(config["AzureAppConfigEndpoint"]), credential)
-        .Select(KeyFilter.Any, LabelFilter.Null)
-        .Select(KeyFilter.Any, builder.Environment.EnvironmentName)
-        .ConfigureKeyVault(kv => kv.SetCredential(credential))
-        .ConfigureRefresh(refresh =>
-        {
-            refresh.Register("Sentinel", refreshAll: true)
-                   .SetRefreshInterval(TimeSpan.FromMinutes(5));
-        });
-});
+builder.AddEfAzureAppConfiguration();   // EF.Host, before Build(); binds the AppConfig section
 ```
+
+| Key | Meaning |
+|---|---|
+| `AppConfig:Endpoint` | Store endpoint, connected with the shared token credential; wins over `ConnectionStrings:AppConfig` |
+| `AppConfig:Label` | Label layered over the null label (set it to the environment name) |
+| `AppConfig:KeyPrefixes` | Prefixes to load and trim; empty loads every key |
+| `AppConfig:SentinelKey` | Key whose change reloads all configuration |
+| `AppConfig:RefreshInterval` | Minimum refresh interval and the refresh service tick |
+| `AppConfig:UseFeatureFlags` / `UseKeyVaultReferences` | Feature flags and Key Vault references with the same label layering and credential |
+
+With neither the endpoint nor the connection string set it registers nothing, so a host boots from appsettings alone locally. The package's background refresh service serves worker hosts too; web hosts add no `UseAzureAppConfiguration()` middleware. A startup connection failure fails the host.
 
 ---
 
@@ -378,7 +366,7 @@ Cache hot secrets appropriately; avoid per-request Key Vault round-trips unless 
 env: [
   { name: 'ConnectionStrings__{Project}DbContextTrxn', secretRef: 'sql-trxn-connstr' }
   { name: 'ConnectionStrings__Redis1', secretRef: 'redis-connstr' }
-  { name: 'AzureAppConfigEndpoint', value: appConfig.outputs.endpoint }
+  { name: 'AppConfig__Endpoint', value: appConfig.outputs.endpoint }
 ]
 ```
 

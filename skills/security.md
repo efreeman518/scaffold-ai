@@ -8,55 +8,47 @@ Hardening checklist for API, Gateway, and optional hosts. Complements [identity-
 
 ## Rate Limiting
 
-Use ASP.NET `RateLimiterMiddleware` for request throttling.
+Rate limiting is EF.RateLimiting over ASP.NET Core's `RateLimiterMiddleware`; generate no partitioner, limiter factory, fail-open wrapper or rejection writer. Types and settings: [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Rate Limiting (EF.RateLimiting, EF.RateLimiting.Redis).
 
 ### Patterns
 
 ```csharp
-// In RegisterApiServices.cs
-services.AddRateLimiter(options =>
-{
-    // Fixed window per-tenant
-    options.AddPolicy("PerTenant", context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            context.User?.FindFirst("userTenantId")?.Value ?? "anonymous",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 100,
-                Window = TimeSpan.FromMinutes(1)
-            }));
+// API (RegisterApiServices.cs): per-tenant tiers and named budgets from RateLimiting:Tenants
+services.AddTenantRateLimiting(config);
+if (services.HasSharedRedis())            // the EF.Cache default instance has Redis configured
+    services.AddRedisRateLimiting();      // one shared budget across replicas, over the EF.Cache connection
 
-    // Sliding window per-endpoint
-    options.AddPolicy("PerEndpoint", context =>
-        RateLimitPartition.GetSlidingWindowLimiter(
-            context.Request.Path.Value ?? "/",
-            _ => new SlidingWindowRateLimiterOptions
-            {
-                PermitLimit = 30,
-                Window = TimeSpan.FromSeconds(30),
-                SegmentsPerWindow = 3
-            }));
+// Per-IP policies that must work without Redis (health probes) stay in process.
+services.AddRateLimiter(options => options
+    .AddPerClientIpFixedWindowPolicy("HealthFull", permitLimit: 3, window: TimeSpan.FromSeconds(30), queueLimit: 1));
 
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-});
+// An endpoint that spends only its own budget:
+group.MapGet("/export", Export).RequireTenantBudget("export");
+
+// Gateway (edge): per-client token bucket plus a process concurrency cap from RateLimiting:Edge
+var edge = config.GetSection(EdgeRateLimitSettings.ConfigSectionName).Get<EdgeRateLimitSettings>() ?? new();
+services.AddRateLimiter(options => options.UseEdgeLimiter(edge));
 ```
+
+`HasSharedRedis()` is the app's one-line check that `AddTypedCache` registered the unkeyed `IConnectionMultiplexer` (`services.Any(d => d.ServiceType == typeof(IConnectionMultiplexer) && !d.IsKeyedService)`); the Redis health check uses the same answer.
 
 ### Pipeline Registration
 
 ```csharp
+app.UseProxyForwarding();   // real client IP before any per-IP partition
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 ```
 
-Run the rate limiter after `UseAuthentication()` and `UseAuthorization()` whenever any partition reads a claim: before authentication `context.User` is anonymous, so every caller lands in the anonymous partition and one tenant can exhaust everyone's budget. Only an unauthenticated per-IP edge limiter may run earlier.
+Run the rate limiter after `UseAuthentication()` and `UseAuthorization()` whenever any partition reads a claim: before authentication `context.User` is anonymous, so every caller lands in the anonymous partition and one tenant can exhaust everyone's budget. The tenant partitioner throws `InvalidOperationException` on the first request when `UseRateLimiter` runs before `UseAuthentication`. Only the unauthenticated per-IP edge limiter (`UseEdgeLimiter`) may run earlier, and it needs `UseProxyForwarding` before it or every request partitions into the ingress proxy's address. The tenant claim type must match what JwtBearer puts on the principal ([identity-management.md](identity-management.md) section Claim-type contract).
 
 ### Distributed Limiter
 
-- A request is counted by exactly one limiter per budget. The global limiter returns `RateLimitPartition.GetNoLimiter` for endpoints whose metadata carries `EnableRateLimitingAttribute`, so a named policy is never double counted.
-- A limiter shared across replicas uses the app's existing Redis connection. Do not add the `RedisRateLimiting` package: it is not on the **GR-04** allowlist.
-- Never cache a faulted connection: connect with `AbortOnConnectFail = false` and never hold a failed connect task in a `Lazy<T>`, which turns one startup blip into a permanent outage of the limiter.
-- When the store is unavailable, fail open and increment an alert metric so the lost control is visible ([../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits).
+- A request is counted by exactly one limiter per budget: the global tenant limiter skips endpoints carrying `TenantBudgetMetadata`, so `RequireTenantBudget` never double counts, and a route-group policy over the same budget is never added.
+- **The Redis rate limiter shares the EF.Cache connection.** `AddRedisRateLimiting()` resolves the `IConnectionMultiplexer` that `AddTypedCache` registered (the unkeyed default instance, or `AddRedisRateLimiting(cacheInstanceName)` for a named one); register `AddTypedCache` first and never open a second Redis connection for the limiter. That multiplexer always has `AbortOnConnectFail = false`, so a Redis outage at boot does not fail startup.
+- When Redis is unavailable the package fails open and increments `ratelimit.backend_failure`; alert on it, because limits are not enforced while it moves ([../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits). Export meter `EF.RateLimiting` from ServiceDefaults.
+- Health endpoints mapped by `MapEfHealthEndpoints` carry `DisableRateLimiting()` and skip every limiter.
 
 ### Testing
 
@@ -84,26 +76,7 @@ Use [structure-validator-template](../templates/structure-validator-template.md)
 
 ## Security Headers
 
-Add middleware to set security headers on all responses:
-
-```csharp
-public class SecurityHeadersMiddleware(RequestDelegate next)
-{
-    public async Task InvokeAsync(HttpContext context)
-    {
-        context.Response.Headers["X-Content-Type-Options"] = "nosniff";
-        context.Response.Headers["X-Frame-Options"] = "DENY";
-        context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
-
-        // HSTS - set via config toggle, not in middleware (UseHsts in pipeline)
-        // Content-Security-Policy - set in Gateway for UI responses only
-
-        await next(context);
-    }
-}
-```
-
-Register early in pipeline - before routing.
+`app.UseBasicSecurityHeaders()` (EF.AspNetCore, `EF.AspNetCore.Security`) sets the baseline response headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`); generate no security-headers middleware. Register it early in the pipeline, after `UseProxyForwarding` and before routing. HSTS stays a config-toggled `UseHsts()`.
 
 For UI hosts (Gateway serving Uno WASM), add `Content-Security-Policy` with appropriate directives. Use config-driven toggle to adjust between dev/prod.
 
@@ -126,19 +99,12 @@ CORS configuration belongs in the **Gateway only**. API behind gateway should re
 ```
 
 ```csharp
-// Gateway RegisterServices
-services.AddCors(options =>
-{
-    options.AddDefaultPolicy(policy =>
-    {
-        var origins = config.GetSection("CorsSettings:AllowedOrigins").Get<string[]>() ?? [];
-        policy.WithOrigins(origins)
-              .AllowAnyMethod()
-              .AllowAnyHeader()
-              .AllowCredentials();
-    });
-});
+// Gateway RegisterServices - EF.AspNetCore.Cors
+services.AddCorsPolicyFromConfiguration("{Project}UI", config.GetSection("CorsSettings"));
+// Pipeline: app.UseCors("{Project}UI");
 ```
+
+`AddCorsPolicyFromConfiguration` validates the origins at registration: at least one; each an `http`/`https` origin with no path, query, fragment or trailing `/` (which never matches an `Origin` header); `*` never combined with credentials.
 
 ---
 
@@ -152,8 +118,8 @@ Phase 2 maps `hostingLaneDefaults.<active>.dataProtectionPersistence` to runtime
 
 | Arm | Required input | Provisioning rule |
 |---|---|---|
-| `Redis` (`NonAzure` default) | Named `Redis1` connection string | Reuse a registered `IConnectionMultiplexer` when the app exposes one; otherwise record the extra eager connection as a bounded shortcut. |
-| `AzureBlob` (`Azure` lane default) | Either an absolute `DataProtectionKeysFileUrl`, or the named `BlobStorage1` endpoint/connection string injected by Aspire or deployment configuration | Infrastructure creates the production container. A local Azurite connection may create its test container on first use. Endpoint authentication uses `DefaultAzureCredential`; connection-string authentication uses the connection string. |
+| `Redis` (`NonAzure` default) | Named `Redis1` connection string | Leave `DataProtection:Redis:ConnectionString` null so the key ring uses the shared EF.Cache `IConnectionMultiplexer`; it never connects at registration. |
+| `AzureBlob` (`Azure` lane default) | Either an absolute `DataProtectionKeysFileUrl`, or the named `BlobStorage1` endpoint/connection string injected by Aspire or deployment configuration | Infrastructure creates the production container. Only the storage emulator gets its container created at registration. Endpoint authentication uses the one `TokenCredential`; connection-string authentication uses the connection string. |
 | `None` | None | Development and isolated tests only. Log that keys do not survive restart or work across replicas. Do not use as a scaled deployment default. |
 
 Key persistence and key encryption are independent. `DataProtectionEncryptionKeyUrl`, when supplied, adds Azure Key Vault protection after persistence is selected. It is required only when the deployment policy requires at-rest key encryption, and it is rejected by a strict zero-Azure NonAzure lane. Do not require a Key Vault URL merely because Azure Blob persistence was selected.
@@ -162,75 +128,48 @@ Keep these rules in the shared Bootstrapper path used by every cookie/token-prod
 
 ### Registration skeleton
 
-Keep provider resolution and registration together. `CreateBlobServiceClient` accepts either an absolute service endpoint plus `DefaultAzureCredential` or a connection string. `DataProtection:AzureBlob:ContainerName` and `BlobName` default to `data-protection` and `keys.xml`; deployed infrastructure pre-creates the container, while local Azurite may create it during test setup.
+`AddEfDataProtection(settings, credential)` (EF.AspNetCore.DataProtection) owns the persistence arms and the Key Vault key protection; the app only resolves the lane's arm and fills the settings from its own configuration keys.
 
 ```csharp
-public static IServiceCollection AddAppDataProtection(
-    this IHostApplicationBuilder builder,
-    ILogger logger)
+public static IServiceCollection AddAppDataProtection(this IHostApplicationBuilder builder, ILogger logger)
 {
     var config = builder.Configuration;
-    var persistence = DataProtectionPersistenceResolver.Resolve(config); // lane-aware closed switch
-    var dataProtection = builder.Services.AddDataProtection(); // preserve the existing discriminator
+    var settings = config.GetSection(DataProtectionSettings.ConfigSectionName).Get<DataProtectionSettings>()
+        ?? new DataProtectionSettings();
+    settings.Persistence = DataProtectionPersistenceResolver.Resolve(config); // lane-aware closed switch (StrictEnum)
+    settings.KeyVaultKeyUri = config["DataProtectionEncryptionKeyUrl"];
 
-    switch (persistence)
+    switch (settings.Persistence)
     {
         case DataProtectionPersistence.AzureBlob:
-            var keysFileUrl = config["DataProtectionKeysFileUrl"];
-            if (!string.IsNullOrWhiteSpace(keysFileUrl))
-            {
-                dataProtection.PersistKeysToAzureBlobStorage(
-                    new Uri(keysFileUrl), CreateAzureCredential(config));
-                break;
-            }
-
-            var blobInput = config.GetConnectionString("BlobStorage1")
-                ?? config["BlobStorage1:blobServiceUri"]
-                ?? throw new InvalidOperationException(
+            settings.AzureBlob.BlobUri = config["DataProtectionKeysFileUrl"];
+            settings.AzureBlob.Connection = config.ResolveConnection("BlobStorage1", "BlobStorage1:blobServiceUri");
+            if (string.IsNullOrWhiteSpace(settings.AzureBlob.BlobUri) && string.IsNullOrWhiteSpace(settings.AzureBlob.Connection))
+                throw new InvalidOperationException(
                     "DataProtection:Persistence=AzureBlob requires DataProtectionKeysFileUrl or BlobStorage1.");
-            var containerName = config["DataProtection:AzureBlob:ContainerName"] ?? "data-protection";
-            var blobName = config["DataProtection:AzureBlob:BlobName"] ?? "keys.xml";
-            var blobService = CreateBlobServiceClient(blobInput, CreateAzureCredential(config));
-            dataProtection.PersistKeysToAzureBlobStorage(
-                blobService.GetBlobContainerClient(containerName).GetBlobClient(blobName));
             break;
-
         case DataProtectionPersistence.Redis:
-            var redis = config.GetConnectionString("Redis1")
-                ?? throw new InvalidOperationException(
-                    "DataProtection:Persistence=Redis requires ConnectionStrings:Redis1.");
-            // shortcut: use one eager connection only when the app does not expose a shared multiplexer.
-            dataProtection.PersistKeysToStackExchangeRedis(ConnectionMultiplexer.Connect(redis));
+            if (string.IsNullOrWhiteSpace(config.GetConnectionString("Redis1")))
+                throw new InvalidOperationException("DataProtection:Persistence=Redis requires ConnectionStrings:Redis1.");
+            settings.Redis.ConnectionString = null;   // the shared EF.Cache multiplexer, resolved on first key access
             break;
-
         case DataProtectionPersistence.None:
             logger.LogWarning("Data Protection keys are ephemeral and do not survive restart or scale-out.");
             break;
-
-        default:
-            throw new InvalidOperationException($"Unsupported Data Protection persistence '{persistence}'.");
     }
 
-    if (config["DataProtectionEncryptionKeyUrl"] is { Length: > 0 } encryptionKeyUrl)
-        dataProtection.ProtectKeysWithAzureKeyVault(
-            new Uri(encryptionKeyUrl), CreateAzureCredential(config));
-
+    builder.Services.AddEfDataProtection(settings, AzureCredentialFactory.Create(config));   // EF.Host credential
     return builder.Services;
 }
 ```
 
-### Packages
-
-- Azure Blob persistence: `Azure.Extensions.AspNetCore.DataProtection.Blobs`.
-- Azure Key Vault encryption, only when configured: `Azure.Extensions.AspNetCore.DataProtection.Keys`.
-- Redis persistence: `Microsoft.AspNetCore.DataProtection.StackExchangeRedis`.
-
 ### Rules
 
-- Use the same application discriminator for every replica of one app and a different discriminator for unrelated apps sharing the store. Preserve the framework's existing discriminator when adding persistence to a deployed app unless deliberate token invalidation is planned.
+- Leave `DataProtection:ApplicationName` unset on an app that is already deployed: the framework's implicit discriminator is kept, and setting one for the first time invalidates every payload protected before. Unrelated apps sharing a store set distinct names from their first deployment.
 - Treat the application discriminator, key-store location, encryption key, and purpose strings as persisted wire-contract inputs. Before changing one, protect a payload with the previous release and prove the candidate can unprotect it.
 - Fail before host startup on an unknown persistence value or missing selected-arm input. Never catch this error and reclassify it as another optional provider's failure.
 - Pre-provision production Blob containers and Key Vault keys. Configure a Key Vault rotation policy when Key Vault encryption is selected.
+
 
 ---
 
@@ -306,12 +245,12 @@ Secrets must be stored in Azure Key Vault (see [configuration-secrets.md](config
 
 ## Verification Checklist
 
-- [ ] Rate limiting registered with per-tenant and/or per-endpoint policies
+- [ ] `AddTenantRateLimiting` (API) / `UseEdgeLimiter` (Gateway) registered; the Redis limiter, when used, rides the EF.Cache multiplexer; `UseRateLimiter` runs after `UseAuthentication`
 - [ ] Rate limiter disabled in `CustomApiFactory` only behind an explicit Testing guard, with a negative test proving Production retains the limiter ([testing.md](testing.md) section Never Silently Pass)
 - [ ] `StructureValidator` enforces `MaxLength` matching EF configuration
 - [ ] User content stays canonical in storage and is context-encoded at the rendering boundary
-- [ ] Security headers middleware added (X-Content-Type-Options, X-Frame-Options)
-- [ ] CORS configured in Gateway only - API rejects direct browser requests
+- [ ] `UseBasicSecurityHeaders()` in the pipeline; no app security-headers middleware
+- [ ] CORS configured in Gateway only through `AddCorsPolicyFromConfiguration` - API rejects direct browser requests
 - [ ] CI runs `dotnet list package --vulnerable --include-transitive` after restore and gates on its output; `<NuGetAudit>`/`<NuGetAuditLevel>` set in build props; no workflow references a `dotnet nuget audit` verb (it does not exist)
 - [ ] Dependabot enabled only deliberately and configured per the GitHub Dependabot section (Dependabot secrets, manifest-per-directory, private-feed registries)
 - [ ] Data Protection runtime `Persistence` matches the active lane: Azure Blob has a key URL or `BlobStorage1`, Redis has `Redis1`, and `None` is limited to isolated development/tests

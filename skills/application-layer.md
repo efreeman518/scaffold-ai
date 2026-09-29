@@ -20,7 +20,7 @@ Base types (`IRequestContext`, `Result<T>`): [../support/ef-packages-reference.m
 1. Keep contracts separate from implementations.
 2. DTOs live in `Application.Models`; services live in `Application.Services`.
 3. Mappers are static and provide EF-safe projector expressions.
-4. **[Multi-tenant only]** Services enforce validation + tenant boundary checks before writes. See [multi-tenant.md](multi-tenant.md) for `TenantBoundaryValidator` usage and `EnsureTenantBoundary(...)` patterns.
+4. **[Multi-tenant only]** Services enforce validation + tenant boundary checks before writes. See [multi-tenant.md](multi-tenant.md) for EF.Tenancy `ITenantBoundaryValidator` usage and `EnsureTenantBoundary(...)` patterns.
 5. Internal event DTOs and handlers stay in contracts/message-handler projects.
 6. **[Multi-tenant only]** Immediately after `var dto = request.Item;` in both `CreateAsync` and `UpdateAsync`, compute `var authoritativeTenantId = RequestTenantId ?? Guid.Empty` and overwrite `dto.TenantId`. Validate and map with that value. Never use `RequestTenantId ?? dto.TenantId`; missing trusted context must fail instead of accepting caller-selected ownership.
 7. Use `nameof({Entity})` in service logging and validator calls - never hardcoded entity name strings.
@@ -66,12 +66,12 @@ Entity-specific DTOs and filters go under `Application.Models/{Entity}/`. See [d
 
 Shared DTO infrastructure (do not duplicate per entity):
 
-- `EntityBaseDto`
-- `ITenantEntityDto` - **[multi-tenant only]**
+- `EntityBaseDto` (`Id`, `Version`)
+- `ITenantEntityDto` - **[multi-tenant only]**, from EF.Common.Contracts (never declared app-level)
 - `DefaultRequest<T>` - `record`, not `class`
-- `DefaultResponse<T>` - `record`, not `class`; includes `TenantInfoDto?` **[multi-tenant only]**
+- `DefaultResponse<T>` - `record`, not `class`; implements `IETagVersioned`; includes `TenantInfoDto?` **[multi-tenant only]**
 - `TenantInfoDto` - `record` with `Id` (Guid) and `Name` (string) - **[multi-tenant only]**
-- `DefaultSearchFilter`
+- `DefaultSearchFilter` (implements EF.Tenancy `ITenantScopedFilter` when multi-tenant)
 - `SecurityRoleDto`
 
 ---
@@ -149,34 +149,11 @@ Do not scatter these rules across endpoints/handlers.
 
 Keep structural validation centralized under `Application.Services/Rules/`:
 
-- `StructureValidators` - generic `ValidateCreate<T>` and `ValidateUpdate<T>` constrained on `ITenantEntityDto` / `IEntityBaseDto`
-- Per-entity `{Entity}StructureValidator` - delegates common checks to `StructureValidators`, then adds entity-specific field validation using `DomainConstants`
-- `ValidationHelper` - **[multi-tenant only]** static class with `EnsureGlobalAdmin`, `EnsureTenantBoundary`, `PreventTenantChange`
+- Per-entity `{Entity}StructureValidator` - delegates common checks to `EntityDtoRules.ValidateCreate` / `ValidateUpdate` (EF.Common.Contracts), then adds entity-specific field validation using `DomainConstants`
 - `ServiceErrorMessages` - static factory methods for formatted error strings (`PayloadRequired`, `ItemNotFound`, `TenantMismatch`, etc.)
 - `ErrorConstants` - shared string constants in `Application.Contracts` (`ERROR_ITEM_NOTFOUND`, `ERROR_NAME_EXISTS`, etc.)
-- `TenantBoundaryLoggingExtensions` - **[multi-tenant only]** `[LoggerMessage]` source-generated extensions for structured tenant-violation logging
 
-Example (generic base):
-
-```csharp
-public static class StructureValidators
-{
-    internal static Result ValidateCreate<T>(T? dto) where T : class, ITenantEntityDto
-    {
-        if (dto is null) return Result.Failure("Payload is required.");
-        return Require(dto.TenantId != Guid.Empty, "TenantId is required.");
-    }
-
-    internal static Result ValidateUpdate<T>(T? dto) where T : class, IEntityBaseDto, ITenantEntityDto
-    {
-        if (dto is null) return Result.Failure("Payload is required.");
-        if (dto.Id is null || dto.Id == Guid.Empty) return Result.Failure("Id is required for updates.");
-        return Require(dto.TenantId != Guid.Empty, "TenantId is required.");
-    }
-}
-```
-
-Per-entity validators delegate then add field checks - see [structure-validator-template.md](../templates/structure-validator-template.md).
+The shared null/tenant/id rules, the tenant boundary checks and their security logging are package code (`EntityDtoRules`, EF.Tenancy); generate no `StructureValidators`, `ValidationHelper` or tenant-boundary logging extensions. Per-entity validator shape: [structure-validator-template.md](../templates/structure-validator-template.md).
 
 ---
 
@@ -190,27 +167,12 @@ See [service-template.md](../templates/service-template.md) for interface and im
 
 See [message-handler-template.md](../templates/message-handler-template.md) for full implementation.
 
-> **Note:** `[ScopedMessageHandler]` attribute (from `EF.BackgroundServices.Attributes`) is required on handlers that inject scoped services (repositories, DbContext). Handlers are auto-registered through the internal message bus at startup.
+> **Note:** Handlers are registered in DI and wired with `IInternalMessageBus.AutoRegisterHandlers(assembly)` at startup; every dispatch resolves the handler from a new DI scope, so handlers may inject scoped services (repositories, DbContext) with no attribute.
 
 ### Domain Events vs Integration Events
 
 - **Domain events** are in-process signals within a bounded context (e.g., entity state-change side-effects). Handled synchronously or via `IInternalMessageBus` (in-memory `System.Threading.Channels`).
-- **Integration events** cross service boundaries - published to Azure Service Bus topics for async downstream processing by Functions or other consumers. Define integration event DTOs in `Application.Contracts/Events/`, publish via `IIntegrationEventPublisher`.
-
-Integration event publishing is **fire-and-forget after a successful save**. Wrap in try/catch so a messaging failure does not roll back or fail an already-persisted entity:
-
-```csharp
-try
-{
-    await eventPublisher.PublishAsync(
-        new {Entity}CreatedEvent(entity.Id, entity.TenantId),
-        requestContext.CorrelationId, ct);
-}
-catch (Exception ex)
-{
-    logger.LogWarning(ex, "Failed to publish {Entity}CreatedEvent for {Id}; entity was saved successfully", entity.Id);
-}
-```
+- **Integration events** cross service boundaries - published to the lane's broker (RabbitMQ or Service Bus) for async downstream processing. The aggregate raises the event (`IHasDomainEvents`), and the EF.Data.Outbox staging interceptor writes it as an outbox row in the same `SaveChanges` as the change; the dispatcher sends it after commit. Services never call a publisher after the save: a crash between the save and a publish loses the event, and a publish before the commit announces a change that may roll back. Events no aggregate raises (scheduler jobs) stage through `IOutboxStaging`. See [messaging.md](messaging.md) section Transactional Producer: Outbox.
 
 ---
 
@@ -222,8 +184,7 @@ catch (Exception ex)
 - [ ] search filters are `record` types inheriting `DefaultSearchFilter`
 - [ ] static mapper includes `ToDto`, `ToEntity`, and projector expressions
 - [ ] projectors are EF-safe expressions
-- [ ] `StructureValidators.cs` exists with generic `ValidateCreate<T>` / `ValidateUpdate<T>`
-- [ ] per-entity validators delegate to `StructureValidators` then add field checks using `DomainConstants`
+- [ ] no app `StructureValidators` / `ValidationHelper`; per-entity validators delegate to `EntityDtoRules` then add field checks using `DomainConstants`
 - [ ] `ErrorConstants` exists in `Application.Contracts` with shared error keys
 - [ ] `ServiceErrorMessages` exists in `Application.Services/Rules`
 - [ ] service implements `I{Entity}Service` and uses repo split correctly
@@ -231,7 +192,7 @@ catch (Exception ex)
 - [ ] when `applicationStyle` is `cqrs` or `switch`: root CQRS registration aggregates feature registrations and exposes `Add{Project}CqrsApplication(...)`
 - [ ] service has `BuildResponse` helper method
 - [ ] service uses `nameof({Entity})` in boundary-validator and error messages
-- [ ] **[Multi-tenant only]** `ITenantEntityDto` defined, `DefaultResponse` includes `TenantInfoDto?`
+- [ ] **[Multi-tenant only]** DTOs implement the package `ITenantEntityDto`, `DefaultResponse` includes `TenantInfoDto?`
 - [ ] **[Multi-tenant only]** service overwrites DTO tenant from request context before validation/mapping in Create/Update; no payload fallback
 - [ ] **[Multi-tenant only]** service executes tenant boundary checks on write/read flows
 - [ ] **[Multi-tenant only]** Search enforces tenant filter for non-admin; logs tenant filter manipulation via `[LoggerMessage]`

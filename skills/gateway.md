@@ -2,16 +2,17 @@
 
 ## Purpose
 
-Gateway is a YARP reverse proxy in front of API/backends. It handles user-facing auth, CORS, downstream token relay, and trusted forwarding of original user claims.
+Gateway is a YARP reverse proxy in front of API/backends. It handles user-facing auth, CORS, downstream token relay, and trusted forwarding of original user claims. The downstream token, the claims relay and the downstream health check are EF.Gateway over EF.Auth ([../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Gateway (EF.Gateway)); generate no token service, claims transformer or relay header code.
 
 ## Non-Negotiables
 
 1. Keep proxy routes/clusters in configuration and load through YARP.
-2. Relay service-to-service bearer token per cluster via `TokenService`.
-3. Treat `X-Orig-Request` as a gateway-owned header: strip any inbound value, regenerate it from the authenticated user principal, and let the API consume it only after validating the gateway service identity.
-4. Keep pipeline order deterministic (security -> routing/auth -> endpoints -> proxy).
-5. Normalize path prefixes consistently between UI, gateway transforms, and backend routes.
-6. Normalize trusted forwarded scheme/host before OIDC or YARP so redirects use the public origin.
+2. Relay service-to-service bearer tokens per cluster with `AddDownstreamAuthTransforms` (cluster `Metadata:TokenScope`) over `AccessTokenCache`.
+3. The relay header is gateway-owned: every route strips any inbound value, and a cluster with `Metadata:RelayUserClaims` regenerates it from the authenticated user; the API honors it only after validating the gateway service identity.
+4. **The relay header and settings come from one shared `ForwardedClaims` section.** The Gateway binds it with `AddDownstreamAuthTransforms(config)` and the API with `AddForwardedClaimsTransformation(config)`, so the header name, claim allowlist and limits match; never write the header name as a literal on either side.
+5. Keep pipeline order deterministic (forwarding -> security -> auth -> limiter -> endpoints -> proxy).
+6. Normalize path prefixes consistently between UI, gateway transforms, and backend routes.
+7. Normalize trusted forwarded scheme/host before OIDC or YARP so redirects use the public origin.
 
 Reference patterns: [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) (Gateway Claim Relay).
 
@@ -22,12 +23,7 @@ Reference patterns: [../patterns/api-host-wiring.md](../patterns/api-host-wiring
 ```
 Host/{Gateway}.Gateway/
 |-- Program.cs
-|-- RegisterServices.cs
-|-- WebApplicationBuilderExtensions.cs
-|-- TokenService.cs
-|-- Auth/
-|-- HealthChecks/
-|-- StartupTasks/
+|-- RegisterGatewayServices.cs
 |-- appsettings.json
 `-- Dockerfile
 ```
@@ -43,76 +39,73 @@ Host/{Gateway}.Gateway/
       "api-route": {
         "ClusterId": "api-cluster",
         "AuthorizationPolicy": "Default",
-        "Match": { "Path": "/api/{**catch-all}" },
-        "Transforms": [{ "PathRemovePrefix": "/api" }]
+        "Match": { "Path": "/api/{**catch-all}" }
       }
     },
     "Clusters": {
       "api-cluster": {
         "Destinations": {
           "api": { "Address": "https://localhost:7065" }
+        },
+        "Metadata": {
+          "TokenScope": "api://{api-client-id}/.default",
+          "RelayUserClaims": "true"
         }
       }
     }
+  },
+  "ForwardedClaims": {
+    "HeaderName": "X-Forwarded-User-Claims",
+    "ClaimTypes": [ "tenant_id" ],
+    "TrustedCallerIds": [ "{gateway-service-client-id}" ]
   }
 }
 ```
 
-With Aspire, destination resolution can be service-discovery driven.
+With Aspire, destination resolution can be service-discovery driven. A cluster without `TokenScope` gets no token transform: the inbound `Authorization` header passes through unchanged, so never point such a cluster at a third party when the inbound token must not leave. A scaffold-mode gateway leaves `TokenScope` empty.
 
 ---
 
 ## Service Registration Pattern
 
 ```csharp
-using Azure.Core;
-using Azure.Identity;
+using EF.Auth.Tokens;
+using EF.Gateway;
+using EF.Host;
 
-private static void AddReverseProxy(IServiceCollection services, IConfiguration config)
+public static IServiceCollection AddGatewayServices(this IServiceCollection services, IConfiguration config)
 {
-    // Register TokenCredential - DefaultAzureCredential handles local dev + managed identity in production
-    services.AddSingleton<TokenCredential>(_ => new DefaultAzureCredential());
-    services.AddSingleton<TokenService>();
+    services.AddAzureTokenCredential(config);   // EF.Host: one TokenCredential (ManagedIdentityClientId / AzureTenantId)
+    services.AddAccessTokenCache();             // EF.Auth: single-flight token cache over that credential
+    services.AddEfProblemDetails();
 
     services.AddReverseProxy()
         .LoadFromConfig(config.GetSection("ReverseProxy"))
-        .AddTransforms(ConfigureProxyTransforms);
-}
-```
+        .AddServiceDiscoveryDestinationResolver()
+        .AddDownstreamAuthTransforms(config);   // binds ForwardedClaims, the same section the API binds
 
-> **Package:** Add `Azure.Identity` to the Gateway project. Version managed via `Directory.Packages.props`.
-
-> **Service discovery:** For Aspire-hosted scenarios, use service-discovery URI syntax (`https+http://{app}-api`) in `appsettings.json` cluster destinations. If explicit resolver registration is needed, add the `Microsoft.Extensions.ServiceDiscovery.Yarp` package and call `AddServiceDiscoveryDestinationResolver()`.
-
-
-Transform pattern:
-
-```csharp
-private static void ConfigureProxyTransforms(TransformBuilderContext context)
-{
-    context.AddRequestTransform(async ctx =>
+    services.AddCorsPolicyFromConfiguration("{Project}UI", config.GetSection("CorsSettings"));
+    services.AddHealthChecks().AddDownstreamHealthCheck("{project}-api", o =>
     {
-        const string originalUserHeader = "X-Orig-Request";
-
-        // Never forward a caller-supplied claims envelope. This transform runs only after
-        // gateway user authentication and rebuilds the header from HttpContext.User.
-        ctx.ProxyRequest.Headers.Remove(originalUserHeader);
-        AddOriginalUserClaimsHeader(ctx);
-
-        var token = await tokenService.GetAccessTokenAsync(clusterId, ctx.HttpContext.RequestAborted);
-        ctx.ProxyRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-    });
+        o.Url = new Uri(config["AggregateHealthCheck:{Project}ApiHealthUrl"]!);   // missing or relative fails startup
+        o.TokenScope = config["AggregateHealthCheck:TokenScope"];
+    }, tags: ["full"]);
+    return services;
 }
 ```
+
+> **Service discovery:** For Aspire-hosted scenarios, use service-discovery URI syntax (`https+http://{app}-api`) in cluster destinations and call `AddServiceDiscoveryDestinationResolver()` (package `Microsoft.Extensions.ServiceDiscovery.Yarp`); EF.Gateway does not reference it.
+
+`AccessTokenCache` acquires per scope set with one identity-provider call per cold key, never shares a caller's cancellation, never caches a failure, and replaces a token inside its refresh window once. An acquisition failure fails the proxied request; it is never forwarded unauthenticated. A relay header over `MaxHeaderBytes` fails the request; it is never forwarded without the header.
 
 ### Forwarded Claims Trust Boundary
 
-**Why:** Any client can forge an ordinary request header. Therefore `X-Orig-Request` carries context only; this exact boundary establishes trust:
+**Why:** Any client can forge an ordinary request header. Therefore the relay header carries context only; this exact boundary establishes trust:
 
 1. Every claim-relaying proxy route requires an authenticated-user authorization policy. Pipeline order alone does not reject anonymous callers.
-2. Gateway removes any inbound `X-Orig-Request` and regenerates one envelope only from the authenticated `HttpContext.User`.
+2. Gateway removes any inbound relay header on every route (the configured `HeaderName` and the default `X-Forwarded-User-Claims`) and regenerates one envelope only from the authenticated `HttpContext.User`.
 3. Gateway replaces the user token with its downstream service token.
-4. API bearer authentication validates issuer and audience, then an allowlisted gateway application identity (`azp` for v2 tokens, `appid` for v1) on an app-only token (no `scp` delegated-scope claim) before any forwarded-claims transformer parses the envelope.
+4. API bearer authentication validates issuer and audience; `AddForwardedClaimsTransformation` then honors the header only for an authenticated app-only token (no delegated-scope claim) whose `azp`/`appid` is in `ForwardedClaims:TrustedCallerIds`. An empty list disables the relay.
 5. Non-gateway service identities and direct-user-token paths ignore the header. `IRequestContext` reads only the resulting authenticated principal, never the raw envelope.
 
 Required verification:
@@ -124,85 +117,7 @@ Required verification:
 - `DelegatedUserTokenForGatewayClient_IsIgnored`: a user token whose `azp` is the gateway client id cannot supply an envelope.
 - `RepeatedTransformation_DoesNotDuplicateForwardedClaims`: repeated authentication transformation adds no duplicate identity or claim.
 
-Keep API-side wiring concise and point it back here; see [api-host-wiring.md](../patterns/api-host-wiring.md#gateway-claim-relay-trust-boundary).
-
----
-
-## TokenService Contract
-
-`TokenService` acquires and caches client-credential tokens per cluster with an expiry buffer. Injects `TokenCredential` (not `IConfiguration` or MSAL directly). Acquisition is single-flight: the cache holds the in-flight task, so a burst on an expired token makes one identity-provider call. The shared acquisition runs on `CancellationToken.None` plus a bounded timeout, never a caller's token; each caller cancels only its own wait through `WaitAsync(ct)`, and only a faulted or cancelled acquisition is evicted.
-
-```csharp
-using Azure.Core;
-using System.Collections.Concurrent;
-
-public class TokenService(TokenCredential credential, IConfiguration config)
-{
-    private static readonly TimeSpan RefreshWindow = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan AcquireTimeout = TimeSpan.FromSeconds(30);
-    private readonly ConcurrentDictionary<string, Lazy<Task<AccessToken>>> _cache = new();
-
-    public async Task<string> GetAccessTokenAsync(string clusterId, CancellationToken ct = default)
-    {
-        // Two attempts: the first may find a token inside the refresh window and evict it.
-        for (var attempt = 0; ; attempt++)
-        {
-            var pending = _cache.GetOrAdd(clusterId, key => new Lazy<Task<AccessToken>>(
-                () => AcquireAsync(key), LazyThreadSafetyMode.ExecutionAndPublication));
-
-            AccessToken token;
-            try
-            {
-                token = await pending.Value.WaitAsync(ct);   // a disconnecting caller abandons only its own wait
-            }
-            catch when (pending.Value.IsFaulted || pending.Value.IsCanceled)
-            {
-                RemoveIfSame(clusterId, pending);   // never cache a failure; never evict a newer entry
-                throw;
-            }
-
-            if (attempt == 1 || token.ExpiresOn > DateTimeOffset.UtcNow.Add(RefreshWindow))
-                return token.Token;
-
-            RemoveIfSame(clusterId, pending);
-        }
-    }
-
-    private async Task<AccessToken> AcquireAsync(string clusterId)
-    {
-        var scope = config[$"ReverseProxy:Clusters:{clusterId}:TokenScope"]
-            ?? throw new InvalidOperationException($"TokenScope not configured for cluster '{clusterId}'");
-
-        using var timeout = new CancellationTokenSource(AcquireTimeout);
-        return await credential.GetTokenAsync(new TokenRequestContext([scope]), timeout.Token);
-    }
-
-    private void RemoveIfSame(string clusterId, Lazy<Task<AccessToken>> observed) =>
-        ((ICollection<KeyValuePair<string, Lazy<Task<AccessToken>>>>)_cache)
-            .Remove(new KeyValuePair<string, Lazy<Task<AccessToken>>>(clusterId, observed));
-}
-```
-
-### Token Configuration
-
-Each cluster declares its token scope in `appsettings.json`:
-
-```json
-{
-  "ReverseProxy": {
-    "Clusters": {
-      "api-cluster": {
-        "TokenScope": "api://your-api-client-id/.default",
-        "Destinations": {
-          "api": { "Address": "https://localhost:7065" }
-        }
-      }
-    }
-  }
-}
-```
-
-> **Why `TokenCredential`?** Abstracts the credential source - `DefaultAzureCredential` auto-chains Azure CLI (local dev), managed identity (deployed), environment variables (CI). No MSAL configuration code needed.
+The package tests its own codec and transformation; the app keeps these cases because they prove its registration, its section binding and its route policies. Keep API-side wiring concise and point it back here; see [api-host-wiring.md](../patterns/api-host-wiring.md#gateway-claim-relay-trust-boundary).
 
 ---
 
@@ -211,8 +126,8 @@ Each cluster declares its token scope in `appsettings.json`:
 Typical split:
 
 - Gateway authenticates user token (for example Entra External/B2C).
-- Gateway acquires service token for downstream API.
-- Gateway strips caller-supplied forwarded-claims headers and regenerates the payload from the authenticated user.
+- Gateway acquires service token for downstream API (`AccessTokenCache`).
+- Gateway strips caller-supplied relay headers and regenerates the payload from the authenticated user.
 - API authenticates and allowlists the gateway service identity before accepting the forwarded user claims payload.
 
 ```csharp
@@ -225,24 +140,26 @@ private static void AddAuthentication(IServiceCollection services, IConfiguratio
     .AddMicrosoftIdentityWebApi(config.GetSection("Gateway_EntraExt"));
 
     services.AddSingleton<IAuthorizationHandler, TenantMatchHandler>();
-    services.AddTransient<IClaimsTransformation, GatewayClaimsTransformer>();
 }
 ```
+
+Claim types on both hosts must agree with `ForwardedClaims:ClaimTypes` ([identity-management.md](identity-management.md) section Claim-type contract). Scaffold mode registers the EF.Auth fixed principal instead (same file, section Pre-Auth Stub Pattern (Phases 5a-5d)).
 
 ---
 
 ## Pipeline Order
 
 ```csharp
-public static WebApplication ConfigurePipeline(this WebApplication app)
-{
-    ConfigureSecurity(app);
-    ConfigureCors(app);
-    ConfigureMiddleware(app);   // routing, auth, then limiter (claim partitions need the principal)
-    ConfigureEndpoints(app);    // health/liveness
-    ConfigureReverseProxy(app);
-    return app;
-}
+app.UseProxyForwarding();   // EF.AspNetCore: public scheme/host/client IP first
+app.UseExceptionHandler();
+app.UseCors("{Project}UI");
+app.UseCorrelationId();
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseRateLimiter();       // UseEdgeLimiter partitions on the forwarded client IP
+app.UseRequestTimeouts();
+app.MapDefaultEndpoints();  // MapEfHealthEndpoints
+app.MapReverseProxy().RequireAuthorization();
 ```
 
 **Why:** Proxy execution must follow authentication so transforms serialize a verified user principal, not attacker-supplied headers or an anonymous identity. Therefore claim-relaying routes require authorization and map only after authentication/authorization middleware.
@@ -254,29 +171,23 @@ public static WebApplication ConfigurePipeline(this WebApplication app)
 A chain such as edge proxy -> YARP Gateway -> app has two separate trust boundaries. Each process must adopt the public request values from its immediate trusted upstream before redirects, authentication, link generation, or proxying.
 
 1. The edge proxy removes caller-supplied forwarding headers and writes the canonical `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` values.
-2. Gateway runs `UseForwardedHeaders()` before HTTPS redirection, authentication/OIDC, routing, and YARP. This changes `Request.Scheme` and `Request.Host` to the public values before YARP's default X-Forwarded transform re-stamps the downstream request.
-3. The downstream app also runs `UseForwardedHeaders()` before HTTPS redirection, static files, authentication/OIDC, routing, and endpoints, with `XForwardedProto` and `XForwardedHost` enabled.
+2. Gateway runs `UseProxyForwarding()` before HTTPS redirection, authentication/OIDC, routing, and YARP. This changes `Request.Scheme` and `Request.Host` to the public values before YARP's default X-Forwarded transform re-stamps the downstream request.
+3. The downstream app also runs `UseProxyForwarding()` first, before HTTPS redirection, static files, authentication/OIDC, routing, and endpoints.
 
-The blanket `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` switch is not the complete chain pattern: it has a one-hop default and does not enable `X-Forwarded-Host`. Configure the middleware explicitly:
+`AddProxyForwarding()` (EF.AspNetCore, section `Proxy`) applies `X-Forwarded-For`, `-Proto` and `-Host` from trusted proxies and validates every value at registration; generate no `ForwardedHeadersOptions` code. The blanket `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` switch is not the complete chain pattern: it has a one-hop default and does not enable `X-Forwarded-Host`.
 
-```csharp
-builder.Services.Configure<ForwardedHeadersOptions>(options =>
-{
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
-        | ForwardedHeaders.XForwardedProto
-        | ForwardedHeaders.XForwardedHost;
-
-    // Preferred: trust the immediate proxy IP/network and keep a finite hop limit.
-    options.ForwardLimit = 1;
-    options.KnownProxies.Add(IPAddress.Parse(configuration["ReverseProxy:TrustedProxyIp"]!));
-});
+```json
+"Proxy": {
+  "ForwardedHeaders": { "Enabled": true, "ForwardLimit": 1, "KnownProxies": [ "{trusted-proxy-ip}" ], "AllowedHosts": [ "{public-host}" ] },
+  "PathBase": ""
+}
 ```
 
-Prefer explicit `KnownProxies`/`KnownIPNetworks` and a finite `ForwardLimit`. Container networks with dynamic proxy addresses may instead use `ForwardLimit = null` plus cleared `KnownIPNetworks`/`KnownProxies` only when network policy makes the app port unreachable except through the controlled Gateway. Clearing trust lists on a publicly reachable port lets clients forge scheme and host.
+Prefer explicit `KnownProxies`/`KnownNetworks` and a finite `ForwardLimit`. Container networks with dynamic proxy addresses may instead set `TrustAllProxies: true` (not combinable with the allowlists) only when network policy makes the app port unreachable except through the controlled Gateway. Without a `ForwardLimit` it reads the whole chain (`ForwardLimit = null`), so set `ForwardLimit` to the proxy hop count and a client-supplied `X-Forwarded-For` entry cannot become the remote address. Trusting every proxy on a publicly reachable port lets clients forge scheme and host.
 
-For an externally prefixed app such as `/admin`, preserve that prefix to the downstream host and call `UsePathBase` (for example, `UsePathBase("/admin")`) before static files, routing, auth, and endpoints. Derive the served HTML `<base href>` from the effective `Request.PathBase` and include the same prefix in redirect/logout URIs. If YARP strips the external prefix, `UsePathBase` cannot rediscover it; either preserve the prefix or set `Request.PathBase` from controlled deployment configuration. ASP.NET Core forwarded-header middleware does not infer it from `X-Forwarded-Prefix`.
+For an externally prefixed app such as `/admin`, preserve that prefix to the downstream host and set `Proxy:PathBase` (`"/admin"`), which applies `UsePathBase` before static files, routing, auth, and endpoints even with forwarding off. Derive the served HTML `<base href>` from the effective `Request.PathBase` and include the same prefix in redirect/logout URIs. If YARP strips the external prefix, the path base cannot rediscover it; either preserve the prefix or set `Proxy:PathBase` from controlled deployment configuration. ASP.NET Core forwarded-header middleware does not infer it from `X-Forwarded-Prefix`.
 
-A per-IP edge limiter partitions on `Connection.RemoteIpAddress`, which is the ingress address until forwarded headers run. Enable forwarded headers with known proxies or networks in every deployed lane, before the limiter, and test that the partition key is the forwarded client address, not the ingress address.
+A per-IP edge limiter partitions on `Connection.RemoteIpAddress`, which is the ingress address until forwarded headers run. Enable forwarding with known proxies or networks in every deployed lane, before the limiter, and test that the partition key is the forwarded client address, not the ingress address.
 
 Deployment proof uses the public URL: an unauthenticated challenge redirects to public `https://<host>/<path-base>/...`, and prefixed UI root, framework, content, API, and OIDC callback paths return the expected status. Internal `http://container:port` must not appear in a redirect.
 
@@ -313,23 +224,22 @@ Pick one convention per project and apply it everywhere. Never use dual-prefix p
 
 ## Health and Startup Tasks
 
-- Add aggregated downstream health checks.
-- Add startup warmup tasks for token acquisition/dependency checks before live traffic.
+- `AddDownstreamHealthCheck` probes the API's health URL (2xx is Healthy; any other status, a timeout or an exception is the registration's failure status).
+- Add startup warmup tasks (`IStartupTask`) for token acquisition/dependency checks before live traffic.
 
 ---
 
 ## Verification
 
 - [ ] YARP routes/clusters load from config
-- [ ] transform removes caller-supplied `X-Orig-Request`, then adds a gateway-generated envelope + downstream bearer token
-- [ ] API validates an allowlisted gateway `azp`/`appid` before parsing forwarded claims
+- [ ] `AddDownstreamAuthTransforms(config)` registered; clusters declare `TokenScope` / `RelayUserClaims` metadata; no app token service or relay transform
+- [ ] Gateway and API bind the same `ForwardedClaims` section
 - [ ] forged-header cases in Forwarded Claims Trust Boundary pass
-- [ ] `TokenService` caches cluster tokens with expiry buffer
 - [ ] gateway auth section matches intended identity provider config
-- [ ] pipeline order is security -> middleware -> endpoints -> reverse proxy
+- [ ] pipeline order is forwarding -> security -> auth -> limiter -> endpoints -> reverse proxy
 - [ ] forwarded proto and host are applied before OIDC and YARP; downstream app trusts only its controlled proxy chain
 - [ ] CORS origins match UI local/deployed origins
 - [ ] path-prefix convention is documented and consistent across UI/gateway/API
 - [ ] path-prefixed UI derives `<base href>` and redirect URIs from the effective `PathBase`
-- [ ] health checks and startup warmup are registered
+- [ ] downstream health check and startup warmup are registered
 - [ ] cross-check with [aspire.md](aspire.md) and [iac.md](iac.md)
