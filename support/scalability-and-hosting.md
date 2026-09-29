@@ -13,7 +13,7 @@ Record the smallest measurable envelope that can disprove the design:
 - recovery objectives and acceptable degraded behavior,
 - expected replica count per host, regions or data-residency constraints, and cost ceiling.
 
-Do not translate "millions of users" directly into services, brokers, CQRS, gRPC, sharding, or Native AOT. A million registered users, concurrent browser sessions, open sockets, and requests per second are different workloads. Keep a single deployable until an independently scaled or isolated boundary is demonstrated. A scale claim is proven by an asserted `Test.Load` run at the envelope rate against the deployed topology ([../templates/test-templates-quality.md](../templates/test-templates-quality.md) section Load Tests (In-House LoadRunner)), not by the patterns adopted.
+Do not translate "millions of users" directly into services, brokers, CQRS, gRPC, sharding, or Native AOT. A million registered users, concurrent browser sessions, open sockets, and requests per second are different workloads. Keep a single deployable until an independently scaled or isolated boundary is demonstrated. A scale claim is proven by an asserted `Test.Load` run at the envelope rate against the deployed topology ([../templates/test-templates-quality.md](../templates/test-templates-quality.md) section Load Tests (EF.Testing LoadRunner)), not by the patterns adopted.
 
 ## Baseline and Conditional Patterns
 

@@ -8,7 +8,7 @@ For base types used here, see [../support/ef-packages-reference.md](../support/e
 
 ## Multi-Cache Configuration
 
-**Owner:** [../skills/caching.md](../skills/caching.md) section Registration Pattern (Bootstrapper) owns the FusionCache multi-cache registration - named caches, entry-option defaults bound from `CacheSettings`, and the conditional Redis L2 + backplane - loaded in the same Phase 5b session. It is a Bootstrapper DI concern co-located with the `CacheSettings` model it binds; do not restate the loop here.
+**Owner:** [../skills/caching.md](../skills/caching.md) section Registration Pattern (Bootstrapper) owns the cache registration - EF.Cache `AddTypedCache` over the `CacheSettings` array, the conditional Redis L2 + backplane, and the shared `IConnectionMultiplexer` every other Redis consumer resolves - loaded in the same Phase 5b session. Do not restate it here.
 
 ---
 
@@ -16,83 +16,78 @@ For base types used here, see [../support/ef-packages-reference.md](../support/e
 
 **Source:** `Host/Aspire/ServiceDefaults/Extensions.cs`
 
-**Every server-hosted .NET host calls `builder.AddServiceDefaults(...)` as the first registration step** - not just the API-shaped hosts. This includes the UI hosts: **Blazor Server and the Uno `WasmHost`** are server-hosted .NET processes and MUST participate in the shared telemetry pipeline. The full set: API, Gateway, Scheduler, Functions, DatabaseMigrator, Blazor Server, Uno WasmHost. A host left out of `AddServiceDefaults` emits no traces/metrics/logs and is invisible in the telemetry backend. This extension lives in the shared ServiceDefaults project and wires OpenTelemetry, health checks, service discovery, and HTTP resilience defaults.
+**Every server-hosted .NET host calls `builder.AddServiceDefaults(...)` as the first registration step** - not just the API-shaped hosts. This includes the UI hosts: **Blazor Server and the Uno `WasmHost`** are server-hosted .NET processes and MUST participate in the shared telemetry pipeline. The full set: API, Gateway, Scheduler, Functions, DatabaseMigrator, Blazor Server, Uno WasmHost. A host left out of `AddServiceDefaults` emits no traces/metrics/logs and is invisible in the telemetry backend. This extension lives in the shared ServiceDefaults project (references EF.AspNetCore, EF.Host, EF.OpenTelemetry) and wires OpenTelemetry, health checks, host lifecycle, correlation, service discovery, and HTTP resilience defaults.
 
 ```csharp
-public static IHostApplicationBuilder AddServiceDefaults(
-    this IHostApplicationBuilder builder,
-    IConfiguration config,
-    string appName)
+public static IHostApplicationBuilder AddServiceDefaults(this IHostApplicationBuilder builder)
 {
     builder.ConfigureOpenTelemetry();
     builder.AddDefaultHealthChecks();
+    builder.AddHostLifecycle();                 // EF.Host: readiness drains before hosted services stop (section Hosting)
+
     builder.Services.AddServiceDiscovery();
+    builder.Services.AddCorrelationId();        // EF.AspNetCore: X-Correlation-Id, validated inbound
     builder.Services.ConfigureHttpClientDefaults(http =>
     {
+        http.AddCorrelationIdPropagation();     // sends TraceIdentifier; outside a request sends nothing, never throws
         // Standard handler retries every method by default; retried POST/PATCH creates duplicates.
         http.AddStandardResilienceHandler(o => o.Retry.DisableForUnsafeHttpMethods());
         http.AddServiceDiscovery();
     });
     return builder;
 }
+
+public static IHostApplicationBuilder AddDefaultHealthChecks(this IHostApplicationBuilder builder)
+{
+    builder.Services.AddHealthChecks().AddSelfCheck();   // "self", tag live
+    return builder;
+}
+
+public static WebApplication MapDefaultEndpoints(this WebApplication app)
+{
+    app.MapEfHealthEndpoints();   // "/healthz/live" (live), "/healthz/ready" (ready), "/healthz" (operator aggregate)
+    return app;
+}
 ```
 
 **Rules:**
 - Call once per host, before any other service registration.
-- Do not duplicate OpenTelemetry or health check setup in individual hosts - ServiceDefaults owns it.
+- Do not duplicate OpenTelemetry, correlation, host lifecycle or health endpoint setup in individual hosts - ServiceDefaults owns it.
 - `AddDefaultHealthChecks()` registers `"self"` tagged `"live"`; host-specific dependencies are tagged `"ready"`.
 - Add domain-specific readiness checks (SQL, Redis) in host registration, not in ServiceDefaults.
 
 ### Telemetry Export (`ConfigureOpenTelemetry`)
 
-`ConfigureOpenTelemetry` registers instrumentation (metrics + tracing + logging) and then wires exporters, each **gated on a connection string** so local runs work with zero Azure resources and cloud export lights up the moment the setting is present:
+`ConfigureOpenTelemetry` is EF.OpenTelemetry's one call; it registers logs, traces and metrics with HttpClient, runtime and ASP.NET Core instrumentation, and wires exporters from configuration, each **gated on a connection string** so local runs work with zero Azure resources and cloud export lights up the moment the setting is present. Name every app and package meter and activity source here once, so each host that loads the library exports it:
 
 ```csharp
-public static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicationBuilder builder)
-{
-    builder.Logging.AddOpenTelemetry(o => { o.IncludeFormattedMessage = true; o.IncludeScopes = true; });
-
-    // Functions worker: skip ASP.NET Core request instrumentation (see below) but keep everything else.
-    var suppressAspNetCore = string.Equals(
-        builder.Configuration["{APP}_SUPPRESS_ASPNETCORE_INSTRUMENTATION"], "true", StringComparison.OrdinalIgnoreCase);
-
-    builder.Services.AddOpenTelemetry()
-        .WithMetrics(m => { m.AddHttpClientInstrumentation().AddRuntimeInstrumentation();
-                            if (!suppressAspNetCore) m.AddAspNetCoreInstrumentation(); })
-        .WithTracing(t => { t.AddHttpClientInstrumentation();
-                            if (!suppressAspNetCore) t.AddAspNetCoreInstrumentation(); });
-
-    // OTLP -> Aspire dashboard locally (present via ASPIRE injected env).
-    if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
-        builder.Services.AddOpenTelemetry().UseOtlpExporter();
-
-    // Azure Monitor (Application Insights) in cloud - gated on the connection string only.
-    if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
-        builder.Services.AddOpenTelemetry().UseAzureMonitor();
-
-    return builder;
-}
+public static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicationBuilder builder) =>
+    builder.AddEfOpenTelemetry(o =>
+    {
+        o.MeterNames.AddRange(["{Project}.Api", "EF.Messaging", "EF.Messaging.RabbitMq", "EF.RateLimiting", "EF.Scheduler"]);
+        o.ActivitySourceNames.AddRange(["{Project}.Api", "EF.Messaging", "EF.Data.Outbox", "EF.Scheduler"]);
+    });
 ```
 
-**Discipline gate (docs must match wiring).** "Azure Monitor in cloud" is a wiring claim, not a doc sentence. Every exporter or resource named in an Observability section (tech-design `§Observability`, `infra/README`, the implementation plan) MUST have a matching call-site here, or be explicitly tagged `not wired`. Do not assert a telemetry capability the code does not deliver. The same rule covers instrumentation meters: if a doc lists FusionCache/EF/etc. as instrumented, `ConfigureOpenTelemetry` must register that meter, or the doc drops the claim. Adding `UseAzureMonitor()` requires the `Azure.Monitor.OpenTelemetry.AspNetCore` package.
+| Setting | Effect |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP for every enabled signal (the Aspire dashboard locally, via the injected env) |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Azure Monitor: the distro, or per-signal Azure Monitor exporters when metrics are off or ASP.NET Core instrumentation is suppressed |
+| `OpenTelemetry:MetricsEnabled` | `false` registers no meter provider; logs and traces keep exporting |
+| `OpenTelemetry:Tracing:SampleRatio` | Parent-based head sampling ratio, 0 to 1, validated at startup |
+| `OpenTelemetry:SuppressAspNetCoreInstrumentation` | `true` on the Functions worker, whose host already reports each invocation |
 
-Exporter gates are signal-specific. If configuration disables metrics, omit the metrics provider/exporter and application meters without gating away logs or traces. Where an all-signals convenience call cannot express that contract, register log, trace, and metric exporters separately and pin the disabled-metrics registration shape in a service-provider test. Deployment-sink requirements live in [../skills/observability.md](../skills/observability.md) section Signal and Deployment Sink Contract.
+**Discipline gate (docs must match wiring).** "Azure Monitor in cloud" is a wiring claim, not a doc sentence. Every exporter or resource named in an Observability section (tech-design `§Observability`, `infra/README`, the implementation plan) MUST have a matching configuration value here, or be explicitly tagged `not wired`. Do not assert a telemetry capability the code does not deliver. The same rule covers instrumentation meters: if a doc lists FusionCache/EF/etc. as instrumented, `ConfigureOpenTelemetry` (or the owning registration, such as the cache's `CacheTelemetry.MeterNames()`) must register that meter, or the doc drops the claim.
+
+Exporter gates are signal-specific; the package keeps logs and traces when metrics are disabled, and a service-provider test pins the disabled-metrics registration shape. Deployment-sink requirements live in [../skills/observability.md](../skills/observability.md) section Signal and Deployment Sink Contract.
 
 **One shared telemetry resource.** In cloud there is exactly **one** shared, workspace-based Application Insights resource fanned to every host via `APPLICATIONINSIGHTS_CONNECTION_STRING` - never a per-host ad-hoc component. The resource lives in IaC ([../skills/iac.md](../skills/iac.md) section App Insights); this seam only consumes the injected connection string. App-level logging/metrics/tracing conventions are owned by [../skills/observability.md](../skills/observability.md); the Functions worker's instrumentation caveat by [../skills/function-app.md](../skills/function-app.md) section Telemetry.
 
-`MapDefaultEndpoints` maps three probes with distinct semantics - keep all three:
-
-```csharp
-app.MapHealthChecks("/healthz/live",  new HealthCheckOptions { Predicate = r => r.Tags.Contains("live") }).AllowAnonymous();
-app.MapHealthChecks("/healthz/ready", new HealthCheckOptions { Predicate = r => r.Tags.Contains("ready") }).AllowAnonymous();
-app.MapHealthChecks("/healthz",       new HealthCheckOptions()).AllowAnonymous();
-```
-
-`/healthz/live` reports only the self check tagged `live`; `/healthz/ready` reports critical dependency checks tagged `ready` (e.g. DB reachable, migrations applied); `/healthz` is the operator aggregate and is never an orchestrator liveness target. **Why:** dependency failure must remove a host from traffic without turning a healthy process into a liveness failure and restart loop. Tests and orchestration gate on `WaitForResourceHealthyAsync` + `/healthz/ready`, never on a resource merely reaching `Running`. Verify a failed critical dependency makes `/healthz/ready` unhealthy while `/healthz/live` stays healthy.
+`MapDefaultEndpoints` maps three probes with distinct semantics through `MapEfHealthEndpoints` - keep all three. `/healthz/live` reports only the self check tagged `live`; `/healthz/ready` reports critical dependency checks tagged `ready` (e.g. DB reachable, migrations applied, and the host-lifecycle `draining` check); `/healthz` is the operator aggregate and is never an orchestrator liveness target. All three are anonymous and exempt from rate limiting. **Why:** dependency failure must remove a host from traffic without turning a healthy process into a liveness failure and restart loop. Tests and orchestration gate on `WaitForResourceHealthyAsync` + `/healthz/ready`, never on a resource merely reaching `Running`. Verify a failed critical dependency makes `/healthz/ready` unhealthy while `/healthz/live` stays healthy.
 
 Readiness is host-specific. Exclude an optional cache or telemetry sink when the host has a tested degraded path, and include broker/outbox/scheduler checks only on hosts that require them. Multi-lane provider selection and the full probe contract are owned by [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md).
 
-**Non-negotiable:** do NOT add `http.AddHeaderPropagation()` in `AddServiceDefaults` unless a host also registers the `UseHeaderPropagation` middleware AND configures which headers to propagate. The handler alone throws `InvalidOperationException: HeaderPropagationValues.Headers not initialized` the moment an `HttpClient` is used outside an inbound HTTP request scope - a Blazor Server circuit, a background service, or any startup task. Forward cross-cutting context (tenant, correlation) explicitly with a per-client `DelegatingHandler` instead (see [../skills/ui-blazor.md](../skills/ui-blazor.md) section Dev Tenant Header).
+**Non-negotiable:** correlation flows only through `AddCorrelationIdPropagation()`; register no header-propagation middleware or handler in `AddServiceDefaults`. Outbound calls made outside an inbound HTTP request - a Blazor Server circuit, a background service, a startup task - then send no correlation header instead of throwing. Forward other cross-cutting context explicitly with a per-client `DelegatingHandler`; the tenant never travels as a header (it comes from the authenticated principal).
 
 ---
 

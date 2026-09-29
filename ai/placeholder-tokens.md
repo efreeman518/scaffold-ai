@@ -156,16 +156,13 @@ Use these defaults when scaffolding event-driven flows:
 
 1. Cross-process event payloads are integration contracts.
 2. Place transport payload records in `Application.Contracts.Events`.
-3. Use `IIntegrationEventPublisher` as the publish abstraction for external buses.
-4. Name publisher implementations by transport, for example `ServiceBusIntegrationEventPublisher` and `NoOpIntegrationEventPublisher`.
-5. Reserve `Domain.*` events for aggregate-local invariants and in-process domain dispatch.
-6. Do not name external publisher abstractions as `IDomainEventPublisher`.
+3. Publish through the EF.Data.Outbox outbox: the app's `IOutboxEventMapper` maps raised domain events to envelopes, `IOutboxStaging` stages events no aggregate raises, and the package `IOutboxTransport` (`AddRabbitMqOutboxTransport` / `AddServiceBusOutboxTransport`) sends them. Generate no publisher interface or publisher class.
+4. Reserve `Domain.*` events for aggregate-local invariants and in-process domain dispatch.
 
 Default naming patterns:
 
 | Artifact | Pattern |
 |---|---|
 | Integration event contract | `{Entity}{Action}Event` (in `Application.Contracts.Events`) |
-| Integration publisher interface | `IIntegrationEventPublisher` |
-| Service Bus publisher | `ServiceBusIntegrationEventPublisher` |
-| No-op publisher | `NoOpIntegrationEventPublisher` |
+| Outbox event mapper | `{App}OutboxEventMapper` : `IOutboxEventMapper` |
+| Integration event consumer | `{Entity}{Purpose}Consumer` : `IntegrationEventConsumerBase` |

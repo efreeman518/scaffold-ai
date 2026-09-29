@@ -76,11 +76,14 @@ SLICE_ENTITY_PLACEHOLDER = "{Entity}"
 SLICE_EXISTING_PLACEHOLDER = "{ExistingEntity}"
 
 # Layer set for the local-strategy bypass, derived from
-# support/ef-packages-reference.md section Phase Usage (5a/5b) plus test layers.
+# support/ef-packages-reference.md section Phase Usage (5a/5b) for this fixture
+# (SQL Server arm, multi-tenant, gateway off) plus EF.Data's own dependencies and test layers.
 LOCAL_PACKAGE_LAYERS = [
     "Common", "Common.Contracts", "Domain", "Domain.Contracts",
-    "Data", "Data.Contracts", "AspNetCore", "Host", "FilterBuilder",
-    "Cache", "Auth", "IntegrationTesting",
+    "Data", "Data.Contracts", "Data.SqlServer", "BackgroundServices", "Audit.Contracts",
+    "AspNetCore", "AspNetCore.DataProtection", "Host", "OpenTelemetry", "FilterBuilder",
+    "Cache", "Tenancy", "Auth", "RateLimiting",
+    "Testing", "IntegrationTesting", "IntegrationTesting.SqlServer",
 ]
 
 FEED_PLACEHOLDER = "https://nuget.pkg.github.com/{owner}/index.json"
