@@ -47,15 +47,17 @@ CANARIES = {
     "machine capacity, not a contract failure": "skills/ai-integration.md",  # capacity-timeout is Inconclusive, not Fail; keeps the old "timeout -> Fail" wording from drifting back
     "before Aspire graph creation": "skills/ai-integration.md",  # Azure optional-provider eligibility is checked before boot; missing config is Inconclusive
     "public static IHostApplicationBuilder AddServiceDefaults(": "patterns/infrastructure-wiring.md",  # ServiceDefaults method body; hosts call AddServiceDefaults() but only the owner defines it
-    "builder.Services.AddOpenTelemetry().UseAzureMonitor()": "patterns/infrastructure-wiring.md",  # Azure Monitor export gate (ConfigureOpenTelemetry body); observability/iac/function-app point here, never restate the call-site
+    "builder.AddEfOpenTelemetry(o =>": "patterns/infrastructure-wiring.md",  # EF.OpenTelemetry registration (ConfigureOpenTelemetry body, meter/source names); observability/iac/function-app point here, never restate the call-site
     "No direct App Insights integration in the worker": "skills/function-app.md",  # Aspire+Functions telemetry hazard (startup error + duplicate-request suppression); infrastructure-wiring points here
     "binds to the wrong overload and is a **compile break**": "skills/testing.md",  # EF FindAsync array-wrap+token rule inside the test cancellation-token discipline; templates point here
     "--severity info --verify-no-changes": "support/execution-gates.md",  # analyzer-cleanliness gate command; solution-structure/testing point here, never restate the command
-    "AddFusionCache(settings.Name)": "skills/caching.md",  # FusionCache registration loop; infrastructure-wiring points here
+    'services.AddTypedCache(config, "CacheSettings"': "skills/caching.md",  # EF.Cache registration and the shared Redis connection; infrastructure-wiring points here
     "Add{App}MigrationDbContexts": "support/data-persistence-advanced.md",  # migrator-local context registration; migration ownership owner - other files point, never restate the runner wiring
     "replica completion count": "support/data-persistence-advanced.md",  # Container Apps Job knobs live once with the migration owner; cicd.md carries the pipeline step and points here
     "public record DefaultRequest<T>": "ai/contract-scaffolding.md",  # wrapper shape + Item member name live at the Phase-4 generation point; ef-packages-reference App-Level table points here
     "Nullable object must have a value": "skills/multi-tenant.md",  # lifted-nullable hand-written tenant filter rule; repository/template files show the guard-flag pattern instead
+    "`AllTenants` is never inferred from a missing tenant": "skills/multi-tenant.md",  # fail-closed EF.Data tenant filter needs the explicit AllowsAllTenants rule on every scoped factory
+    "crosses tenants by role, never by a hand-built context": "skills/multi-tenant.md",  # system identity: SystemRoles + CrossTenantRoles both carry System
     "Descriptor removal no-ops when a registration is absent": "templates/test-templates-endpoint.md",  # EfWebApplicationFactoryBase behavior narrative lives with the adapter shape; other files point
     "primary no-crash oracle": "skills/testing-quality.md",  # Uno/Skia mobile oracle + assertion doctrine; templates point to the section, never restate it
     "waitForIdleTimeout": "skills/testing-quality.md",  # UiAutomator2 canvas-app settings live with the mobile doctrine
@@ -74,7 +76,7 @@ CANARIES = {
     "Start every Phase 5 sub-phase with:": "support/prompt-catalog.md",  # generic prompts live once; MVS carries profile overlays only
     "dotnet build src/UI/{Project}.Uno/{Project}.Uno.csproj -p:TargetFrameworkOverride=$(LatestStableTfm)-ios --no-restore -m:1": "support/execution-gates.md",  # enabled-target Uno validation commands; skills retain project policy and hazards
     "public record DefaultResponse<T>": "ai/contract-scaffolding.md",  # Phase-4 response wrapper shape; sibling of DefaultRequest<T>, templates re-emit it
-    "HeaderPropagationValues.Headers not initialized": "patterns/infrastructure-wiring.md",  # runtime error anchoring the "no AddHeaderPropagation in ServiceDefaults" rule; drifts when the body is re-copied
+    "register no header-propagation middleware or handler in `AddServiceDefaults`": "patterns/infrastructure-wiring.md",  # correlation flows only through AddCorrelationIdPropagation; drifts when the body is re-copied
     "Generated code always names the conflict strategy with the winner overload": "skills/data-persistence.md",  # SaveChangesAsync winner-overload rule; templates restate the call, not the rule
     "Body was inferred but the method does not allow inferred body parameters": "skills/api.md",  # runtime failure behind the [FromServices] endpoint-param non-negotiable
     "NU1011": "skills/package-dependencies.md",  # CPM + floating-version restore-failure rule tied to the central-package-version mandate
@@ -84,7 +86,8 @@ CANARIES = {
     'AddSqlServer("sql", sqlPassword, port: isTesting ? null : 38433)': "patterns/infrastructure-wiring.md",  # Aspire Resource Wiring graph; quick-reference keeps a minimal correct stub and points here
     "This holds even for entities the scaffold contracts but does not activate": "templates/no-op-stub-template.md",  # no-op-stub never-throw rule; skills carry a "never-throw rule" pointer, never restate
     "ApplicationStyleResolver.Resolve(config[ApplicationStyleResolver.ConfigKey]": "templates/cqrs-endpoint-template.md",  # applicationStyle:switch route-mapping code shape; api.md points here
-    "public class ScaffoldAuthHandler": "skills/identity-management.md",  # scaffold auth-toggle handler; api-host-wiring/data-layer/service+endpoint templates only reference it by name
+    "public static class ScaffoldPrincipal": "skills/identity-management.md",  # EF.Auth fixed-principal claims shared by Api and Gateway; api-host-wiring/data-layer/templates only reference it by name
+    "JwtBearer `MapInboundClaims` is an explicit decision": "skills/identity-management.md",  # claim-name mapping decision behind the relay, request context and limiter claim types
     "ManagedIdentityCredential": "skills/ai-integration.md",  # production credential-preference rule; DefaultAzureCredential itself is a cross-cutting primitive, not canaried
     "Verified generated shapes": "ai/SKILL.md",  # GR-18 first-party DTO-read / constructor-read discipline; ai-integration.md carries only the AI-surface cite
     "Your mono runtime and class libraries are out of sync": "support/troubleshooting.md",  # WASM mono/class-lib mismatch symptom; ui-uno-platforms.md points here for the fix
@@ -92,6 +95,7 @@ CANARIES = {
     "leftover manual snapshots": "support/context-tooling.md",  # graphify-out dated-snapshot cleanup rule; AGENTS.md (outside scan roots) carries only the concise end-of-session step + pointer
     "package-ecosystem:": "skills/security.md",  # Dependabot opt-in config + CI-breaking caveats live once with the dependency-scanning owner; cicd.md points here
     "Pipeline order alone does not reject anonymous callers": "skills/gateway.md",  # forwarded-claims trust boundary lives with Gateway; API wiring points here
+    "The relay header and settings come from one shared `ForwardedClaims` section.": "skills/gateway.md",  # Gateway and API bind one ForwardedClaims section (header, allowlist, trusted callers)
     "RelationshipTypes/{id}/definition.json": "support/ontology-projection.md",  # ontology projection outputs + mapping live once; schema doc, interview, gates carry only the command and a pointer
     "participate in an enterprise or analytics model": "ai/shared-understanding-interview.md",  # the opt-in question verbatim lives with the interview; adopt-codebase and schema doc point here
     "session state does not survive between transactions": "support/scalability-and-hosting.md",  # transaction-mode pooler hazards (advisory locks, SET, prepare) live with connection budgets
@@ -99,13 +103,16 @@ CANARIES = {
     "bypass the change tracker, `SaveChanges` interceptors": "skills/data-persistence.md",  # ExecuteUpdate/ExecuteDelete audit/outbox/concurrency bypass rule
     "http.AddStandardResilienceHandler(o => o.Retry.DisableForUnsafeHttpMethods());": "patterns/infrastructure-wiring.md",  # ServiceDefaults no-unsafe-retry call; resilience.md states the policy by name only
     "No paid licenses by default.": "skills/package-dependencies.md",  # GR-04 license criterion + known exclusions; GROUND-RULES/ai/SKILL.md carry the short form
-    "no coordinated omission": "templates/test-templates-quality.md",  # in-house LoadRunner shape (replaces NBomber); skills name LoadRunner only
+    "latency is measured from each request's scheduled start": "templates/test-templates-quality.md",  # EF.Testing LoadRunner semantics with the load-test shape; skills name LoadRunner only
     "every caller lands in the anonymous partition": "skills/security.md",  # UseRateLimiter after UseAuthentication/UseAuthorization; host wiring and api.md carry the order and point here
+    "The Redis rate limiter shares the EF.Cache connection.": "skills/security.md",  # AddRedisRateLimiting resolves the AddTypedCache multiplexer; never a second Redis connection
     "499 only when `HttpContext.RequestAborted` is cancelled": "templates/exception-handler-template.md",  # cancellation/timeout status mapping; api.md points to the mapping table
+    "Map only the app's own client-input exceptions to 400.": "templates/exception-handler-template.md",  # R14: framework exceptions stay 500; MapExceptions lists app types only
     "Only the standard hedging pipeline snapshots the `HttpRequestMessage` for each attempt": "skills/resilience.md",  # one hedging shape; scale doc keeps the GET-only policy by name
     "Branch on the `CanConnectAsync` result": "templates/health-check-template.md",  # SQL health check must use the bool, not an unconditional Healthy()
     "Never seed code-defined jobs with `ICronTickerManager.AddAsync`": "skills/background-services.md",  # TickerQ cron lives on [TickerFunction]; trigger templates point here
-    "a live `Processing` lease means retry later": "skills/messaging.md",  # two-state inbox claim (Processing lease -> Completed with the effect)
+    "TickerQ jobs are top-level classes, and the host calls `UseTickerQ()`.": "skills/background-services.md",  # a nested job class or a missing UseTickerQ() compiles and never runs
+    "a live claim held by another delivery means retry later": "skills/messaging.md",  # EF.Data.Outbox two-state inbox claim (in-progress lease -> completed with the effect)
     "Compose interpolates only from `.env`": "support/compose-deployment.md",  # DockerCompose deployment owner (.env.base + images.env -> generated .env); iac/cicd/schema point here
     "Generate no rule-object layer": "skills/domain-model.md",  # rules live on the aggregate (Valid/Transition, DomainResult.Combine); entity/structure-validator templates point here
     "Never generate a parallel `docs/tech-design.md`": "templates/tech-design-template.md",  # docs/tech-design.html is the only design doc; diagrams doc carries source-plus-SVG rules only
@@ -145,7 +152,7 @@ Look for the same snippet/rule/explanation in 2+ files. Grep for distinctive met
 read the hits:
 
 ```bash
-grep -rl "AddFusionCache\|AddServiceDefaults\|AddSqlServer(\|ScaffoldAuthHandler\|NotImplementedException" \
+grep -rl "AddTypedCache\|AddServiceDefaults\|AddSqlServer(\|AddFixedPrincipal\|NotImplementedException" \
   skills/ patterns/ support/ templates/ ai/
 ```
 For each cluster, ask: is this a concept restated (consolidate) or a legitimate per-phase minimum (leave, add
@@ -197,12 +204,15 @@ are pointers.
 - AI provider selection, lifecycle, and live-lane classification: [skills/ai-integration.md](../skills/ai-integration.md).
 - AppHost graph, ServiceDefaults body, OpenTelemetry, and health wiring:
   [patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md). Host files keep call sites only.
-- FusionCache registration loop: [skills/caching.md](../skills/caching.md). Wiring files point to it.
+- EF.Cache registration (`AddTypedCache`, the shared Redis connection): [skills/caching.md](../skills/caching.md). Wiring files point to it.
 - No-op implementation shape and never-throw hazard:
   [templates/no-op-stub-template.md](../templates/no-op-stub-template.md). Phase files keep mode policy.
 - CQRS generated shapes: the `templates/cqrs-*-template.md` set. Skills keep route/validation policy.
-- Scaffold/live auth toggle and `ScaffoldAuthHandler`:
+- Scaffold/live auth toggle, the EF.Auth fixed principal (`ScaffoldPrincipal`) and the JwtBearer `MapInboundClaims` decision:
   [skills/identity-management.md](../skills/identity-management.md).
+- Fail-closed tenant filter, the all-tenants rule and the system identity's cross-tenant roles:
+  [skills/multi-tenant.md](../skills/multi-tenant.md). Data-layer wiring passes the rule; it does not restate it.
+- Claims relay (`ForwardedClaims` section shared by Gateway and API): [skills/gateway.md](../skills/gateway.md).
 - First-party DTO/property and constructor-shape verification: **GR-18** in
   [GROUND-RULES.md](../GROUND-RULES.md).
 - Service-style endpoint, application service, repository, code-hosted agent, and AI Search generated shapes:
@@ -220,12 +230,12 @@ are pointers.
   section Minimize Third-Party Dependencies; **GR-04** carries the short form.
 - Edge and tenant rate limiting (pipeline placement, distributed limiter, single count per budget):
   [skills/security.md](../skills/security.md) section Rate Limiting. The scale doc keeps the per-replica policy.
-- Exception-to-status mapping (412 without ETag, 499/504/500 cancellation split, generic 5xx detail):
+- Exception-to-status mapping (412 without ETag, 499/504/500 cancellation split, generic 5xx detail, app-only 400 mapping):
   [templates/exception-handler-template.md](../templates/exception-handler-template.md). The stale-`If-Match`
   412 policy stays in [skills/data-persistence.md](../skills/data-persistence.md).
 - Read hedging registration: [skills/resilience.md](../skills/resilience.md) section Hedging.
 - Outbox claim/dispatch and inbox claim states: [skills/messaging.md](../skills/messaging.md).
-- TickerQ cron declaration and scheduler health: [skills/background-services.md](../skills/background-services.md).
+- TickerQ cron declaration, top-level jobs plus `UseTickerQ()`, and scheduler health: [skills/background-services.md](../skills/background-services.md).
 - `DockerCompose` deployment (file layout, service rules, Caddy edge, secrets, OpenObserve, VPS deploy workflow):
   [support/compose-deployment.md](../support/compose-deployment.md). Bicep stays in [skills/iac.md](../skills/iac.md); the
   generic release contract stays in [skills/cicd.md](../skills/cicd.md).

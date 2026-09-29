@@ -498,7 +498,7 @@ class ReferenceValidatorTests(unittest.TestCase):
         errors = reference_validator.check_declared_evidence(
             self.tmp, {"includeKeyVault": True, "useAspire": True}
         )
-        self.assertTrue(any("ProtectKeysWithAzureKeyVault" in error for error in errors))
+        self.assertTrue(any("settings.KeyVaultKeyUri" in error for error in errors))
         # Turning the capability off removes the requirement - no scaffold edit needed.
         self.assertEqual(
             reference_validator.check_declared_evidence(self.tmp, {"includeKeyVault": False, "useAspire": True}),
@@ -1128,6 +1128,31 @@ class ModelNamePatternTests(unittest.TestCase):
         errors = reference_validator.check_scaffold_model_names(root)
         self.assertEqual(len(errors), 1)
         self.assertIn("resource-implementation.yaml:2", errors[0])
+
+
+class RetiredEfSurfaceTests(unittest.TestCase):
+    def test_retired_ids_match_current_ones_do_not(self):
+        pattern = validator.RETIRED_EF_SURFACE_PATTERN
+        for text in ("EF.Utility.UI", "NBomber", "NetArchTest.Rules", "RedisRateLimiting.AspNetCore",
+                     "AddGrpcClient2", "AddOpenTelemetryWithConfig", "AddHeaderPropagation()",
+                     "[ScopedMessageHandler]", "ConcurrencyMismatchException", "readNoLock: true",
+                     "EF.IntegrationTesting.Environment"):
+            self.assertIsNotNone(pattern.search(text), text)
+        for text in ("services.AddRedisRateLimiting();", "EF.RateLimiting.Redis", "EF.Utility", "EF.UI.Refit",
+                     "EF.Testing.Architecture", "EF.Testing.Environment", "AddEFGrpcClient",
+                     "AddCorrelationIdPropagation()", "ReadIsolation.Default"):
+            self.assertIsNone(pattern.search(text), text)
+
+    def test_package_type_declarations_match_uses_do_not(self):
+        pattern = validator.PACKAGE_TYPE_DECLARATION_PATTERN
+        for text in ("public class LoadRunner", "internal sealed class InboxStore : IInboxStore",
+                     "public interface IStartupTask", "public class TenantBoundaryValidator(",
+                     "public sealed class ScaffoldAuthHandler", "public record DomainEventContainer"):
+            self.assertIsNotNone(pattern.search(text), text)
+        for text in ("await LoadRunner.RunAsync(", "public class {Entity}StructureValidator",
+                     "class\\s+TenantBoundaryValidator", "public class SeedDataTask : IStartupTask",
+                     "public sealed class ScaffoldPrincipal", "public class InboxStoreTests"):
+            self.assertIsNone(pattern.search(text), text)
 
 
 @unittest.skipUnless(shutil.which("git"), "git not installed")
