@@ -28,9 +28,26 @@ group.MapPut("/{id:guid}", async (
     [FromBody] DefaultRequest<{Entity}Dto> request,
     CancellationToken ct) =>
 {
+    if (request.Item.Id != null && request.Item.Id != id)
+        return TypedResults.Problem(ProblemDetailsHelper.Create(
+            StatusCodes.Status400BadRequest, $"{ErrorConstants.ERROR_URL_BODY_ID_MISMATCH}: {id} <> {request.Item.Id}"));
+
     var result = await handler.HandleAsync(new Update{Entity}Command(request, ifMatch.ExpectedVersion), ct);
     return result.Match(
         response => response.Item is null ? Results.NotFound(id) : TypedResults.Ok(response),
+        errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)));
+})
+.RequireIfMatch();
+
+group.MapDelete("/{id:guid}", async (
+    [FromServices] IRequestHandler<Delete{Entity}Command, Result> handler,
+    Guid id,
+    IfMatch ifMatch,
+    CancellationToken ct) =>
+{
+    var result = await handler.HandleAsync(new Delete{Entity}Command(id, ifMatch.ExpectedVersion), ct);
+    return result.Match<IResult>(
+        () => TypedResults.NoContent(),
         errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)));
 })
 .RequireIfMatch();

@@ -30,7 +30,7 @@ var edge = config.GetSection(EdgeRateLimitSettings.ConfigSectionName).Get<EdgeRa
 services.AddRateLimiter(options => options.UseEdgeLimiter(edge));
 ```
 
-`HasSharedRedis()` is the app's one-line check that `AddTypedCache` registered the unkeyed `IConnectionMultiplexer` (`services.Any(d => d.ServiceType == typeof(IConnectionMultiplexer) && !d.IsKeyedService)`); the Redis health check uses the same answer.
+`HasSharedRedis()` is the app's one-line check for the unkeyed `IConnectionMultiplexer` `AddTypedCache` registered (`services.Any(d => d.ServiceType == typeof(IConnectionMultiplexer) && !d.IsKeyedService)`), shared with the Redis health check.
 
 ### Pipeline Registration
 
@@ -46,7 +46,7 @@ Run the rate limiter after `UseAuthentication()` and `UseAuthorization()` whenev
 ### Distributed Limiter
 
 - A request is counted by exactly one limiter per budget: the global tenant limiter skips endpoints carrying `TenantBudgetMetadata`, so `RequireTenantBudget` never double counts, and a route-group policy over the same budget is never added.
-- **The Redis rate limiter shares the EF.Cache connection.** `AddRedisRateLimiting()` resolves the `IConnectionMultiplexer` that `AddTypedCache` registered (the unkeyed default instance, or `AddRedisRateLimiting(cacheInstanceName)` for a named one); register `AddTypedCache` first and never open a second Redis connection for the limiter. That multiplexer always has `AbortOnConnectFail = false`, so a Redis outage at boot does not fail startup.
+- **The Redis rate limiter shares the EF.Cache connection.** `AddRedisRateLimiting()` resolves the `IConnectionMultiplexer` that `AddTypedCache` registered (the unkeyed default instance, or `AddRedisRateLimiting(cacheInstanceName)` for a named one); register `AddTypedCache` first and never open a second Redis connection for the limiter. A Redis outage at boot does not fail startup ([caching.md](caching.md)).
 - When Redis is unavailable the package fails open and increments `ratelimit.backend_failure`; alert on it, because limits are not enforced while it moves ([../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits). Export meter `EF.RateLimiting` from ServiceDefaults.
 - Health endpoints mapped by `MapEfHealthEndpoints` carry `DisableRateLimiting()` and skip every limiter.
 

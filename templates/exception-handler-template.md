@@ -32,10 +32,10 @@ private static void AddExceptionHandling(IServiceCollection services)
 internal static void MapExceptions(ExceptionClassifierOptions options) => options
     // A policy-free save's lost update: 412 without an ETag (the exception middleware clears it).
     .Map<DbUpdateConcurrencyException>(ExceptionCategory.PreconditionFailed)
+    // [AI] .Map<EF.AI.EFAIDisabledException>(ExceptionCategory.Unavailable)   // 503
     // Caller input the app rejects: its own request exception and the cursor codec's InvalidCursorException.
     .Map<InvalidRequestException>(ExceptionCategory.Validation)
     .Map<InvalidCursorException>(ExceptionCategory.Validation);
-    // When AI is in scope: .Map<EFAIDisabledException>(ExceptionCategory.Unavailable)  (503)
 ```
 
 `InvalidRequestException` is the app's own caller-input exception (for example a page size outside the allowed range), declared in `Application.Contracts` and deriving from `Exception`. `MapExceptions` is `internal` so the endpoint tests build the same registration.
@@ -66,7 +66,7 @@ app.UseExceptionHandler();
 ## Rules
 
 - **Safety net only** - business validation errors must use `Result<T>` / `DomainResult<T>`, never exceptions.
-- **Map only the app's own client-input exceptions to 400.** A framework `ArgumentException`, `FormatException` or `InvalidOperationException` thrown outside the app's input checks is a server bug: a 4xx would hide it and echo its text to the caller. When the app rejects caller input with an exception, it throws its own type and maps that type.
+- **Map only the app's own client-input exceptions to 400.** Framework exceptions (table above) are server bugs: a 4xx would hide them and echo their text. Input the app rejects by exception uses its own type, mapped here.
 - Detail: full `exception.ToString()` in Development only (`ExceptionHandlingOptions.IncludeExceptionDetails`). Outside Development a 5xx carries no exception text; SQL, connection, and internal messages belong in the log.
 - 499 only when `HttpContext.RequestAborted` is cancelled. Any other cancellation is a server-side timeout: 504.
 - A 412 from the handler never carries an ETag: `ExceptionHandlerMiddleware` clears the ETag and cache headers before any handler runs. The stale-`If-Match` 412 with the current ETag comes from the `RequireIfMatch()` endpoint filter ([../skills/data-persistence.md](../skills/data-persistence.md) section Provider Branch and Concurrency Discipline).
@@ -78,6 +78,5 @@ app.UseExceptionHandler();
 
 - [ ] `AddEfProblemDetails()` and `AddExceptionClassifier(MapExceptions)` registered in `RegisterApiServices.cs`; no app `IExceptionHandler` and no second `AddProblemDetails` customizer
 - [ ] `UseExceptionHandler()` called in pipeline before routing
-- [ ] `MapExceptions` maps only app-owned exception types (plus `DbUpdateConcurrencyException`)
 - [ ] Exception text gated by environment and every mapped status **proved by `tests/Test.Endpoints/Middleware/ExceptionMappingTests.cs`** - generate it from [test-templates-endpoint.md](test-templates-endpoint.md) section Exception Mapping Tests
 - [ ] No business logic errors handled here - those use `Result<T>` pattern

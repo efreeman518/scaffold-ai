@@ -175,11 +175,9 @@ These types appear in the service and endpoint templates but are **not provided 
 | `DefaultResponse<T>` | Application.Models | Response wrapper for Get/Create/Update service methods |
 | `ApplicationStyle` / `ApplicationStyleResolver` | Application.Contracts | Runtime `Service` / `Cqrs` selector for `applicationStyle: switch`; reads `Application:Style` plus `<APP>_APPLICATION_STYLE` |
 | `AppConstants` | Application.Contracts | Role names (ROLE_GLOBAL_ADMIN, ROLE_SYSTEM), the system context user id (SYSTEM_USER_ID), cache names (DEFAULT_CACHE) |
-| `IEntityCacheProvider` | Application.Contracts | Abstraction for entity-level caching |
-| `NoOpEntityCacheProvider` | Application.Services | No-op stub used until Phase 5c wires FusionCache |
 | `{Entity}StructureValidator` | Application.Services (and `Application.Cqrs/Features/{Entity}`) | Per-entity DTO rules over `EntityDtoRules` - shape in [../templates/structure-validator-template.md](../templates/structure-validator-template.md) |
 
-`IEntityCacheProvider` / `NoOpEntityCacheProvider` are optional: generate them only when a service consumes entity-level caching. Host-only FusionCache wiring (L1+L2+backplane at the host) needs neither, and the Phase 4 `I{Entity}Service` contract carries no cache dependency.
+Services cache through EF.Cache `ITypedCache` directly ([../skills/caching.md](../skills/caching.md)); generate no app cache-provider abstraction.
 
 ---
 

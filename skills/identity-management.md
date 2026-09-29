@@ -148,6 +148,8 @@ public static class AuthConfiguration
             ?? throw new InvalidOperationException("AzureAd:ClientId is required");
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddMicrosoftIdentityWebApi(section);
+        services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme,
+            o => o.MapInboundClaims = false);   // section Claim-type contract
         return services;
     }
 }
@@ -237,6 +239,8 @@ public static void AddAuthentication(this IServiceCollection services, IConfigur
     var entraSection = config.GetRequiredSection("Gateway_EntraExt");
     services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddMicrosoftIdentityWebApi(entraSection);
+    services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme,
+        o => o.MapInboundClaims = false);   // section Claim-type contract
 }
 ```
 

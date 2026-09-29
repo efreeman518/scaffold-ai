@@ -58,6 +58,73 @@ internal sealed class Create{Entity}Handler(
         return HandlerHelpers.Success(entity.ToDto());
     }
 }
+
+internal sealed class Update{Entity}Handler(
+    ILogger<Update{Entity}Handler> logger,
+    IRequestContext<string, Guid?> requestContext,
+    I{Entity}RepositoryTrxn repoTrxn,
+    ITenantBoundaryValidator tenantBoundaryValidator)
+    : IRequestHandler<Update{Entity}Command, Result<DefaultResponse<{Entity}Dto>>>
+{
+    public async Task<Result<DefaultResponse<{Entity}Dto>>> HandleAsync(
+        Update{Entity}Command command,
+        CancellationToken ct = default)
+    {
+        var dto = command.Request.Item;
+        var authoritativeTenantId = requestContext.TenantId ?? Guid.Empty;
+        dto.TenantId = authoritativeTenantId;
+
+        var validation = {Entity}StructureValidator.ValidateUpdate(dto);
+        if (validation.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(validation.Errors);
+
+        var entity = await repoTrxn.Get{Entity}Async(dto.Id!.Value, true, ct);
+        if (entity == null)
+            return Result<DefaultResponse<{Entity}Dto>>.Failure($"{ErrorConstants.ERROR_ITEM_NOTFOUND}: {dto.Id}");
+
+        var boundary = tenantBoundaryValidator.EnsureTenantBoundary(
+            requestContext.TenantId, requestContext.Roles, entity.TenantId.Value,
+            "{Entity}:Update", nameof({Entity}), entity.Id.Value);
+        if (boundary.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(boundary.ErrorMessage!);
+
+        ConcurrencyGuard.Require(command.ExpectedVersion, entity.Version, nameof({Entity}), entity.Id.Value);
+
+        var tenantChange = tenantBoundaryValidator.PreventTenantChange(
+            entity.TenantId.Value, authoritativeTenantId, nameof({Entity}), entity.Id.Value);
+        if (tenantChange.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(tenantChange.ErrorMessage!);
+
+        var update = repoTrxn.UpdateFromDto(entity, dto, RelatedDeleteBehavior.RelationshipAndEntity);
+        if (update.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(update.ErrorMessage!);
+
+        var save = await CqrsHandlerSupport.TrySaveAsync(repoTrxn, logger, "Error updating {Entity}", ct);
+        if (save.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(save.ErrorMessage!);
+
+        return HandlerHelpers.Success(entity.ToDto());
+    }
+}
+
+internal sealed class Delete{Entity}Handler(
+    ILogger<Delete{Entity}Handler> logger,
+    IRequestContext<string, Guid?> requestContext,
+    I{Entity}RepositoryTrxn repoTrxn,
+    ITenantBoundaryValidator tenantBoundaryValidator)
+    : IRequestHandler<Delete{Entity}Command, Result>
+{
+    public async Task<Result> HandleAsync(Delete{Entity}Command command, CancellationToken ct = default)
+    {
+        var entity = await repoTrxn.Get{Entity}Async(command.Id, false, ct);
+        if (entity == null) return Result.Success();   // idempotent
+
+        var boundary = tenantBoundaryValidator.EnsureTenantBoundary(
+            requestContext.TenantId, requestContext.Roles, entity.TenantId.Value,
+            "{Entity}:Delete", nameof({Entity}), entity.Id.Value);
+        if (boundary.IsFailure) return Result.Failure(boundary.ErrorMessage!);
+
+        ConcurrencyGuard.Require(command.ExpectedVersion, entity.Version, nameof({Entity}), entity.Id.Value);
+
+        repoTrxn.Delete(entity);
+        return await CqrsHandlerSupport.TrySaveAsync(repoTrxn, logger, "Error deleting {Entity}", ct);
+    }
+}
 ```
 
 Rules:
@@ -84,6 +151,8 @@ internal static class {Entity}CqrsRegistrations
     public static IReadOnlyList<CqrsHandlerRegistration> Registrations { get; } =
     [
         new(typeof(Create{Entity}Command), typeof(Result<DefaultResponse<{Entity}Dto>>), typeof(Create{Entity}Handler)),
+        new(typeof(Update{Entity}Command), typeof(Result<DefaultResponse<{Entity}Dto>>), typeof(Update{Entity}Handler)),
+        new(typeof(Delete{Entity}Command), typeof(Result), typeof(Delete{Entity}Handler)),
     ];
 }
 ```

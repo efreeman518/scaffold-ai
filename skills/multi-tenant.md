@@ -58,7 +58,7 @@ internal static bool AllowsAllTenants(IRequestContext<string, Guid?> rc) =>
 
 Pass it as the last `DbContextScopedFactory` constructor argument on both the Trxn and Query factories ([../patterns/data-layer-wiring.md](../patterns/data-layer-wiring.md) section Database Context Pooling & Scoped Wrappers); `true` sets `AllTenants` and clears `TenantId` on the leased context. A caller that carries a tenant stays pinned to it, global admin included; a tenant-less caller with neither role reads nothing. Test harness contexts built outside DI set `AllTenants = true` explicitly, and tenant isolation is proven by the container-backed tests.
 
-**Hand-written tenant filters** (a non-root entity the package filter does not cover, or a tenant id type that does not convert to the context's): use lifted nullable equality - `e => TenantId == null || e.TenantId == TenantId`. Never `e => !TenantId.HasValue || e.TenantId == TenantId!.Value` - EF parameterizes the captured `TenantId.Value` eagerly regardless of the `||` short-circuit and throws `InvalidOperationException: Nullable object must have a value` at query time when the context tenant is null.
+**Hand-written tenant filters** (a non-root entity, or a tenant id type with no conversion to the context's) keep the fail-closed shape `e => AllTenants || (TenantId != null && e.TenantId == TenantId)`, never a tenant-less pass-through. Never read `TenantId!.Value` there: EF parameterizes it eagerly despite the short-circuit and throws `InvalidOperationException: Nullable object must have a value` at query time when the context tenant is null.
 
 ## Tenant Input Models
 

@@ -91,7 +91,7 @@ public interface I{Entity}Service
     ValueTask Create({Entity} entity, CancellationToken ct);
 
     /// <summary>Update an existing {entity}.</summary>
-    ValueTask Update({Entity} entity, CancellationToken ct);
+    ValueTask<{Entity}> Update({Entity} entity, CancellationToken ct);
 
     /// <summary>Delete a {entity} by ID.</summary>
     ValueTask Delete(Guid id, long version, CancellationToken ct);
@@ -141,11 +141,13 @@ public class {Entity}Service(
         messenger.Send(new EntityMessage<{Entity}>(EntityChange.Created, entity));
     }
 
-    public async ValueTask Update({Entity} entity, CancellationToken ct)
+    public async ValueTask<{Entity}> Update({Entity} entity, CancellationToken ct)
     {
-        await api.Api.{Entity}[entity.Id].PutAsync(entity.ToData(),
+        var response = await api.Api.{Entity}[entity.Id].PutAsync(entity.ToData(),
             rc => rc.Headers.Add("If-Match", EntityTags.ForVersion(entity.Version).ToString()), ct);
-        messenger.Send(new EntityMessage<{Entity}>(EntityChange.Updated, entity));
+        var updated = new {Entity}(response!.Item!);   // the saved Version, so the next PUT is not a 412
+        messenger.Send(new EntityMessage<{Entity}>(EntityChange.Updated, updated));
+        return updated;
     }
 
     public async ValueTask Delete(Guid id, long version, CancellationToken ct)

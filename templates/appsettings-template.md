@@ -56,8 +56,10 @@ This is a complete reference of all configuration sections used across the solut
 
   "ForwardedClaims": {
     "HeaderName": "X-Forwarded-User-Claims",
-    "ClaimTypes": [ "tenant_id" ],
-    "TrustedCallerIds": [ "{gateway-service-client-id}" ]
+    "ClaimTypes": [ "sub", "oid", "name", "roles", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier",
+                    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name", "http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "tenant_id" ],
+    "TrustedCallerIds": [ "{gateway-service-client-id}" ],
+    "ServicePathPrefixes": [ "/healthz" ]
   },
 
   "Cors": {
@@ -152,7 +154,8 @@ This is a complete reference of all configuration sections used across the solut
 
   "ForwardedClaims": {
     "HeaderName": "X-Forwarded-User-Claims",
-    "ClaimTypes": [ "tenant_id" ],
+    "ClaimTypes": [ "sub", "oid", "name", "roles", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier",
+                    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name", "http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "tenant_id" ],
     "TrustedCallerIds": [ "{gateway-service-client-id}" ]
   },
 
@@ -252,7 +255,7 @@ This is a complete reference of all configuration sections used across the solut
 - Redis connection string name (`Redis1`) must match the `RedisConnectionStringName` in `CacheSettings`
 - `CacheSettings` is an array bound by EF.Cache `AddTypedCache` - each entry creates a named cache instance; `KeyNamespace` (default: the host environment name), `SchemaVersion`, `Serializer` and `Profiles` are optional per entry, and code decisions (schema version, profile durations) go in the `configure` callback
 - `FailSafeThrottleDurationSeconds` - note the unit is **seconds** (passed to `TimeSpan.FromSeconds()`)
-- `ForwardedClaims` is one section bound by both the API (`AddForwardedClaimsTransformation`) and the Gateway (`AddDownstreamAuthTransforms`), so the relay header name and claim allowlist match. `TrustedCallerIds` lists the gateway service-token `azp`/`appid` values the API trusts; an empty list disables the relay (fail closed)
+- `ForwardedClaims` is one section bound by both the API (`AddForwardedClaimsTransformation`) and the Gateway (`AddDownstreamAuthTransforms`), so the relay header name and claim allowlist match. `TrustedCallerIds` lists the gateway service-token `azp`/`appid` values the API trusts; an empty list disables the relay (fail closed). `ClaimTypes` replaces the package default, so it lists the default set plus `tenant_id`, and `ServicePathPrefixes` (API only) lists service endpoints alone ([gateway.md](../skills/gateway.md) section Forwarded Claims Trust Boundary)
 - Phase 2 maps `hostingLaneDefaults.<active>.dataProtectionPersistence` to runtime `DataProtection:Persistence`; `TASKFLOW_DATAPROTECTION_PERSISTENCE` is the environment override. `AzureBlob` requires either `DataProtectionKeysFileUrl` or the `BlobStorage1` endpoint/connection used to derive it; `Redis` requires `Redis1`; `None` is limited to isolated development/test hosts. Key Vault encryption is independent and optional. Tests that select a persistence arm must inject that arm's required input. See [security.md](../skills/security.md#data-protection). Supply credentials through managed identity, never URL query strings.
 - A Gateway cluster's `Metadata:TokenScope` gets a downstream token from `AccessTokenCache`; `Metadata:RelayUserClaims` adds the relay header. A cluster without `TokenScope` passes the inbound `Authorization` header through unchanged
 - `Proxy`, `Cors`/`CorsSettings`, `RateLimiting:Tenants`, `RateLimiting:Edge`, `OpenTelemetry`, `Messaging:Inbox`, `OutboxDispatcher` and `Scheduling` are validated at registration or host start by their EF packages; an invalid value fails startup

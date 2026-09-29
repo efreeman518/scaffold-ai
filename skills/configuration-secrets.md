@@ -172,8 +172,8 @@ dotnet user-secrets set "ConnectionStrings:Redis1" "localhost:6379" --project sr
 One `DefaultAzureCredential` per process, from EF.Host, reused for every Azure client (App Configuration, Data Protection, Key Vault, downstream tokens) so they share one token cache. Generate no credential factory.
 
 ```csharp
-var credential = AzureCredentialFactory.Create(builder.Configuration);
-builder.Services.AddAzureTokenCredential(builder.Configuration);   // TryAddSingleton<TokenCredential>
+var credential = AzureCredentialFactory.Create(builder.Configuration);   // the one instance
+builder.Services.TryAddSingleton<TokenCredential>(credential);           // DI consumers resolve the same one
 ```
 
 - `ManagedIdentityClientId`: set for user-assigned managed identity in Azure.

@@ -56,8 +56,10 @@ Host/{Gateway}.Gateway/
   },
   "ForwardedClaims": {
     "HeaderName": "X-Forwarded-User-Claims",
-    "ClaimTypes": [ "tenant_id" ],
-    "TrustedCallerIds": [ "{gateway-service-client-id}" ]
+    "ClaimTypes": [ "sub", "oid", "name", "roles", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier",
+                    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name", "http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "tenant_id" ],
+    "TrustedCallerIds": [ "{gateway-service-client-id}" ],
+    "ServicePathPrefixes": [ "/healthz" ]
   }
 }
 ```
@@ -105,7 +107,7 @@ public static IServiceCollection AddGatewayServices(this IServiceCollection serv
 1. Every claim-relaying proxy route requires an authenticated-user authorization policy. Pipeline order alone does not reject anonymous callers.
 2. Gateway removes any inbound relay header on every route (the configured `HeaderName` and the default `X-Forwarded-User-Claims`) and regenerates one envelope only from the authenticated `HttpContext.User`.
 3. Gateway replaces the user token with its downstream service token.
-4. API bearer authentication validates issuer and audience; `AddForwardedClaimsTransformation` then honors the header only for an authenticated app-only token (no delegated-scope claim) whose `azp`/`appid` is in `ForwardedClaims:TrustedCallerIds`. An empty list disables the relay. With no valid header the gateway identity is unauthenticated (`RequireHeaderFromTrustedCaller`); a shared `SigningKey` optionally HMAC-signs it.
+4. API bearer authentication validates issuer and audience; `AddForwardedClaimsTransformation` then honors the header only for an authenticated app-only token (no delegated-scope claim) whose `azp`/`appid` is in `ForwardedClaims:TrustedCallerIds`. An empty list disables the relay. With no valid header the gateway identity is unauthenticated (`RequireHeaderFromTrustedCaller`), except under `ServicePathPrefixes`: on those service-only paths (the API's `/healthz` prefix, for the gateway's app-only aggregate probe) a trusted caller that sends no header keeps its own principal, and a header that is sent is still verified. List only service endpoints there. A shared `SigningKey` optionally HMAC-signs the header. A configured `ClaimTypes` replaces the package default, so the list above is that default plus `tenant_id`.
 5. Non-gateway service identities and direct-user-token paths ignore the header. `IRequestContext` reads only the resulting authenticated principal, never the raw envelope.
 
 Required verification:
@@ -124,12 +126,7 @@ The package tests its own codec and transformation; the app keeps these cases be
 
 ## Authentication Model
 
-Typical split:
-
-- Gateway authenticates user token (for example Entra External/B2C).
-- Gateway acquires service token for downstream API (`AccessTokenCache`).
-- Gateway strips caller-supplied relay headers and regenerates the payload from the authenticated user.
-- API authenticates and allowlists the gateway service identity before accepting the forwarded user claims payload.
+The Gateway authenticates the user token (Entra External/B2C), sends its own `AccessTokenCache` service token downstream and regenerates the relay header; the API allowlists that service identity (Forwarded Claims Trust Boundary).
 
 ```csharp
 private static void AddAuthentication(IServiceCollection services, IConfiguration config)
@@ -139,6 +136,7 @@ private static void AddAuthentication(IServiceCollection services, IConfiguratio
         options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
     })
     .AddMicrosoftIdentityWebApi(config.GetSection("Gateway_EntraExt"));
+    services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o => o.MapInboundClaims = false);
 
     services.AddSingleton<IAuthorizationHandler, TenantMatchHandler>();
 }
@@ -208,16 +206,7 @@ The `PathRemovePrefix` transform removes a prefix **before forwarding to the bac
 client: /api/categories  -> gateway strips /api -> backend: /categories  -> 404
 ```
 
-**Correct:** omit the transform when backend and gateway share the same prefix:
-```json
-"Routes": {
-  "api-route": {
-    "ClusterId": "api-cluster",
-    "AuthorizationPolicy": "Default",
-    "Match": { "Path": "/api/{**catch-all}" }
-  }
-}
-```
+**Correct:** omit the transform when backend and gateway share the same prefix, as the YARP Configuration route above does.
 
 Pick one convention per project and apply it everywhere. Never use dual-prefix probing logic.
 
