@@ -9,7 +9,7 @@ Configuration flows through a strict hierarchy. Secrets are never committed - us
 
 See appsettings-template for config file patterns.
 
-Base types (`IKeyVaultManager`, `IKeyVaultCryptoUtility`) come from the `EF.KeyVault` package - see [package-dependencies.md](package-dependencies.md) and the [EF.Packages repo](https://github.com/efreeman518/EF.Packages) for full API details.
+Base types (`IKeyVaultManager`, `IKeyVaultCryptoUtility`) come from the `EF.KeyVault` package ([../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Azure Key Vault).
 
 ---
 

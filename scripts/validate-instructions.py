@@ -1471,15 +1471,13 @@ def check_no_foundry_local(path: Path, findings: Findings) -> None:
 
 def check_no_retired_ef_surface(path: Path, findings: Findings) -> None:
     for num, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        match = RETIRED_EF_SURFACE_PATTERN.search(line)
-        if match:
+        for match in RETIRED_EF_SURFACE_PATTERN.finditer(line):
             findings.err(
                 path,
                 f"line {num}: {match.group(0)!r} is retired from the EF.Packages baseline - use the current "
                 "package or API (support/ef-packages-reference.md, support/ef-packages-optional.md)",
             )
-        match = PACKAGE_TYPE_DECLARATION_PATTERN.search(line)
-        if match:
+        for match in PACKAGE_TYPE_DECLARATION_PATTERN.finditer(line):
             findings.err(
                 path,
                 f"line {num}: {match.group(0)!r} declares a type EF.Packages provides - reference the "

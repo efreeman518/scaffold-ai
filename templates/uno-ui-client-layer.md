@@ -216,7 +216,7 @@ The generated property names depend on the closed generic type names. Compile on
 
 ## Client Plumbing (EF.UI.Client)
 
-Busy tracking, notifications, problem+json translation, the UI dispatcher contract and the runtime base URL are EF.UI.Client; generate no busy tracker, notification service, delegating handler, problem-details payload or runtime-config loader.
+Busy tracking, notifications, problem+json translation, the UI dispatcher contract and the runtime base URL are EF.UI.Client ([../support/ef-packages-optional.md](../support/ef-packages-optional.md) section UI Client); generate no busy tracker, notification service, delegating handler, problem-details payload or runtime-config loader.
 
 ```csharp
 // App.xaml.host.cs -> UseHttp: busy outermost, problem details innermost, both before any resilience handler

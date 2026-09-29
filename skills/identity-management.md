@@ -126,7 +126,8 @@ public static class AuthConfiguration
 
         if (mode == AuthMode.Scaffold)
         {
-            // Scaffold principal: every request authenticates as the fixed identity (EF.Auth).
+            // Scaffold principal: every request authenticates as the fixed identity (EF.Auth; API list in
+            // support/ef-packages-optional.md section Authentication).
             services.AddAuthentication(ScaffoldPrincipal.SchemeName)
                 .AddFixedPrincipal(ScaffoldPrincipal.SchemeName, o =>
                 {
@@ -336,7 +337,7 @@ Implementation rule: return `Result`/`Result<T>` from all Graph operations; do n
 
 ## Graph Client + DI
 
-Use conditional registration - if the config section is absent, register a no-op stub so the app boots without Entra credentials:
+EF.MSGraph types: [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Microsoft Graph. Use conditional registration - if the config section is absent, register a no-op stub so the app boots without Entra credentials:
 
 ```csharp
 services.Configure<EntraExtServiceSettings>(configuration.GetSection("EntraExt"));

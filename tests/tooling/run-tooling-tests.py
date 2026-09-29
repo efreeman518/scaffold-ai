@@ -1143,6 +1143,18 @@ class RetiredEfSurfaceTests(unittest.TestCase):
                      "AddCorrelationIdPropagation()", "ReadIsolation.Default"):
             self.assertIsNone(pattern.search(text), text)
 
+    def test_every_retired_id_on_a_line_is_reported(self):
+        root = Path(tempfile.mkdtemp(prefix="tooling-retired-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        doc = root / "sample.md"
+        doc.write_text("- Load: `NBomber` scenarios; architecture: `NetArchTest.Rules`.\n", encoding="utf-8")
+        findings = validator.Findings()
+        validator.check_no_retired_ef_surface(doc, findings)
+        messages = [msg for _, msg in findings.errors]
+        self.assertEqual(len(messages), 2, messages)
+        self.assertTrue(any("'NBomber'" in msg for msg in messages), messages)
+        self.assertTrue(any("'NetArchTest'" in msg for msg in messages), messages)
+
     def test_package_type_declarations_match_uses_do_not(self):
         pattern = validator.PACKAGE_TYPE_DECLARATION_PATTERN
         for text in ("public class LoadRunner", "internal sealed class InboxStore : IInboxStore",

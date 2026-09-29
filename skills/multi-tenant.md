@@ -108,7 +108,7 @@ The no-request context then carries `System`, `EnsureTenantBoundary` / `EnsureCr
 
 ## Tenant Boundary Validator
 
-`ITenantBoundaryValidator` / `TenantBoundaryValidator` is EF.Tenancy's stateless singleton (`AddTenancy`); generate no validator, helper or logging-extension class. Its checks, each returning `Result`:
+`ITenantBoundaryValidator` / `TenantBoundaryValidator` is EF.Tenancy's stateless singleton (`AddTenancy`; [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Tenancy); generate no validator, helper or logging-extension class. Its checks, each returning `Result`:
 
 1. `EnsureTenantBoundary(callerTenantId, callerRoles, entityTenantId, operation, entityName, entityId)`: a cross-tenant role passes; no roles, a global (null-tenant) entity or a tenant mismatch fail with `tenant.forbidden`.
 2. `EnsureCrossTenantRole(callerRoles, operation)`: `tenant.forbidden` unless the caller holds a role in `CrossTenantRoles`.

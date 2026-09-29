@@ -51,7 +51,7 @@ internal class TodoItemService(ILogger<TodoItemService> logger, ...) : ITodoItem
 
 ### Aspire Automatic Wiring
 
-ServiceDefaults calls `ConfigureOpenTelemetry()`, which is EF.OpenTelemetry's `AddEfOpenTelemetry(...)`: logs, traces and metrics with HTTP, runtime and ASP.NET Core instrumentation, plus the app meters and sources it names. No manual setup needed for standard request flows.
+ServiceDefaults calls `ConfigureOpenTelemetry()`, which is EF.OpenTelemetry's `AddEfOpenTelemetry(...)` ([../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Observability): logs, traces and metrics with HTTP, runtime and ASP.NET Core instrumentation, plus the app meters and sources it names. No manual setup needed for standard request flows.
 
 ### Cross-Service Correlation
 

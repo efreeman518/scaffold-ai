@@ -261,6 +261,8 @@ For SQL + Cosmos/Table hybrids:
 
 ## Always Encrypted (Column-Level Encryption)
 
+Package API (`MigrationSupport`, `EF.Data.Encryption`): [ef-packages-optional.md](ef-packages-optional.md) section SQL Server Extras, then section Column Encryption.
+
 Load when a Phase 1 Security-branch decision protects a `sensitive` property with SQL Always Encrypted (SQL Server / Azure SQL only). Trigger and mode choice live in [../ai/shared-understanding-interview.md](../ai/shared-understanding-interview.md) section Sensitive-Data Trigger. This section is the how.
 
 ### Storage shape: `varbinary(200)` + UTF8 converter

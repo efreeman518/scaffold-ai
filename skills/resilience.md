@@ -33,7 +33,7 @@ Keep the client total timeout larger than `retries x per-attempt timeout` budget
 
 ### Hedging
 
-Hedging sends a parallel attempt when the first is slow, which cuts tail latency but multiplies load. It is opt-in per client for idempotent reads only, under the policy in [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits. One shape is valid, and it is packaged: `AddReadHedging(configuration)` from EF.Http.Resilience on a dedicated read client; generate no hedging extension.
+Hedging (EF.Http.Resilience `AddReadHedging`; [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Client Resilience) sends a parallel attempt when the first is slow, which cuts tail latency but multiplies load. It is opt-in per client for idempotent reads only, under the policy in [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits. One shape is valid, and it is packaged: `AddReadHedging(configuration)` from EF.Http.Resilience on a dedicated read client; generate no hedging extension.
 
 ```csharp
 // Section Resilience:Hedging: Enabled (true), DelayMs (250), MaxHedgedAttempts (1..10)

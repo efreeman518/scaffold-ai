@@ -268,7 +268,7 @@ Keeping them in separate assemblies means the fast component tier never pays the
 - Mocks: `Moq`
 - Endpoint/E2E harness: `Microsoft.AspNetCore.Mvc.Testing`
 - Architecture: EF.Testing.Architecture
-- Test infrastructure: EF.Testing, EF.IntegrationTesting (+ `.PostgreSql` / `.SqlServer` / `.Aspire`), EF.AI.Testing
+- Test infrastructure: EF.Testing, EF.IntegrationTesting (+ `.PostgreSql` / `.SqlServer` / `.Aspire`), EF.AI.Testing ([../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Testing)
 - Hosted UI: `Microsoft.Playwright.MSTest`
 - Benchmarks: `BenchmarkDotNet`
 - Mutation: `dotnet-stryker` local tool

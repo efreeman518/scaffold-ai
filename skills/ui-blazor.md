@@ -336,7 +336,7 @@ The Blazor host sends no tenant header. The API and Gateway authenticate every r
 
 - Do **not** read the tenant id from a Blazor `IRequestContext` - Blazor Server runs server-side per circuit and there is no inbound tenant header to read from.
 - Create DTOs must **not** carry a client-populated `TenantId` or owner - the API stamps both server-side from the request context. See [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Dev-Mode Write Identity. The UI sends the domain fields; identity is the server's job.
-- Read-only list clients use `AddReadHedging(configuration)` (EF.Http.Resilience) on a dedicated read client; clients that write keep the standard handler, which never retries unsafe methods ([resilience.md](resilience.md) section Hedging).
+- Read-only list clients use `AddReadHedging(configuration)` (EF.Http.Resilience, [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Client Resilience) on a dedicated read client; clients that write keep the standard handler, which never retries unsafe methods ([resilience.md](resilience.md) section Hedging).
 
 ## Forms & Interaction Patterns
 

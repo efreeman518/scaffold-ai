@@ -141,7 +141,7 @@ A **singleton admin** `IRequestContext` is acceptable only for triggers that leg
 
 ### Integration event triggers
 
-Service Bus integration-event triggers are one line each over EF.Messaging.Functions: the dispatcher reads the envelope, runs the `IntegrationEventConsumerBase` consumer (inbox claim included), and settles the delivery - dead-letter an unreadable envelope, complete a consumed or duplicate one, abandon an in-progress one, rethrow a failure. Consumers run under the no-request system context and read the owning tenant from the envelope payload, never from a request context. One function per subscription, so each consumer gets its own delivery count and dead-letter queue.
+Service Bus integration-event triggers are one line each over EF.Messaging.Functions ([../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Service Bus Triggers): the dispatcher reads the envelope, runs the `IntegrationEventConsumerBase` consumer (inbox claim included), and settles the delivery - dead-letter an unreadable envelope, complete a consumed or duplicate one, abandon an in-progress one, rethrow a failure. Consumers run under the no-request system context and read the owning tenant from the envelope payload, never from a request context. One function per subscription, so each consumer gets its own delivery count and dead-letter queue.
 
 ```csharp
 public class Function{Entity}ProjectionTrigger(
