@@ -161,7 +161,7 @@ When the app needs API, Gateway, SQL, Redis, storage, or auth, generate an AppHo
 
 Required fixture behavior:
 
-- Use the shared `AspireTestHostContext` from [test-templates-aspire.md](test-templates-aspire.md). Its Docker preflight drains stdout and stderr concurrently. Explicit `{APP}_WASM_TESTS_ENABLED=false` or missing Docker is inconclusive; Docker success makes later toolchain/AppHost/resource/browser failures red with diagnostics.
+- Use the package `AspireTestHostContext` (EF.IntegrationTesting.Aspire, [test-templates-aspire.md](test-templates-aspire.md)); it owns the Docker preflight, the cumulative startup budget and the diagnostics. Explicit `{APP}_WASM_TESTS_ENABLED=false` or missing Docker is inconclusive; Docker success makes later toolchain/AppHost/resource/browser failures red with diagnostics.
 - Clean both `bin/<configuration>/<tfm>-browserwasm` and `obj/<configuration>/<tfm>-browserwasm` before a test-owned rebuild.
 - Restore with `BuildAllUnoTargets=true` and `EnableUnoWasm=true`.
 - Build one target at a time with `TargetFrameworkOverride=<tfm>-browserwasm`, `EnableUnoWasm=true`, `--no-restore`, and `-m:1`. Do not use `-f`.

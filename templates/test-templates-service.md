@@ -22,11 +22,8 @@ Unit test classes are **flat** - no shared unit-test base. Declare per-class `Mo
 private readonly Mock<I{Entity}RepositoryTrxn> _repoTrxnMock = new();
 private readonly Mock<I{Entity}RepositoryQuery> _repoQueryMock = new();
 private readonly Mock<IRequestContext<string, Guid?>> _requestContextMock = new();
-private readonly Mock<ITenantBoundaryValidator> _tenantBoundaryMock = new();
-private readonly Mock<IInternalMessageBus> _messageBusMock = new();
-private readonly Mock<IEntityCacheProvider> _entityCacheMock = new();
-private readonly Mock<IFusionCacheProvider> _fusionCacheProviderMock = new();
-private readonly Mock<IFusionCache> _fusionCacheMock = new();
+private readonly Mock<ITenantBoundaryValidator> _tenantBoundaryMock = new();   // EF.Tenancy
+private readonly Mock<ITypedCache> _cacheMock = new();                          // EF.Cache
 
 [TestInitialize]
 public void Setup()
@@ -34,15 +31,12 @@ public void Setup()
     _requestContextMock.Setup(x => x.TenantId).Returns(TestConstants.TenantId);
     _requestContextMock.Setup(x => x.Roles).Returns(new List<string>());
     _tenantBoundaryMock.Setup(t => t.EnsureTenantBoundary(
-            It.IsAny<ILogger>(), It.IsAny<Guid?>(), It.IsAny<IReadOnlyCollection<string>>(),
-            It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>()))
+            It.IsAny<Guid?>(), It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<Guid?>(),
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>()))
         .Returns(Result.Success());
     _tenantBoundaryMock.Setup(t => t.PreventTenantChange(
-            It.IsAny<ILogger>(), It.IsAny<Guid?>(), It.IsAny<Guid?>(),
-            It.IsAny<string>(), It.IsAny<Guid>()))
+            It.IsAny<Guid?>(), It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<Guid>()))
         .Returns(Result.Success());
-    _fusionCacheProviderMock.Setup(x => x.GetCache(AppConstants.DEFAULT_CACHE))
-        .Returns(_fusionCacheMock.Object);
 }
 
 private {Entity}Service CreateService(
@@ -54,9 +48,7 @@ private {Entity}Service CreateService(
         _requestContextMock.Object,
         trxn ?? _repoTrxnMock.Object,
         query ?? _repoQueryMock.Object,
-        _messageBusMock.Object,
-        _entityCacheMock.Object,
-        _fusionCacheProviderMock.Object,
+        _cacheMock.Object,
         _tenantBoundaryMock.Object);
 }
 ```
@@ -134,7 +126,7 @@ public class {Entity}ServiceTests
         var service = CreateService();
 
         // Act
-        var result = await service.UpdateAsync(new() { Item = dto });
+        var result = await service.UpdateAsync(new() { Item = dto }, expectedVersion: 1);
 
         // Assert
         Assert.IsTrue(result.IsFailure);
@@ -165,7 +157,7 @@ public class {Entity}ServiceTests
         _repoTrxnMock.Setup(r => r.SaveChangesAsync(It.IsAny<OptimisticConcurrencyWinner>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
         // Act
-        var result = await CreateService().UpdateAsync(new() { Item = dto });
+        var result = await CreateService().UpdateAsync(new() { Item = dto }, entity.Version);
 
         // Assert
         Assert.IsTrue(result.IsSuccess);
@@ -207,11 +199,26 @@ public class {Entity}ServiceTests
         var service = CreateService();
 
         // Act
-        var result = await service.DeleteAsync(entityId);
+        var result = await service.DeleteAsync(entityId, entity.Version);
 
         // Assert
         Assert.IsTrue(result.IsSuccess);
         _repoTrxnMock.Verify(r => r.Delete(entity), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task Given_StaleIfMatch_When_DeleteAsync_Then_ThrowsPreconditionFailedBeforeDelete()
+    {
+        // Arrange
+        var entityId = Guid.NewGuid();
+        var entity = {Entity}.Create(TestConstants.TenantId, "Stale").Value!;
+        _repoTrxnMock.Setup(r => r.Get{Entity}Async(entityId, false, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(entity);
+
+        // Act + Assert - ConcurrencyGuard throws; the RequireIfMatch filter answers 412 with the current ETag.
+        await Assert.ThrowsExactlyAsync<PreconditionFailedException>(
+            () => CreateService().DeleteAsync(entityId, entity.Version + 1));
+        _repoTrxnMock.Verify(r => r.Delete(It.IsAny<{Entity}>()), Times.Never);
     }
 
     [TestMethod]
@@ -337,7 +344,7 @@ public class {EventName}HandlerTests
 Notes:
 
 - A **log-only** handler (audit, telemetry) drops the repository mock and asserts against a capturing `ILogger` instead; keep the redelivery case - an audit written twice is still a defect.
-- Handlers registered under `[ScopedMessageHandler]` need no special test setup; the attribute governs runtime scoping, not construction.
+- Handlers need no special test setup: the bus resolves each one from a new DI scope at runtime, which does not affect construction in a unit test.
 - Bus wiring (`AutoRegisterHandlers` reaching this handler) is host behaviour, not handler behaviour - cover it once in the mesh/integration tier rather than per handler.
 
 ---
@@ -366,7 +373,7 @@ public class {Entity}MapperTests
         Assert.AreEqual(entity.Name, dto.Name);
         Assert.AreEqual(entity.TenantId, dto.TenantId);
         // Assert each additional mapped property
-        // Note: Audit fields (CreatedDate, etc.) are NOT mapped - managed by AuditInterceptor
+        // Note: timestamps and audit fields (CreatedAtUtc, CreatedBy, etc.) are NOT mapped - DbContextBase stamps them
     }
 
     [TestMethod]

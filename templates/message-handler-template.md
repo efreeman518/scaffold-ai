@@ -37,12 +37,11 @@ public record {EventName}(
 // File: src/Application/{Project}.Application.MessageHandlers/{EventName}Handler.cs
 using Application.Contracts.Events;
 using Microsoft.Extensions.Logging;
-using EF.BackgroundServices.Attributes;
 using EF.BackgroundServices.InternalMessageBus;
 
 namespace Application.MessageHandlers;
 
-[ScopedMessageHandler]
+// No attribute: every auto-registered handler is resolved from a new DI scope per dispatch.
 public class {EventName}Handler(
     ILogger<{EventName}Handler> logger) : IMessageHandler<{EventName}>
 {
@@ -67,7 +66,7 @@ public class {EventName}Handler(
 
 ## Publishing Events
 
-Events are published through `IInternalMessageBus` from service methods.
+In-process events are published through `IInternalMessageBus` from service methods. Integration events that leave the process are not published here: the aggregate raises them and the EF.Data.Outbox staging interceptor writes them in the same save ([../skills/messaging.md](../skills/messaging.md)).
 
 > **CRITICAL:** `IInternalMessageBus.Publish()` is a synchronous fire-and-forget API over the background queue. It takes a process mode plus a **collection** of messages. There is NO `PublishAsync` method and no single-message overload.
 
@@ -109,15 +108,12 @@ Handlers need **two steps**: DI registration and bus wiring after host build.
 // In RegisterApplicationServices():
 services.AddScoped<IMessageHandler<{EventName}>, {EventName}Handler>();
 
-// After host Build():
-public static void AutoRegisterMessageHandlers(this IHost host)
-{
-    var msgBus = host.Services.GetRequiredService<IInternalMessageBus>();
-    msgBus.AutoRegisterHandlers(host.Services, typeof({EventName}Handler).Assembly);
-}
+// After host Build(), before RunStartupTasksAsync():
+public static void AutoRegisterMessageHandlers(this IHost host) =>
+    host.Services.GetRequiredService<IInternalMessageBus>().AutoRegisterHandlers(typeof({EventName}Handler).Assembly);
 ```
 
-`[ScopedMessageHandler]` controls scoped execution. It does **not** replace the DI registration shown above.
+`AutoRegisterHandlers(assemblies)` scans the handler assembly and throws at that call for any discovered handler that is not registered in DI, so a missing registration fails at startup instead of silently dropping messages. Each dispatch resolves the handler of exactly the discovered type from a new DI scope, so scoped dependencies (a repository, a `DbContext`) live exactly as long as that dispatch.
 
 ---
 
@@ -125,14 +121,22 @@ public static void AutoRegisterMessageHandlers(this IHost host)
 
 ### Audit Handler
 
+The `AuditInterceptor` publishes `AuditEntry<string, Guid?>` (and `<string, Guid>`) messages; the handler appends them to the lane's package sink (`IAuditLogRepository` from EF.Audit.Data or EF.Audit.AzureTable).
+
 ```csharp
-public class AuditHandler(ILogger<AuditHandler> logger) : IMessageHandler<AuditEvent>
+public class AuditHandler(ILogger<AuditHandler> logger, IAuditLogRepository auditLogRepository) :
+    IMessageHandler<AuditEntry<string, Guid>>,
+    IMessageHandler<AuditEntry<string, Guid?>>
 {
-    public Task HandleAsync(AuditEvent message, CancellationToken ct = default)
+    public Task HandleAsync(AuditEntry<string, Guid> message, CancellationToken ct = default) => AppendAsync(message, ct);
+
+    public Task HandleAsync(AuditEntry<string, Guid?> message, CancellationToken ct = default) => AppendAsync(message, ct);
+
+    private async Task AppendAsync<TTenantId>(AuditEntry<string, TTenantId> message, CancellationToken ct)
     {
+        await auditLogRepository.AppendAsync(message, ct);
         logger.LogInformation("AUDIT [{Action}] Entity={Entity} Id={Id} By={User}",
-            message.Action, message.EntityType, message.EntityId, message.UserId);
-        return Task.CompletedTask;
+            message.Action, message.EntityType, message.EntityKey, message.AuditId);
     }
 }
 ```

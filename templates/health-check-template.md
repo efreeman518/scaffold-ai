@@ -1,9 +1,11 @@
 # Health Check Template
 
-**Generates:** `SqlHealthCheck.cs`, `RedisHealthCheck.cs` (and per-dependency checks as needed)
+**Generates:** `SqlHealthCheck.cs` (the database check the app owns) and the health registration; every other dependency uses its package check
 **Requires:** [../skills/observability.md](../skills/observability.md)
 
 ## Health Check Implementation
+
+The relational database check stays app code, because readiness must prove the app's own context can connect:
 
 ```csharp
 public class SqlHealthCheck(IDbContextFactory<{App}DbContextTrxn> factory) : IHealthCheck
@@ -29,26 +31,36 @@ public class SqlHealthCheck(IDbContextFactory<{App}DbContextTrxn> factory) : IHe
 ## Registration
 
 ```csharp
-// In RegisterApiServices or Bootstrapper
-services.AddHealthChecks()
+// In the Bootstrapper; register only the checks for dependencies the host uses.
+var health = services.AddHealthChecks()
     .AddCheck<SqlHealthCheck>("sql", tags: ["ready"])
-    .AddCheck<RedisHealthCheck>("redis", tags: ["ready"]);
+    .AddMemoryHealthCheck("memory", tags: ["full"]);                                           // EF.AspNetCore
+
+health.AddRedisHealthCheck("redis-cache", tags: ["full"]);                                     // EF.Cache, shared multiplexer; Degraded
+health.AddBlobContainerHealthCheck("blob-storage", "{Project}BlobClient", "{container}", tags: ["full"]); // EF.Storage
+health.AddS3BucketHealthCheck("s3-storage", "{bucket}", tags: ["full"]);                        // EF.Storage.S3
+health.AddCosmosDbHealthCheck("cosmos-db", tags: ["full"]);                                    // EF.CosmosDb
+health.AddServiceBusHealthCheck("{Project}SBClient", "{topic}", "service-bus", "full");         // EF.Messaging
+health.AddRabbitMqHealthCheck(tags: "ready");                                                  // EF.Messaging.RabbitMq, consumer host
+health.AddLeasedWorkBacklogCheck<OutboxMessage>("outbox", tags: ["ready"]);                    // EF.Data.Outbox, dispatcher host
+health.AddSchedulerHealthCheck<{App}TickerQDbContext>(tags: ["ready"]);                         // EF.BackgroundServices.TickerQ
+health.AddDownstreamHealthCheck("{project}-api", o => o.Url = apiHealthUrl, tags: ["full"]);    // EF.Gateway, gateway host
 ```
 
 ## Endpoint Mapping
 
 ```csharp
-app.MapHealthChecks("/healthz/live", new() { Predicate = r => r.Tags.Contains("live") }).AllowAnonymous();  // liveness
-app.MapHealthChecks("/healthz/ready", new() { Predicate = r => r.Tags.Contains("ready") }).AllowAnonymous(); // readiness
-app.MapHealthChecks("/healthz", new()).AllowAnonymous(); // operator aggregate
+app.MapEfHealthEndpoints();   // EF.AspNetCore: /healthz/live (live), /healthz/ready (ready), /healthz (operator aggregate)
 ```
+
+The three endpoints are anonymous and exempt from every rate limiter; generate no hand-mapped `MapHealthChecks` for them.
 
 ## Rules
 
-- One `IHealthCheck` class per external dependency.
+- One health check per external dependency: the package check where one exists, an app `IHealthCheck` class otherwise.
 - Branch on the `CanConnectAsync` result: it reports most connection failures as `false` instead of throwing, so an unconditional `Healthy()` after the call reports a down database as healthy.
-- Tag dependency checks with `"ready"`; ServiceDefaults owns the `"self"` check tagged `"live"`.
+- Tag dependency checks with `"ready"` only when the host must stop taking traffic without them; ServiceDefaults owns the `"self"` check tagged `"live"`. A cache that degrades to L1 (Redis) and a rate limiter that fails open are not readiness dependencies.
 - `/healthz/live` runs only `"live"` checks. `/healthz/ready` runs only `"ready"` checks. `/healthz` runs the operator aggregate and is never the liveness target.
-- Do not duplicate ServiceDefaults self-liveness - add domain-specific readiness only.
+- Do not duplicate ServiceDefaults' `self` liveness or host-lifecycle `draining` checks ([../skills/observability.md](../skills/observability.md) section Health Checks) - add domain-specific readiness only.
 - **Why:** dependency failure must stop new traffic through readiness without making the orchestrator restart a healthy process through liveness.
 - Verify a failed critical dependency makes `/healthz/ready` unhealthy while `/healthz/live` remains healthy. This is a required test, not a manual check: generate `tests/Test.Endpoints/HealthProbeContractTests.cs` from [test-templates-endpoint.md](test-templates-endpoint.md) section Health Probe Contract Tests, which forces a `"ready"`-tagged check to fail and asserts the two probes diverge.

@@ -40,11 +40,13 @@ public readonly record struct {Entity}Id(Guid Value) : IDomainId<{Entity}Id>
 
 > **EntityBase properties (inherited, do NOT redefine):**
 > - `{Entity}Id Id { get; init; }` - typed domain ID, client-generated via `Guid.CreateVersion7()` (set by the app, not the store; EF `ValueGeneratedNever()`), init-only
-> - `long Version { get; set; }` - concurrency token, configured via `.IsConcurrencyToken()` in EF config (the `[Obsolete]` `RowVersion` is never used)
+> - `long Version { get; set; }` - concurrency token, mapped by `RegisterVersionConcurrencyTokens()` and written by `DbContextBase` on save (1 after insert)
 >
 > `EntityBase<TId>` is the generic base where `TId : struct, IDomainId<TId>`. The typed `Id` property replaces the raw `Guid Id`.
 >
-> **Do NOT inherit `AuditableBase<T>`** unless audit fields must live on the entity itself. The default pattern uses `AuditInterceptor` on the `DbContext` to manage audit metadata externally.
+> **Timestamps:** an entity that exposes `CreatedAtUtc` / `ModifiedAtUtc` implements `ITimestampedEntity` with `{ get; private set; }` properties; `DbContextBase` stamps them through the change tracker. **Do NOT inherit `AuditableBase<T>`** unless `CreatedBy` / `ModifiedBy` must live on the entity itself; the audit trail comes from the `AuditInterceptor`.
+>
+> **Domain events `[MESSAGING]`:** when the entity publishes integration events, it implements `IHasDomainEvents` over a private `DomainEventContainer` (EF.Domain) and raises each event from the factory or domain method that caused it. The EF.Data.Outbox staging interceptor drains `DomainEvents` in the same `SaveChanges` ([../skills/messaging.md](../skills/messaging.md) section Transactional Producer: Outbox). Event records live in `Domain.Shared` and implement `IDomainEvent` (a tenant-owned event carries its `TenantId`).
 
 ```csharp
 using Domain.Shared;
@@ -55,13 +57,22 @@ using EF.Domain.Contracts;
 
 namespace Domain.Model;
 
-public class {Entity} : EntityBase<{Entity}Id>, ITenantEntity<TenantId>  // [MULTI-TENANT] omit ITenantEntity<TenantId> for single-tenant
+public class {Entity} : EntityBase<{Entity}Id>, ITenantEntity<TenantId>, IHasDomainEvents  // [MULTI-TENANT] omit ITenantEntity<TenantId> for single-tenant; [MESSAGING] omit IHasDomainEvents without messaging
 {
+    // [MESSAGING] Buffered until the outbox staging interceptor drains them in SaveChanges.
+    private readonly DomainEventContainer _domainEvents = new();
+    public IReadOnlyCollection<IDomainEvent> DomainEvents => _domainEvents.Events;
+    public void ClearDomainEvents() => _domainEvents.Clear();
+
     // ===== Factory Create - the ONLY way to create an instance =====
     public static DomainResult<{Entity}> Create(Guid tenantId, string name, /* additional params */)
     {
         var entity = new {Entity}(TenantId.From(tenantId), name);  // wrap raw Guid on intake
-        return entity.Valid().Map(_ => entity);
+        return entity.Valid().Map(_ =>
+        {
+            entity._domainEvents.Raise(new {Entity}CreatedEvent(entity.Id.Value, tenantId, entity.Name)); // [MESSAGING]
+            return entity;
+        });
     }
 
     // ===== Private constructor - enforces factory usage =====

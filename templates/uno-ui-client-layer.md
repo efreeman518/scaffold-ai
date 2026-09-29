@@ -31,6 +31,7 @@ public partial record {Entity} : IEntityBase
     {
         Id = data.Id ?? Guid.Empty;
         Name = data.Name;
+        Version = data.Version ?? 0;   // the ETag source for If-Match on PUT/DELETE
         // Map all properties from data -> record
     }
 
@@ -40,6 +41,7 @@ public partial record {Entity} : IEntityBase
     public Guid Id { get; init; }
     public string? Name { get; init; }
     public bool IsFavorite { get; init; }
+    public long Version { get; init; }
     // ... add all entity properties
 
     // Computed properties (display helpers)
@@ -92,7 +94,7 @@ public interface I{Entity}Service
     ValueTask Update({Entity} entity, CancellationToken ct);
 
     /// <summary>Delete a {entity} by ID.</summary>
-    ValueTask Delete(Guid id, CancellationToken ct);
+    ValueTask Delete(Guid id, long version, CancellationToken ct);
 
     /// <summary>Toggle favorite status.</summary>
     ValueTask Favorite({Entity} entity, CancellationToken ct);
@@ -141,13 +143,15 @@ public class {Entity}Service(
 
     public async ValueTask Update({Entity} entity, CancellationToken ct)
     {
-        await api.Api.{Entity}[entity.Id].PutAsync(entity.ToData(), cancellationToken: ct);
+        await api.Api.{Entity}[entity.Id].PutAsync(entity.ToData(),
+            rc => rc.Headers.Add("If-Match", EntityTags.ForVersion(entity.Version).ToString()), ct);
         messenger.Send(new EntityMessage<{Entity}>(EntityChange.Updated, entity));
     }
 
-    public async ValueTask Delete(Guid id, CancellationToken ct)
+    public async ValueTask Delete(Guid id, long version, CancellationToken ct)
     {
-        await api.Api.{Entity}[id].DeleteAsync(cancellationToken: ct);
+        await api.Api.{Entity}[id].DeleteAsync(
+            rc => rc.Headers.Add("If-Match", EntityTags.ForVersion(version).ToString()), ct);
         messenger.Send(new EntityMessage<{Entity}>(EntityChange.Deleted, new {Entity} { Id = id }));
     }
 
@@ -172,6 +176,7 @@ public class {Entity}Service(
 - Map Kiota wire DTOs -> client records via constructor: `new {Entity}(data)`
 - Map client records -> wire DTOs via `entity.ToData()` for POST/PUT
 - Send `EntityMessage<T>` via `IMessenger` after every mutation (create, update, delete)
+- PUT and DELETE send `If-Match` from the record's `Version` (`EntityTags.ForVersion`, EF.UI.Client); the API answers 428 without it and 412 on a stale one. The client record carries `Version` from the DTO
 - Register as singleton in `App.xaml.host.cs` -> `ConfigureServices`
 
 ### Client Contract Rules
@@ -208,6 +213,23 @@ var response = await content.ReadFromJsonAsync(
 ```
 
 The generated property names depend on the closed generic type names. Compile once, then use the emitted property exactly. Inventory internal envelopes read inside client methods as well as public parameters and returns.
+
+## Client Plumbing (EF.UI.Client)
+
+Busy tracking, notifications, problem+json translation, the UI dispatcher contract and the runtime base URL are EF.UI.Client; generate no busy tracker, notification service, delegating handler, problem-details payload or runtime-config loader.
+
+```csharp
+// App.xaml.host.cs -> UseHttp: busy outermost, problem details innermost, both before any resilience handler
+services.AddHttpClient<{Project}ApiClient>(c => c.BaseAddress = new Uri(gatewayUrl))
+    .AddBusyTracking()
+    .AddProblemDetailsNotifications();
+
+// ConfigureServices: the platform dispatcher first; AddUiClient registers IBusyTracker and INotificationService
+services.AddSingleton<IUiDispatcher>(new DispatcherQueueUiDispatcher(dispatcherQueue))
+        .AddUiClient();
+```
+
+`DispatcherQueueUiDispatcher` is the app's one adapter (`HasThreadAccess`, `Post` over `DispatcherQueue.TryEnqueue`); a missing dispatcher fails at resolution. Tests register `IUiDispatcher.Inline`. The WASM head loads its gateway URL with `RuntimeClientConfiguration.LoadBaseUrlAsync(http)` from `/app-config.json` before building the host.
 
 ## Shared Interfaces
 

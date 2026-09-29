@@ -2,126 +2,45 @@
 
 | | |
 |---|---|
-| **File** | `Host/{Host}.Api/Middleware/DefaultExceptionHandler.cs` |
+| **File** | `Host/{Host}.Api/RegisterApiServices.cs` (exception-handling registration and the app's `MapExceptions`) |
 | **Depends on** | [api.md](../skills/api.md) |
 | **Referenced by** | [api.md](../skills/api.md), [api-host-wiring.md](../patterns/api-host-wiring.md) |
 
-> **Token vs log placeholder:** `{ExceptionType}` and `{Message}` in the `LogError` template below are **log property names** bound to the trailing arguments, not scaffold tokens - leave them verbatim. Only `{Host}` on this page is substituted. Rule: [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) section Disambiguating Tokens From Logging And Interpolation.
-
 ## Purpose
 
-Global `IExceptionHandler` that maps unexpected/infrastructure exceptions to `ProblemDetails` responses. This is the **safety net** - not a control-flow mechanism. All expected business outcomes flow through `Result<T>`/`DomainResult<T>`.
+The global exception handler is the EF.AspNetCore `ProblemDetailsExceptionHandler`, registered by `AddEfProblemDetails()`; the app generates no `IExceptionHandler`. Its status comes from the EF.Common `ExceptionClassifier`, the one exception taxonomy the HTTP handler and the gRPC `ServiceErrorInterceptor` share. The app adds only its own mappings. This is the **safety net** - not a control-flow mechanism. All expected business outcomes flow through `Result<T>`/`DomainResult<T>`.
 
 ## Template
 
 ```csharp
-// File: Host/{Host}.Api/Middleware/DefaultExceptionHandler.cs
-using Microsoft.AspNetCore.Diagnostics;
-using Microsoft.AspNetCore.Mvc;
+// File: Host/{Host}.Api/RegisterApiServices.cs (excerpt)
+using EF.AspNetCore.ExceptionHandling;
+using EF.Common.Exceptions;
+using EF.Data.Contracts;
+using Microsoft.EntityFrameworkCore;
 
-namespace {Host}.Api.Middleware;
-
-internal sealed class DefaultExceptionHandler(
-    ILogger<DefaultExceptionHandler> logger,
-    IHostEnvironment environment,
-    IProblemDetailsService problemDetailsService) : IExceptionHandler
+private static void AddExceptionHandling(IServiceCollection services)
 {
-    private const int StatusClientClosedRequest = 499;   // nginx convention
-    private const string ServerErrorDetail = "An unexpected error occurred.";
-
-    public async ValueTask<bool> TryHandleAsync(
-        HttpContext httpContext,
-        Exception exception,
-        CancellationToken cancellationToken)
-    {
-        // Guard: if the response has already started (e.g. streaming), writing
-        // a ProblemDetails body would throw a second exception and mask the original.
-        if (httpContext.Response.HasStarted) return true;
-
-        // Only a cancellation the caller caused is a 499. A downstream timeout or an internal token
-        // also surfaces as OperationCanceledException and must stay visible as a server failure.
-        if (exception is OperationCanceledException && httpContext.RequestAborted.IsCancellationRequested)
-        {
-            logger.LogInformation("Request cancelled by the client.");
-            httpContext.Response.StatusCode = StatusClientClosedRequest;
-            return true;
-        }
-
-        var (statusCode, title) = exception switch
-        {
-            // A lost update between load and save. No ETag here: the middleware clears it.
-            Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException
-                => (StatusCodes.Status412PreconditionFailed, "Precondition failed"),
-            UnauthorizedAccessException
-                => (StatusCodes.Status403Forbidden, "Forbidden"),
-            BadHttpRequestException
-                => (StatusCodes.Status400BadRequest, "Bad request"),
-            OperationCanceledException when HasTimeoutInChain(exception)
-                => (StatusCodes.Status504GatewayTimeout, "Gateway timeout"),
-            _
-                => (StatusCodes.Status500InternalServerError, "Internal server error")
-        };
-
-        logger.LogError(exception, "Unhandled exception: {ExceptionType} - {Message}",
-            exception.GetType().Name, exception.Message);
-
-        var problemDetails = new ProblemDetails
-        {
-            Status = statusCode,
-            Title = title,
-            Detail = environment.IsDevelopment() ? exception.ToString()
-                : statusCode >= StatusCodes.Status500InternalServerError ? ServerErrorDetail
-                : exception.Message,
-            Instance = httpContext.Request.Path
-        };
-
-        httpContext.Response.StatusCode = statusCode;
-        return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
-        {
-            HttpContext = httpContext,
-            ProblemDetails = problemDetails
-        });
-    }
-
-    private static bool HasTimeoutInChain(Exception exception)
-    {
-        for (var inner = exception.InnerException; inner is not null; inner = inner.InnerException)
-        {
-            if (inner is TimeoutException) return true;
-        }
-
-        return false;
-    }
+    services.AddEfProblemDetails();
+    services.AddExceptionClassifier(MapExceptions);
 }
+
+/// <summary>
+/// The app's additions to the shared taxonomy. Map only exception types the app owns for caller input;
+/// framework ArgumentException, FormatException and InvalidOperationException stay unmapped (500).
+/// </summary>
+internal static void MapExceptions(ExceptionClassifierOptions options) => options
+    // A policy-free save's lost update: 412 without an ETag (the exception middleware clears it).
+    .Map<DbUpdateConcurrencyException>(ExceptionCategory.PreconditionFailed)
+    // Caller input the app rejects: its own request exception and the cursor codec's InvalidCursorException.
+    .Map<InvalidRequestException>(ExceptionCategory.Validation)
+    .Map<InvalidCursorException>(ExceptionCategory.Validation);
+    // When AI is in scope: .Map<EFAIDisabledException>(ExceptionCategory.Unavailable)  (503)
 ```
 
-## Registration
+`InvalidRequestException` is the app's own caller-input exception (for example a page size outside the allowed range), declared in `Application.Contracts` and deriving from `Exception`. `MapExceptions` is `internal` so the endpoint tests build the same registration.
 
-Register in `RegisterApiServices.cs`:
-
-```csharp
-services.AddExceptionHandler<DefaultExceptionHandler>();
-services.AddProblemDetails(options =>
-{
-    options.CustomizeProblemDetails = context =>
-    {
-        var activity = System.Diagnostics.Activity.Current;
-        context.ProblemDetails.Extensions.Remove("activityId");
-        context.ProblemDetails.Extensions["requestId"] = context.HttpContext.TraceIdentifier;
-        if (activity is null)
-        {
-            context.ProblemDetails.Extensions.Remove("traceId");
-            context.ProblemDetails.Extensions.Remove("spanId");
-            return;
-        }
-
-        context.ProblemDetails.Extensions["traceId"] = activity.TraceId.ToString();
-        context.ProblemDetails.Extensions["spanId"] = activity.SpanId.ToString();
-    };
-});
-```
-
-Add to pipeline in `WebApplicationBuilderExtensions.cs` (before routing):
+Add to pipeline in `WebApplicationBuilderExtensions.cs` (after `UseProxyForwarding` and `UseCorrelationId`, before routing):
 
 ```csharp
 app.UseExceptionHandler();
@@ -129,35 +48,36 @@ app.UseExceptionHandler();
 
 ## Exception-to-Status Mapping
 
-| Exception Type | HTTP Status | Title |
+| Exception Type | HTTP Status | Source |
 |---|---|---|
-| `OperationCanceledException` while `HttpContext.RequestAborted` is cancelled | 499 (no body) | - |
-| `DbUpdateConcurrencyException` | 412 Precondition Failed (no ETag) | Precondition failed |
-| `UnauthorizedAccessException` | 403 Forbidden | Forbidden |
-| `BadHttpRequestException` | 400 Bad Request | Bad request |
-| `OperationCanceledException` with a `TimeoutException` in the inner chain | 504 Gateway Timeout | Gateway timeout |
-| All others, including any other `OperationCanceledException` | 500 Internal Server Error | Internal server error |
+| `OperationCanceledException` while `HttpContext.RequestAborted` is cancelled | 499 (no body) | package |
+| Any other `OperationCanceledException`, `TimeoutException` | 504 Gateway Timeout | package |
+| `ValidationException` (EF.Common), `InvalidRequestException`, `InvalidCursorException` | 400 Bad Request | package / app map |
+| `BadHttpRequestException` | its own status (400, 408, 413, 431) | package |
+| `UnauthorizedAccessException` | 403 Forbidden | package |
+| `NotFoundException`, `KeyNotFoundException` | 404 Not Found | package |
+| `ConflictException` | 409 Conflict | package |
+| `PreconditionFailedException` | 412 Precondition Failed | package |
+| `DbUpdateConcurrencyException` | 412 Precondition Failed (no ETag) | app map |
+| `PreconditionRequiredException` | 428 Precondition Required | package |
+| `EFAIDisabledException` | 503 Service Unavailable | app map, AI in scope |
+| All others, including `ArgumentException`, `FormatException`, `InvalidOperationException` | 500 Internal Server Error | package |
 
 ## Rules
 
 - **Safety net only** - business validation errors must use `Result<T>` / `DomainResult<T>`, never exceptions.
-- Detail: full `exception.ToString()` in Development only. Outside Development a 5xx carries the fixed generic `ServerErrorDetail`, never exception text; SQL, connection, and internal messages belong in the log.
-- 499 only when `HttpContext.RequestAborted` is cancelled. Any other cancellation is a server-side timeout or fault: 504 when a `TimeoutException` is in the chain, otherwise 500.
-- A 412 from this handler never carries an ETag: `ExceptionHandlerMiddleware` clears the ETag and cache headers before any handler runs, so a header set here never reaches the client. The stale-`If-Match` 412 with the current ETag comes from the endpoint filter/Result path ([../skills/data-persistence.md](../skills/data-persistence.md) section Provider Branch and Concurrency Discipline).
-- Beyond the rows above, only app-owned exception types map to 4xx. Framework `ArgumentException`, `FormatException`, `InvalidOperationException`, and `KeyNotFoundException` stay 500 unless an app type wraps them: the same type thrown by a library is a server fault, not the caller's mistake.
-- Always log at `Error` level with structured placeholders.
-- Return `true` to indicate the exception is handled and prevent further pipeline propagation.
-- Write through `IProblemDetailsService` so the same correlation customizer applies to exception and typed endpoint errors.
-- **Always check `httpContext.Response.HasStarted` before writing the response body.** Writing to an already-started response throws a second exception and masks the original.
-- Services and handlers never catch `OperationCanceledException`: cancellation and request timeouts propagate to this handler, which maps them. An empty result for a cancelled read hides timeouts and can be cached as a real answer.
+- **Map only the app's own client-input exceptions to 400.** A framework `ArgumentException`, `FormatException` or `InvalidOperationException` thrown outside the app's input checks is a server bug: a 4xx would hide it and echo its text to the caller. When the app rejects caller input with an exception, it throws its own type and maps that type.
+- Detail: full `exception.ToString()` in Development only (`ExceptionHandlingOptions.IncludeExceptionDetails`). Outside Development a 5xx carries no exception text; SQL, connection, and internal messages belong in the log.
+- 499 only when `HttpContext.RequestAborted` is cancelled. Any other cancellation is a server-side timeout: 504.
+- A 412 from the handler never carries an ETag: `ExceptionHandlerMiddleware` clears the ETag and cache headers before any handler runs. The stale-`If-Match` 412 with the current ETag comes from the `RequireIfMatch()` endpoint filter ([../skills/data-persistence.md](../skills/data-persistence.md) section Provider Branch and Concurrency Discipline).
+- Every problem carries `instance`, `requestId` (the correlation id) and the W3C `traceId` / `spanId`; do not register a second `CustomizeProblemDetails` that rewrites them.
+- The gRPC host passes the same `ExceptionClassifier` to `ServiceErrorInterceptor`, so one mapping change applies to both transports.
+- Services and handlers never catch `OperationCanceledException`: cancellation and request timeouts propagate to the handler, which maps them. An empty result for a cancelled read hides timeouts and can be cached as a real answer.
 
 ## Verification Checklist
 
-- [ ] Registered via `AddExceptionHandler<DefaultExceptionHandler>()` in `RegisterApiServices.cs`
+- [ ] `AddEfProblemDetails()` and `AddExceptionClassifier(MapExceptions)` registered in `RegisterApiServices.cs`; no app `IExceptionHandler` and no second `AddProblemDetails` customizer
 - [ ] `UseExceptionHandler()` called in pipeline before routing
-- [ ] `AddProblemDetails(...)` registered with separate `requestId`, W3C `traceId`, and `spanId`
-- [ ] Typed errors and exception errors both exercise the correlation contract
-- [ ] Exception text gated by environment (stack trace in Development only, fixed generic 5xx detail elsewhere), **proved by both arms of `tests/Test.Endpoints/Middleware/DefaultExceptionHandlerTests.cs`** - generate it from [test-templates-endpoint.md](test-templates-endpoint.md) section Exception Handler Tests
-- [ ] All mapped exceptions return correct HTTP status codes
-- [ ] Logging uses structured placeholders, not string interpolation
+- [ ] `MapExceptions` maps only app-owned exception types (plus `DbUpdateConcurrencyException`)
+- [ ] Exception text gated by environment and every mapped status **proved by `tests/Test.Endpoints/Middleware/ExceptionMappingTests.cs`** - generate it from [test-templates-endpoint.md](test-templates-endpoint.md) section Exception Mapping Tests
 - [ ] No business logic errors handled here - those use `Result<T>` pattern

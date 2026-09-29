@@ -122,22 +122,27 @@ Use when a workflow runs on a cron. Lives in `{Project}.Scheduler`.
 ```csharp
 namespace {Project}.Scheduler.Jobs;
 
-public sealed class NightlyReconciliationJob(IWorkflowTrigger workflows)
+// Top-level class: TickerQ's source generator ignores nested job classes.
+public sealed class NightlyReconciliationJob(ScheduledJobRunner runner)   // EF.BackgroundServices.TickerQ
 {
     [TickerFunction(functionName: nameof(NightlyReconciliationJob), cronExpression: "0 0 2 * * *")]
-    public async Task Run(TickerFunctionContext ctx, CancellationToken ct)
-    {
-        await workflows.StartAsync(
+    public Task Run(TickerFunctionContext context, CancellationToken ct) =>
+        runner.RunAsync<NightlyReconciliationHandler>(context, ct);
+}
+
+public sealed class NightlyReconciliationHandler(IWorkflowTrigger workflows, TimeProvider clock) : IScheduledJobHandler
+{
+    public Task HandleAsync(CancellationToken ct) =>
+        workflows.StartAsync(
             workflowId: "nightly-reconciliation",
-            input: new { RunDate = DateOnly.FromDateTime(DateTime.UtcNow) },
+            input: new { RunDate = DateOnly.FromDateTime(clock.GetUtcNow().UtcDateTime) },
             ct: ct);
-    }
 }
 ```
 
 Notes:
 - Cron uses TickerQ's six-field expression with seconds first (UTC); the attribute is the only place a job's cron lives - see [../skills/background-services.md](../skills/background-services.md) section Runtime Scheduling APIs.
-- One scheduler replica unless TickerQ Redis coordination is enabled - see [../skills/background-services.md](../skills/background-services.md).
+- Register the handler scoped (`services.AddScoped<NightlyReconciliationHandler>()`); the runner resolves it in TickerQ's execution scope with one span, `scheduler.job.*` metrics and TickerQ's cancellation contract. More than one scheduler replica needs the Redis-backed `IDistributedLock` for cron seeding - see [../skills/background-services.md](../skills/background-services.md).
 - Do **not** put the workflow's business logic in the job. The job is a thin trigger; the work belongs in the workflow's nodes.
 
 ---

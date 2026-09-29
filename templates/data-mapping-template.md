@@ -11,6 +11,8 @@
 ### File: Application/Models/{Entity}/{Entity}Dto.cs
 
 ```csharp
+using EF.Common.Contracts;   // ITenantEntityDto
+
 namespace Application.Models.{Entity};
 
 public record {Entity}Dto : EntityBaseDto, ITenantEntityDto
@@ -59,25 +61,25 @@ public record {Entity}SearchFilter : DefaultSearchFilter
 ### Base DTO Types (from Application.Models/Shared/)
 
 ```csharp
-// DefaultSearchFilter - base for all search filters (Application.Models/)
-public record DefaultSearchFilter
+using EF.Common.Contracts;
+using EF.Tenancy;   // [MULTI-TENANT] ITenantScopedFilter
+
+// DefaultSearchFilter - base for all search filters (Application.Models/).
+// ITenantScopedFilter lets EF.Tenancy's EnforceTenantFilter force the caller's tenant.
+public record DefaultSearchFilter : ITenantScopedFilter
 {
     public string? SearchTerm { get; set; }
     public Guid? TenantId { get; set; }
 }
 
-// IEntityBaseDto (Guid? Id) comes from EF.Common.Contracts - do not declare it app-level.
+// IEntityBaseDto (Guid? Id) and ITenantEntityDto come from EF.Common.Contracts - do not declare them app-level.
 // Non-Guid-key apps: implement IEntityBaseDto<TKey> / derive EntityBaseDto<TKey>.
-using EF.Common.Contracts;
-
 public abstract record EntityBaseDto : IEntityBaseDto
 {
     public Guid? Id { get; set; }
-}
 
-public interface ITenantEntityDto
-{
-    Guid TenantId { get; set; }
+    /// <summary>The aggregate's concurrency token: the strong HTTP ETag, echoed back as If-Match. Null on create.</summary>
+    public long? Version { get; set; }
 }
 ```
 
@@ -86,9 +88,10 @@ public interface ITenantEntityDto
 - DTOs are `record` types (value equality, `with` expressions)
 - DTOs live in `Application.Models/{Entity}/` -- separate project from contracts
 - `Id` is `Guid?` -- null on Create, required on Update (inherited from `EntityBaseDto`)
+- `Version` is `long?` -- mapped from the entity's `Version`; `DefaultResponse<T>` exposes it as `ETagVersion` ([../ai/contract-scaffolding.md](../ai/contract-scaffolding.md)), so the ETag is the aggregate root's version
 - `TenantId` is `Guid` (non-nullable) and remains on the shared DTO for response/round-trip compatibility. On create/update it is untrusted input: service/CQRS code overwrites it from `IRequestContext` before validation/mapping and never falls back to the payload value.
 - Search filters are `record` types inheriting `DefaultSearchFilter` (provides `SearchTerm` and `TenantId`). Add only entity-specific filter properties.
-- Audit fields (CreatedDate, etc.) may be included as read-only properties on response DTOs via `IEntityBaseDto` -- the `AuditInterceptor` on the DbContext manages write-side audit data
+- Timestamps (`CreatedAtUtc`, `ModifiedAtUtc`) may be included as read-only response properties when the entity implements `ITimestampedEntity`; `DbContextBase` stamps them on save, so no write path sets them
 - Child collections default to empty list -- never null
 - Use `{Entity}Flags` (flags enum) instead of a separate Status enum
 - Value objects are flattened into primitive DTO fields by default. Do not expose domain-owned value types or generate separate value-object DTO contracts unless an explicit boundary decision requires it.
@@ -113,6 +116,7 @@ public static class {Entity}Mapper
         entity => new {Entity}Dto
         {
             Id = entity.Id,
+            Version = entity.Version,
             TenantId = entity.TenantId,
             Name = entity.Name,
             Flags = entity.Flags,
@@ -151,6 +155,7 @@ public static class {Entity}Mapper
         entity => new {Entity}Dto
         {
             Id = entity.Id,
+            Version = entity.Version,
             TenantId = entity.TenantId,
             Name = entity.Name,
             Flags = entity.Flags
@@ -194,7 +199,7 @@ public static class {ChildEntity}Mapper
 - **Query-shape projectors** -- `ProjectorSearch` and `ProjectorStaticItems` are only for shapes with no `ToDto()` twin. Keep them EF-safe.
 - **Multiple projectors per entity** -- `Projection` is the canonical full shape. Add `ProjectorSearch` only when list/grid rows intentionally omit fields or children. Keep `ProjectorStaticItems` for lookup DTOs.
 - **No mapper registration** -- Static classes, no DI needed.
-- **No audit fields** -- Audit data (CreatedDate, CreatedBy, etc.) is managed by the `AuditInterceptor`, not mapped on DTOs
+- **No audit fields** -- `CreatedBy` / `ModifiedBy` and the audit trail are written by `DbContextBase` and the `AuditInterceptor`, never mapped from DTOs; `Version` maps one way (entity to DTO)
 
 ### Compile-Projection Caveats
 

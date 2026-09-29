@@ -122,7 +122,7 @@ public partial record {Entity}PageModel(
     public async ValueTask Delete(CancellationToken ct)
     {
         if (Entity?.Id is null) return;
-        await {Entity}Service.DeleteAsync(Entity.Id.Value, ct);
+        await {Entity}Service.DeleteAsync(Entity.Id.Value, Entity.Version, ct);   // Version -> If-Match
         await Navigator.NavigateRouteAsync(this, "{Entity}List", cancellation: ct);
     }
 
@@ -140,7 +140,7 @@ public partial record {Entity}PageModel(
     // public async ValueTask DeleteComment(CommentModel comment, CancellationToken ct)
     // {
     //     if (comment.Id is null) return;
-    //     await CommentService.DeleteAsync(comment.Id.Value, ct);
+    //     await CommentService.DeleteAsync(comment.Id.Value, comment.Version, ct);
     //     await CommentsVersion.UpdateAsync(v => v + 1, ct);
     // }
 }

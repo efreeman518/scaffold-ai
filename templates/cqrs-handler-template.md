@@ -14,6 +14,12 @@ namespace {Project}.Application.Cqrs.Features.{EntityPlural};
 public sealed record Create{Entity}Command(DefaultRequest<{Entity}Dto> Request)
     : ICommand<Result<DefaultResponse<{Entity}Dto>>>;
 
+// ExpectedVersion is the endpoint's ifMatch.ExpectedVersion (EF.AspNetCore.Concurrency).
+public sealed record Update{Entity}Command(DefaultRequest<{Entity}Dto> Request, long? ExpectedVersion)
+    : ICommand<Result<DefaultResponse<{Entity}Dto>>>;
+
+public sealed record Delete{Entity}Command(Guid Id, long? ExpectedVersion) : ICommand<Result>;
+
 internal sealed class Create{Entity}Handler(
     ILogger<Create{Entity}Handler> logger,
     IRequestContext<string, Guid?> requestContext,
@@ -32,8 +38,8 @@ internal sealed class Create{Entity}Handler(
         var validation = {Entity}StructureValidator.ValidateCreate(dto);
         if (validation.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(validation.Errors);
 
-        var boundary = tenantBoundaryValidator.EnsureTenantBoundary(
-            logger, requestContext.TenantId, requestContext.Roles, authoritativeTenantId,
+        var boundary = tenantBoundaryValidator.EnsureTenantBoundary(   // EF.Tenancy
+            requestContext.TenantId, requestContext.Roles, authoritativeTenantId,
             "{Entity}:Create", nameof({Entity}));
         if (boundary.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(boundary.ErrorMessage!);
 
@@ -60,6 +66,7 @@ Rules:
 - One command/query maps to one handler registration.
 - Multi-tenant create/update handlers overwrite DTO `TenantId` from `IRequestContext` before validation/mapping. Keep the field for contract compatibility, but never use payload tenant as fallback when context is missing.
 - Create handlers apply `UpdateFromDto` after the factory so non-factory fields and aggregate children match service-style behavior.
+- Update and delete commands carry `long? ExpectedVersion` (the endpoint passes `ifMatch.ExpectedVersion`); the handler calls `ConcurrencyGuard.Require(command.ExpectedVersion, entity.Version, nameof({Entity}), entity.Id.Value)` right after the load and boundary check, exactly as [service-template.md](service-template.md) does.
 - Handler injects only repositories and collaborators it uses.
 - Reuse existing repository contracts; do not create CQRS-specific repositories unless the domain needs a genuinely different abstraction.
 - Keep DTOs in `Application.Models` and mappers in `Application.Mappers` for the default scaffold and TaskFlow reference app. For a CQRS-only or stricter vertical-slice implementation, move feature-specific models, mappers, projections, or adapters into the feature folder when the CQRS contract intentionally differs.
