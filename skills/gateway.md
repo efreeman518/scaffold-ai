@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Gateway is a YARP reverse proxy in front of API/backends. It handles user-facing auth, CORS, downstream token relay, and trusted forwarding of original user claims. The downstream token, the claims relay and the downstream health check are EF.Gateway over EF.Auth ([../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Gateway (EF.Gateway)); generate no token service, claims transformer or relay header code.
+Gateway is a YARP reverse proxy in front of API/backends. It handles user-facing auth and CORS. The downstream token, the claims relay and the downstream health check are EF.Gateway over EF.Auth ([../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Gateway (EF.Gateway)); generate no token service, claims transformer or relay header code.
 
 ## Non-Negotiables
 
 1. Keep proxy routes/clusters in configuration and load through YARP.
 2. Relay service-to-service bearer tokens per cluster with `AddDownstreamAuthTransforms` (cluster `Metadata:TokenScope`) over `AccessTokenCache`.
-3. The relay header is gateway-owned: every route strips any inbound value, and a cluster with `Metadata:RelayUserClaims` regenerates it from the authenticated user; the API honors it only after validating the gateway service identity.
+3. The relay header is gateway-owned: see Forwarded Claims Trust Boundary (a cluster opts in with `Metadata:RelayUserClaims`).
 4. **The relay header and settings come from one shared `ForwardedClaims` section.** The Gateway binds it with `AddDownstreamAuthTransforms(config)` and the API with `AddForwardedClaimsTransformation(config)`, so the header name, claim allowlist and limits match; never write the header name as a literal on either side.
 5. Keep pipeline order deterministic (forwarding -> security -> auth -> limiter -> endpoints -> proxy).
 6. Normalize path prefixes consistently between UI, gateway transforms, and backend routes.
@@ -105,7 +105,7 @@ public static IServiceCollection AddGatewayServices(this IServiceCollection serv
 1. Every claim-relaying proxy route requires an authenticated-user authorization policy. Pipeline order alone does not reject anonymous callers.
 2. Gateway removes any inbound relay header on every route (the configured `HeaderName` and the default `X-Forwarded-User-Claims`) and regenerates one envelope only from the authenticated `HttpContext.User`.
 3. Gateway replaces the user token with its downstream service token.
-4. API bearer authentication validates issuer and audience; `AddForwardedClaimsTransformation` then honors the header only for an authenticated app-only token (no delegated-scope claim) whose `azp`/`appid` is in `ForwardedClaims:TrustedCallerIds`. An empty list disables the relay.
+4. API bearer authentication validates issuer and audience; `AddForwardedClaimsTransformation` then honors the header only for an authenticated app-only token (no delegated-scope claim) whose `azp`/`appid` is in `ForwardedClaims:TrustedCallerIds`. An empty list disables the relay. With no valid header the gateway identity is unauthenticated (`RequireHeaderFromTrustedCaller`); a shared `SigningKey` optionally HMAC-signs it.
 5. Non-gateway service identities and direct-user-token paths ignore the header. `IRequestContext` reads only the resulting authenticated principal, never the raw envelope.
 
 Required verification:
@@ -113,6 +113,7 @@ Required verification:
 - `AnonymousClaimRelayRoute_IsRejectedBeforeProxy`: an anonymous caller never reaches the transform.
 - `ForgedInboundEnvelope_IsOverwritten`: a caller-supplied envelope sent through Gateway cannot supply roles or tenant.
 - `ForgedDirectEnvelope_WithoutTrustedGateway_IsIgnored`: a direct API call with no allowlisted gateway service identity returns 401/403 or leaves the principal unchanged.
+- `TrustedCallerWithoutEnvelope_IsForbidden`: gateway identity, no envelope -> 403.
 - `TrustedGatewayEnvelope_AddsExpectedClaims`: a valid gateway service token plus gateway-generated envelope produces only the expected user, role, and tenant claims, in a new identity that carries none of the gateway identity's claims.
 - `DelegatedUserTokenForGatewayClient_IsIgnored`: a user token whose `azp` is the gateway client id cannot supply an envelope.
 - `RepeatedTransformation_DoesNotDuplicateForwardedClaims`: repeated authentication transformation adds no duplicate identity or claim.

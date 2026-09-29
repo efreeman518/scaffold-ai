@@ -97,7 +97,7 @@ public sealed class {Entity}ProjectionConsumer(
 }
 ```
 
-Claim timings bind from `Messaging:Inbox` (`ClaimLease` 60 s, `RenewalInterval` 20 s, `WaitPollInterval`, `WaitMargin`). Known limits: a handler that never returns renews its claim indefinitely, so bound the handler's own I/O with timeouts; the effect and the completion are atomic only when the effect writes to the inbox database inside a transaction opened before `HandleAsync`, so make any other effect idempotent. A retention job purges completed claims past a window longer than the broker's redelivery horizon.
+Claim timings bind from `Messaging:Inbox` (`ClaimLease` 60 s, `RenewalInterval` 20 s, `WaitPollInterval`, `WaitMargin`). `MaxClaimDuration` (10 min) ends renewal, so a hung handler's claim lapses and redelivers; bound handler I/O with timeouts. Known limit: the effect and the completion are atomic only when the effect writes to the inbox database inside a transaction opened before `HandleAsync`, so make any other effect idempotent. A retention job purges completed claims past a window longer than the broker's redelivery horizon.
 
 Replay the same envelope in an integration test and assert exactly one business effect. Scheduler/event jobs that mint messages use deterministic IDs from stable business inputs so a rerun does not create a new logical event.
 
