@@ -37,7 +37,7 @@ Load-set sizing is derived from `scaffoldMode` (`api-only` -> required-only; `li
 
 ## Compression Tool Rule
 
-Context tools (`rtk`, Headroom, graph summaries, MCP compression) may optimize logs, diffs, search, and broad repo orientation. They must not replace direct reads of required scaffold instruction files.
+Context tools (`rtk`, graph summaries, MCP compression) may optimize logs, diffs, search, and broad repo orientation. They must not replace direct reads of required scaffold instruction files.
 
 When scaffold says load an instruction file, read source file text directly and preserve exact rules, tables, gates, templates, and conflict order. If context tight, reduce to current phase/sub-phase load set or stop with `HANDOFF.md`. Do not use lossy summary as active instruction context.
 
