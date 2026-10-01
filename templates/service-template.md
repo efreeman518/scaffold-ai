@@ -118,15 +118,14 @@ internal class {Entity}Service(
     {
         var dto = request.Item;
 
-        // [MULTI-TENANT] Overwrite untrusted payload tenant before validation/mapping.
+        // [MULTI-TENANT] Overwrite the payload tenant (as in CreateAsync).
         var authoritativeTenantId = RequestTenantId ?? Guid.Empty;
         dto.TenantId = authoritativeTenantId;
 
-        // Structure validation
         var validation = {Entity}StructureValidator.ValidateUpdate(dto);
         if (validation.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(validation.Errors);
 
-        // Concrete If-Match runs once (412); If-Match: * (null) re-reads on a lost race, 409 when exhausted.
+        // Concrete If-Match runs once (412); `*` (null) retries, 409 when exhausted.
         var result = await ConcurrencyRetry.RunAsync(repoTrxn, expectedVersion,
             attemptCt => UpdateOnceAsync(dto, authoritativeTenantId, expectedVersion, attemptCt), ct);
         if (result.IsSuccess) await InvalidateAsync(authoritativeTenantId, dto.Id!.Value, ct);
@@ -177,8 +176,8 @@ internal class {Entity}Service(
             if (boundary.IsFailure) return Result.Failure(boundary.ErrorMessage!);
             ConcurrencyGuard.Require(expectedVersion, entity.Version, nameof({Entity}), entity.Id.Value);
             repoTrxn.Delete(entity);
+            deletedTenantId = entity.TenantId.Value;   // before the save: a retry finding it gone still evicts
             await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, attemptCt);
-            deletedTenantId = entity.TenantId.Value;
             return Result.Success();
         }, ct);
         if (deletedTenantId != default) await InvalidateAsync(deletedTenantId, id, ct);
