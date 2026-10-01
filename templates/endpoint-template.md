@@ -55,7 +55,7 @@ public static class {Entity}Endpoints
             .ProducesValidationProblem()
             .WithSummary("Create a new {Entity}");
 
-        // RequireIfMatch: 428 without If-Match, 400 malformed, 412 + current ETag on PreconditionFailedException.
+        // RequireIfMatch: 428 without If-Match, 400 malformed, 412 + current ETag on PreconditionFailedException; `*` binds ExpectedVersion null.
         group.MapPut("/{id:guid}", Update)
             .RequireIfMatch()
             .Produces<DefaultResponse<{Entity}Dto>>()

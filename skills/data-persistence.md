@@ -141,9 +141,28 @@ The concurrency token is the package `EntityBase.Version` (`long`), mapped by `R
 
 Externally mutable aggregates use fail-on-conflict semantics. Missing required `If-Match` returns 428; a stale value returns 412 with the current ETag: the service calls `ConcurrencyGuard.Require(expectedVersion, entity.Version, ...)` after the load, which throws `PreconditionFailedException`, and the EF.AspNetCore `RequireIfMatch()` filter answers 412 with `ETag: "{current}"`. `SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct)` turns a lost update between load and save into `PreconditionFailedException` too; the policy-free save's raw `DbUpdateConcurrencyException` maps to 412 without an ETag in the exception handler, because `ExceptionHandlerMiddleware` clears response headers. `ClientWins` is allowed only for an explicitly recorded last-write-wins path. A broad `catch (Exception)` must not swallow `DbUpdateConcurrencyException` before the exception handler maps it.
 
-A server-side write whose outcome depends on what it read (a status guard, a filtered set such as "the open runs", a value computed from the stored one) and where the actor's intent should still win on a lost race - a cancel racing a background update, not a user edit form - runs inside `repoTrxn.RetryOnConcurrencyAsync(async ct => { read; decide; await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct); return result; })`. Each attempt clears the change tracker, so read everything you change inside `work`: entities loaded before the call are detached, and pending changes make the call throw. `work` makes exactly one save and nothing else with an effect outside the database (no direct message publish, HTTP call or second save); stage events through the outbox in that save. When the attempts run out the last `PreconditionFailedException` propagates and maps to the usual conflict response; do not catch it broadly. Never use `ClientWins` for such a write: `ClientWins` is last-write-wins per changed column, so it replays the stale decision. Do not hand-write version rewinds before a retried save; EF.Data's stamp is idempotent across failed and rolled-back saves.
+A write whose outcome depends on what it read (a status guard, a filtered set such as "the open runs", a value computed from the stored one, a child add's replay-or-insert decision) and whose caller stated no version - a cancel racing a background update, a child add, an `If-Match: *` edit, not a user edit form - runs inside `repoTrxn.RetryOnConcurrencyAsync(async ct => { read; decide; await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct); return result; })`. Each attempt clears the change tracker, so read everything you change inside `work`: entities loaded before the call are detached, and pending changes make the call throw. `work` makes exactly one save and nothing else with an effect outside the database (no direct message publish, HTTP call or second save); stage events through the outbox in that save, and evict caches, delete blobs and build the response after the call returns. An HTTP caller that sent no version gets 409 (`ConflictException`) when the attempts run out, never 412. Never use `ClientWins` for such a write: `ClientWins` is last-write-wins per changed column, so it replays the stale decision. Do not hand-write version rewinds before a retried save; EF.Data's stamp is idempotent across failed and rolled-back saves.
 
-An `If-Match` edit stays a bare `Throw` save with no retry: the client's stale version is the conflict to report. A save with `acceptAllChangesOnSuccess: false` whose transaction committed is followed by `ChangeTracker.AcceptAllChanges()`; without it the next save checks the loaded version and fails with a concurrency conflict. `RetryOnConcurrencyAsync` is an `IRepositoryBase` member, so a hand-written fake of `IRepositoryBase`, `IRepositoryTrxn` or `IRepositoryQuery` implements it (mocking libraries need nothing).
+A concrete `If-Match` edit or delete runs its read, `ConcurrencyGuard.Require` and one `Throw` save once, with no retry: the client's stale version is the conflict to report, as 412. `If-Match: *` is the trusted-automation override (a workflow node, an operator script): `ifMatch.ExpectedVersion` is `null`, the guard passes, and the same read, apply and one `Throw` save run inside the retry above, so a write landing between read and save makes it re-read and apply again; a wildcard write never answers 412. A wildcard PUT is a full replacement of the aggregate as re-read, so a child added concurrently and absent from the payload is deleted; a wildcard PATCH changes only the fields it carries. One app helper (`Application.Contracts`) owns both shapes; services and handlers call it, then evict caches:
+
+```csharp
+public static class ConcurrencyRetry
+{
+    public static async Task<T> RunAsync<T>(IRepositoryBase repo, long? expectedVersion,
+        Func<CancellationToken, Task<T>> work, CancellationToken ct)
+    {
+        if (expectedVersion is not null) return await work(ct);   // concrete If-Match: once, 412 on a lost race
+        try { return await repo.RetryOnConcurrencyAsync(work, 3, ct); }
+        catch (Exception ex) when (ConcurrencyGuard.IsConcurrencyFailure(ex))
+        {
+            throw new ConflictException("The resource kept changing; retry the request.", ex);
+        }
+    }
+    // Child adds (no If-Match) use an overload without expectedVersion that always retries.
+}
+```
+
+A save with `acceptAllChangesOnSuccess: false` whose transaction committed is followed by `ChangeTracker.AcceptAllChanges()`; without it the next save checks the loaded version and fails with a concurrency conflict. `RetryOnConcurrencyAsync` is an `IRepositoryBase` member, so a hand-written fake of `IRepositoryBase`, `IRepositoryTrxn` or `IRepositoryQuery` implements it (mocking libraries need nothing).
 
 ### Set-Based Writes and Query Shape
 
