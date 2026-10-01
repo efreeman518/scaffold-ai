@@ -77,6 +77,13 @@ internal sealed class Update{Entity}Handler(
         var validation = {Entity}StructureValidator.ValidateUpdate(dto);
         if (validation.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(validation.Errors);
 
+        return await ConcurrencyRetry.RunAsync(repoTrxn, command.ExpectedVersion,   // If-Match: * retries (service-template.md)
+            attemptCt => UpdateOnceAsync(dto, authoritativeTenantId, command.ExpectedVersion, attemptCt), ct);
+    }
+
+    private async Task<Result<DefaultResponse<{Entity}Dto>>> UpdateOnceAsync(
+        {Entity}Dto dto, Guid authoritativeTenantId, long? expectedVersion, CancellationToken ct)
+    {
         var entity = await repoTrxn.Get{Entity}Async(dto.Id!.Value, true, ct);
         if (entity == null)
             return Result<DefaultResponse<{Entity}Dto>>.Failure($"{ErrorConstants.ERROR_ITEM_NOTFOUND}: {dto.Id}");
@@ -86,7 +93,7 @@ internal sealed class Update{Entity}Handler(
             "{Entity}:Update", nameof({Entity}), entity.Id.Value);
         if (boundary.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(boundary.ErrorMessage!);
 
-        ConcurrencyGuard.Require(command.ExpectedVersion, entity.Version, nameof({Entity}), entity.Id.Value);
+        ConcurrencyGuard.Require(expectedVersion, entity.Version, nameof({Entity}), entity.Id.Value);
 
         var tenantChange = tenantBoundaryValidator.PreventTenantChange(
             entity.TenantId.Value, authoritativeTenantId, nameof({Entity}), entity.Id.Value);
@@ -109,7 +116,10 @@ internal sealed class Delete{Entity}Handler(
     ITenantBoundaryValidator tenantBoundaryValidator)
     : IRequestHandler<Delete{Entity}Command, Result>
 {
-    public async Task<Result> HandleAsync(Delete{Entity}Command command, CancellationToken ct = default)
+    public Task<Result> HandleAsync(Delete{Entity}Command command, CancellationToken ct = default) =>
+        ConcurrencyRetry.RunAsync(repoTrxn, command.ExpectedVersion, attemptCt => DeleteOnceAsync(command, attemptCt), ct);
+
+    private async Task<Result> DeleteOnceAsync(Delete{Entity}Command command, CancellationToken ct)
     {
         var entity = await repoTrxn.Get{Entity}Async(command.Id, false, ct);
         if (entity == null) return Result.Success();   // idempotent

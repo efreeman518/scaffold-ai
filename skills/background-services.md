@@ -147,6 +147,7 @@ public sealed class ProcessDueRemindersHandler(/* repositories, IOutboxStaging, 
 - Handler implements `IScheduledJobHandler` (`EF.BackgroundServices.Scheduling`), holds the domain/application logic and remains testable; register it scoped.
 - `ScheduledJobRunner.RunAsync<THandler>` resolves the handler from TickerQ's execution scope (no second scope), starts one `{job} execute` activity, records `scheduler.job.*` metrics, logs a failure once and rethrows it so TickerQ applies its retries, and turns a caller cancellation into the `TaskCanceledException` TickerQ treats as a cancellation.
 - A handler that scans every tenant uses a system repository with `IgnoreQueryFilters([DbContextBase.TenantQueryFilterName])` or an all-tenants context ([multi-tenant.md](multi-tenant.md) section Automatic Query Filters), and records row counts with `ScheduledJobTelemetry.RecordWork`.
+- A step that reads, guards and stages in one transaction runs each attempt from a clean change tracker, returns the committed attempt's result, and stages an outbox or work id only for a row its own guarded write affected; the handler counts after the call returns ([data-persistence.md](data-persistence.md) section Set-Based Writes and Query Shape).
 
 ---
 

@@ -51,11 +51,13 @@ public static class {Entity}Endpoints
             .WithSummary("Get a single {Entity}");
 
         group.MapPost("/", Create)
+            // Idempotent create only: Idempotency-Key -> stored UUIDv7 body Id (data-persistence.md, Idempotent Create)
+            .WithIdempotencyKey<{Entity}Dto>(_ => "{entity}.create")
             .Produces<DefaultResponse<{Entity}Dto>>(StatusCodes.Status201Created)
             .ProducesValidationProblem()
             .WithSummary("Create a new {Entity}");
 
-        // RequireIfMatch: 428 without If-Match, 400 malformed, 412 + current ETag on PreconditionFailedException.
+        // RequireIfMatch: 428 without If-Match, 400 malformed, 412 + current ETag on PreconditionFailedException; `*` binds ExpectedVersion null.
         group.MapPut("/{id:guid}", Update)
             .RequireIfMatch()
             .Produces<DefaultResponse<{Entity}Dto>>()

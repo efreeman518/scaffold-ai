@@ -73,7 +73,7 @@ services.AddOutboxDispatcher();
 services.AddHealthChecks().AddLeasedWorkBacklogCheck<OutboxMessage>("outbox", tags: ["ready"]);
 ```
 
-1. `OutboxStagingInterceptor` drains every tracked aggregate's raised events into `OutboxMessage` rows in the same `SaveChanges` as the mutation, with the W3C trace context of the request. Events no aggregate raises (a scheduler job) are staged through `IOutboxStaging.Stage(...)` before that unit's `SaveChanges`, with a deterministic envelope id so a rerun is a duplicate.
+1. `OutboxStagingInterceptor` drains every tracked aggregate's raised events into `OutboxMessage` rows in the same `SaveChanges` as the mutation, with the W3C trace context of the request. Events no aggregate raises (a scheduler job) are staged through `IOutboxStaging.Stage(...)` before that unit's `SaveChanges`, with a deterministic envelope id so a rerun is a duplicate, and only for a row the job's own guarded write affected ([data-persistence.md](data-persistence.md) section Set-Based Writes and Query Shape).
 2. The dispatcher claims a bounded batch under a lease token, sends each destination group through `IOutboxTransport` under `SendTimeout`, completes accepted rows, retries or dead-letters failures per message, and settles on a token host shutdown does not cancel. `MaxAttempts` defaults to 5; set it in the `OutboxDispatcher` section when the envelope says otherwise. The host fails to start unless `LeaseDuration > SendTimeout + SettlementTimeout`.
 3. Retain exhausted rows (parked with last error) and give operators a replay (`RetryDeadLetteredAsync`) and a bounded retention job (`PurgeDeadLetteredAsync`).
 
