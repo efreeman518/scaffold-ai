@@ -51,6 +51,8 @@ public static class {Entity}Endpoints
             .WithSummary("Get a single {Entity}");
 
         group.MapPost("/", Create)
+            // Idempotent create only: Idempotency-Key -> stored UUIDv7 body Id (data-persistence.md, Idempotent Create)
+            .WithIdempotencyKey<{Entity}Dto>(_ => "{entity}.create")
             .Produces<DefaultResponse<{Entity}Dto>>(StatusCodes.Status201Created)
             .ProducesValidationProblem()
             .WithSummary("Create a new {Entity}");
