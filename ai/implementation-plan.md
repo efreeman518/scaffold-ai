@@ -77,7 +77,7 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 ### Phase 5d - Quality + Delivery
 - [ ] Service-level Integration tests against real external services (Testcontainers database, broker, cache) - `Test.Integration`, `TestCategory=Integration` (balanced + comprehensive profiles)
 - [ ] Multi-endpoint E2E workflow tests against the Testcontainers database - `Test.E2E`, `TestCategory=E2E` (comprehensive profile)
-- [ ] Architecture tests (NetArchTest layering rules)
+- [ ] Architecture tests (EF.Testing.Architecture layering rules)
 - [ ] Load tests (if comprehensive profile)
 - [ ] Benchmarks (if comprehensive profile)
 - [ ] Mutation tests (if comprehensive profile or `includeMutationTests: true`)
@@ -230,7 +230,7 @@ For libraries/services with no CLI or MCP server, record documentation and repo 
 | Aspire Azure integrations | 2-5 | Azure `AddAzure*`, `RunAsEmulator`, `RunAsContainer`, existing-resource modes | `https://aspire.dev/integrations/cloud/azure/overview/` |
 | _e.g., FusionCache_ | _5b_ | _GitHub repo + wiki_ | _`https://github.com/ZiggyCreatures/FusionCache`_ |
 | _e.g., TickerQ_ | _5c_ | _NuGet readme + samples_ | _`https://github.com/user/TickerQ`_ |
-| _e.g., NetArchTest_ | _5d_ | _GitHub README_ | _`https://github.com/BenMorris/NetArchTest`_ |
+| _e.g., Testcontainers_ | _5d_ | _Docs site_ | _`https://dotnet.testcontainers.org/`_ |
 
 ### Discovery Notes
 

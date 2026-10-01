@@ -261,6 +261,8 @@ For SQL + Cosmos/Table hybrids:
 
 ## Always Encrypted (Column-Level Encryption)
 
+Package API (`MigrationSupport`, `EF.Data.Encryption`): [ef-packages-optional.md](ef-packages-optional.md) section SQL Server Extras, then section Column Encryption.
+
 Load when a Phase 1 Security-branch decision protects a `sensitive` property with SQL Always Encrypted (SQL Server / Azure SQL only). Trigger and mode choice live in [../ai/shared-understanding-interview.md](../ai/shared-understanding-interview.md) section Sensitive-Data Trigger. This section is the how.
 
 ### Storage shape: `varbinary(200)` + UTF8 converter
@@ -344,7 +346,7 @@ Must report `No changes` (same rooting as the Mapping-Foundation Neutrality Gate
 
 Full encrypt/decrypt E2E needs a real AKV key and **cannot run locally** (no emulator). Do not attempt or claim local E2E of encryption. The runnable checks are: the **domain length/validation test** (value fits `RULE_SECURE_PROPERTY_MAX_BYTES`) and the **model-drift check** above. State this plainly rather than pretending encryption was exercised locally.
 
-Column encryption does not cover the audit trail: `AuditInterceptor` writes property values in clear text unless the property is masked. Every encrypted or sensitive property carries both `EF.Domain.Attributes.MaskAttribute` (read for modified entries) and `EF.Common.Attributes.MaskAttribute` (read by `SerializeToJson` for added entries), and a test asserts its audit entry is masked on create and update.
+Column encryption does not cover the audit trail: `AuditInterceptor` writes property values in clear text unless the property is masked. Every encrypted or sensitive property carries the one `MaskAttribute` (EF.Domain.Contracts), which masks added and modified audit entries and `SerializeToJson` output, and a test asserts its audit entry is masked on create and update.
 
 ### Key rotation
 
@@ -356,7 +358,7 @@ CMK/CEK rotation is an operational task on top of the secret-rotation workflow i
 
 ## Startup Seeding / Reference Data
 
-Use the `IStartupTask` pattern for idempotent seed data after `app.Build()` and before `app.RunAsync()`.
+Use an EF.Host `IStartupTask` (`services.AddStartupTask<T>()`) for idempotent seed data after `app.Build()` and before `app.RunAsync()`.
 
 ```csharp
 public class SeedReferenceDataTask : IStartupTask
@@ -369,6 +371,8 @@ public class SeedReferenceDataTask : IStartupTask
     public async Task ExecuteAsync(CancellationToken ct)
     {
         await using var db = await _factory.CreateDbContextAsync(ct);
+        db.AuditId = AppConstants.SYSTEM_USER_ID;
+        db.AllTenants = true;   // fail-closed tenant filter: without it the existence check sees no rows and re-inserts
 
         var existing = (await db.Set<{Entity}>()
             .Where(e => e.IsSystem)
@@ -396,7 +400,7 @@ Seeding rules:
 - Register startup tasks in dependency order.
 - Seed a well-known dev user and dev tenant with fixed compile-time GUID constants on the existing
   `SeedConstants` holder (`SeedConstants.DevUserId`, `SeedConstants.DevTenantId`). The dev write-identity
-  seam stamps `SeedConstants.DevUserId` as the owner and `ScaffoldAuthHandler` emits both as claims, so
+  seam stamps `SeedConstants.DevUserId` as the owner and the Scaffold fixed principal carries both as claims, so
   UI-driven creates resolve the user/tenant FK with no runtime lookup. Never seed the dev principal with a random Guid -
   a random id forces a lookup and breaks the stamped FK. See
   [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Dev-Mode Write Identity and

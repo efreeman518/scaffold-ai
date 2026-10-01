@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Generates** | `tests/Test.E2E/DbApiFactory.cs`, `tests/Test.E2E/E2EAssemblyHooks.cs`, `tests/Test.E2E/{Entity}WorkflowTests.cs`; consumes `DockerRuntimePreflight`, `TestDatabaseContainer`, and `RedisTestContainer` from `tests/Test.Support/Hosting` |
+| **Generates** | `tests/Test.E2E/DbApiFactory.cs`, `tests/Test.E2E/E2EAssemblyHooks.cs`, `tests/Test.E2E/{Entity}WorkflowTests.cs`; consumes `TestDatabaseContainer` from `tests/Test.Support/Hosting`, `DockerRuntimePreflight` (EF.Testing) and `ContainerFixture<T>` (EF.IntegrationTesting) |
 | **Requires** | [test-templates-endpoint](test-templates-endpoint.md) (for the shared `WebApplicationFactoryBase`), [test-templates-integration](test-templates-integration.md) section Lane switch (`TestHostingLane`, `TestDatabaseContainer`), a real database via Testcontainers |
 | **Phase** | Generated in Phase 4 (factory shell) and filled in during Phase 5b once services + endpoints are green |
 | **Protocol** | Tests-after. Unit + Endpoint tests in `Test.Endpoints` already pin per-endpoint behavior; E2E validates multi-endpoint **workflows** against the real database - paging plans, FK constraints, projection translation, owned-type round-trip, and child-aggregate lifecycles. |
@@ -22,9 +22,11 @@ Mesh and component tiers: [../skills/testing.md](../skills/testing.md) section H
 
 ### File: `tests/Test.E2E/DbApiFactory.cs`
 
-The database is a real Testcontainer on the resolved lane; every other external data plane gets an inert endpoint and a no-op replacement. The default lane also needs a live Redis because its Data Protection store connects at registration.
+The database is a real Testcontainer on the resolved lane; every other external data plane gets an inert endpoint and a no-op replacement. The default lane also starts a Redis container so the cache, the rate limiter and the Data Protection key ring share one real connection, as in production.
 
 ```csharp
+using EF.IntegrationTesting.Testcontainers;
+using EF.Testing.Processes;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -34,6 +36,7 @@ using {Project}.Hosting;
 using {Project}.Infrastructure.Data;
 using Test.Support;
 using Test.Support.Hosting;
+using Testcontainers.Redis;
 
 namespace Test.E2E;
 
@@ -45,9 +48,10 @@ public sealed class DbApiFactory : WebApplicationFactoryBase<Program, {App}DbCon
 {
     private static readonly HostingLaneSettings Lane = TestHostingLane.Current;
     private static readonly TestDatabaseContainer Db = new(TestHostingLane.DatabaseProvider);
-    private static readonly RedisTestContainer? Redis = Lane.IsNonAzure ? new() : null;
+    private static readonly ContainerFixture<RedisContainer>? Redis = Lane.IsNonAzure
+        ? new(() => new RedisBuilder(ContainerImages.Redis).Build())
+        : null;
     private static readonly SemaphoreSlim Gate = new(1, 1);
-    private static bool _started;
 
     public static string? DockerUnavailableReason { get; private set; }
     public static Exception? StartupError { get; private set; }
@@ -58,18 +62,15 @@ public sealed class DbApiFactory : WebApplicationFactoryBase<Program, {App}DbCon
         await Gate.WaitAsync(ct);
         try
         {
-            if (_started || DockerUnavailableReason is not null || StartupError is not null) return;
+            if (Db.IsStarted || DockerUnavailableReason is not null || StartupError is not null) return;
 
             DockerUnavailableReason = await DockerRuntimePreflight.GetUnavailableReasonAsync(TimeSpan.FromSeconds(10), ct);
             if (DockerUnavailableReason is not null) return;
 
-            try
-            {
-                await Db.StartAsync();
-                _started = true;
-                if (Redis is not null) await Redis.StartAsync();
-            }
-            catch (Exception ex) { StartupError = ex; }
+            // The package fixtures record a failed start instead of throwing it.
+            await Db.StartAsync(ct);
+            if (Redis is not null) await Redis.StartAsync(ct);
+            StartupError = Db.StartupError ?? Redis?.StartupError;
         }
         finally { Gate.Release(); }
     }
@@ -77,9 +78,9 @@ public sealed class DbApiFactory : WebApplicationFactoryBase<Program, {App}DbCon
     /// <summary>Called once from [AssemblyCleanup]: a disposed Testcontainer cannot restart for a later class.</summary>
     public static async Task StopContainerAsync()
     {
-        if (!_started) return;
+        // Each fixture disposes only a container it started; a second dispose is a no-op.
         try { if (Redis is not null) await Redis.DisposeAsync(); }
-        finally { await Db.DisposeAsync(); _started = false; }
+        finally { await Db.DisposeAsync(); }
     }
 
     protected override string ConnectionString => Db.ConnectionString;
@@ -88,27 +89,23 @@ public sealed class DbApiFactory : WebApplicationFactoryBase<Program, {App}DbCon
     protected override DbContextOptions BuildOptionsFor<TContext>(string connectionString) =>
         Db.BuildOptions<TContext>(connectionString);
 
+    // Program reads the lane while registering providers, so these are host settings, not only app config.
+    protected override IReadOnlyDictionary<string, string?> HostSettings => LaneSettings();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        // Program reads the lane while registering providers, so these go in as host settings, not app config.
-        foreach (var (key, value) in LaneSettings()) builder.UseSetting(key, value);
         base.ConfigureWebHost(builder);
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<IObjectStorageRepository>();
             services.AddSingleton<IObjectStorageRepository, NoOpObjectStorageRepository>();
-            services.RemoveAll<IIntegrationEventTransport>();
-            services.AddSingleton<IIntegrationEventTransport, NoOpEventTransport>();
         });
     }
-
-    protected override void ConfigureTestConfiguration(IConfigurationBuilder config) =>
-        config.AddInMemoryCollection(LaneSettings());
 
     private static Dictionary<string, string?> LaneSettings() => new()
     {
         ["Hosting:Lane"] = "NonAzure",
-        ["ConnectionStrings:Redis1"] = Redis!.ConnectionString,
+        ["ConnectionStrings:Redis1"] = Redis!.Container.GetConnectionString(),
         // Inert endpoints: registration validates them; the data planes are replaced above.
         ["Storage:S3:ServiceUrl"] = "http://127.0.0.1:1",
         ["Storage:S3:AccessKeyId"] = "{app}-e2e",
@@ -143,6 +140,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using EF.Common.Contracts;
+using EF.Testing.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using {Project}.Application.Models;
@@ -225,15 +223,18 @@ public class {Entity}WorkflowTests
         var fetched = (await getResp.Content.ReadFromJsonAsync<DefaultResponse<{Entity}Dto>>(_json, ct))!.Item;
         Assert.AreEqual("E2E {Entity}", fetched!.Name);
 
-        // UPDATE
+        // UPDATE - EF.Testing ConcurrencyHttpExtensions: echo the strong ETag from the GET as If-Match.
         var updateDto = new {Entity}Dto { Id = id, Name = "E2E {Entity} Updated", /* ... */ };
-        var putResp = await client.PutAsJsonAsync($"/api/{entities}/{id}",
-            new DefaultRequest<{Entity}Dto> { Item = updateDto }, ct);
+        var putResp = await client.PutAsJsonWithIfMatchAsync($"/api/{entities}/{id}",
+            new DefaultRequest<{Entity}Dto> { Item = updateDto }, getResp.GetETagValue() is { } tag ? ConcurrencyHttpExtensions.FormatStrongETag(tag) : null,
+            _json, ct);
         Assert.AreEqual(HttpStatusCode.OK, putResp.StatusCode,
             $"Update failed: {await putResp.Content.ReadAsStringAsync(ct)}");
 
-        // DELETE
-        var delResp = await client.DeleteAsync($"/api/{entities}/{id}", ct);
+        // DELETE with the version the update returned
+        var updated = (await putResp.Content.ReadFromJsonAsync<DefaultResponse<{Entity}Dto>>(_json, ct))!.Item!;
+        var delResp = await client.DeleteWithIfMatchAsync($"/api/{entities}/{id}",
+            ConcurrencyHttpExtensions.FormatStrongETag(updated.Version!.Value), ct);
         Assert.AreEqual(HttpStatusCode.NoContent, delResp.StatusCode);
 
         // VERIFY DELETED

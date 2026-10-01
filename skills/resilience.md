@@ -3,7 +3,7 @@
 > **When to read:** Phase 5b, when wiring any outbound HTTP client (external API, gateway-to-API, service-to-service) or reviewing retry/circuit/timeout behavior.
 > **Skip if:** the app makes no outbound HTTP calls beyond Aspire service discovery defaults, or the current task is pure domain/data work.
 
-Resilience policy for outbound calls: what the scaffold applies by default, when to customize, and what to leave alone. Package: `Microsoft.Extensions.Http.Resilience` (already part of the reference-app stack via ServiceDefaults).
+Resilience policy for outbound calls: what the scaffold applies by default, when to customize, and what to leave alone. Packages: `Microsoft.Extensions.Http.Resilience` (ServiceDefaults standard handler) and EF.Http.Resilience (read hedging, client custom resilience).
 
 ## Standard Resilience Handler (default path)
 
@@ -33,43 +33,18 @@ Keep the client total timeout larger than `retries x per-attempt timeout` budget
 
 ### Hedging
 
-Hedging sends a parallel attempt when the first is slow, which cuts tail latency but multiplies load. It is opt-in per client for idempotent reads only, under the policy in [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits. One shape is valid: replace the client's handler with the standard hedging handler, guarded to GET/HEAD on both `ShouldHandle` and `DelayGenerator`.
+Hedging (EF.Http.Resilience `AddReadHedging`; [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Client Resilience) sends a parallel attempt when the first is slow, which cuts tail latency but multiplies load. It is opt-in per client for idempotent reads only, under the policy in [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits. One shape is valid, and it is packaged: `AddReadHedging(configuration)` from EF.Http.Resilience on a dedicated read client; generate no hedging extension.
 
 ```csharp
-using Polly;
-
-public static IHttpClientBuilder AddReadHedging(this IHttpClientBuilder builder)
-{
-#pragma warning disable EXTEXP0001 // RemoveAllResilienceHandlers is [Experimental]; the hedging handler must replace the ServiceDefaults handler. Remove this pragma when the API is no longer experimental.
-    builder.RemoveAllResilienceHandlers();
-#pragma warning restore EXTEXP0001
-
-    builder.AddStandardHedgingHandler().Configure(options =>
-    {
-        var transient = options.Hedging.ShouldHandle;
-        var delay = options.Hedging.Delay;
-
-        // Outcome-triggered hedges: the standard transient predicate, narrowed to reads.
-        options.Hedging.ShouldHandle = args =>
-            IsRead(args.Context) ? transient(args) : ValueTask.FromResult(false);
-
-        // Latency-triggered hedges consult no outcome, so they need their own guard.
-        options.Hedging.DelayGenerator = args =>
-            ValueTask.FromResult(IsRead(args.Context) ? delay : Timeout.InfiniteTimeSpan);
-    });
-
-    return builder;
-}
-
-private static bool IsRead(ResilienceContext context) =>
-    context.GetRequestMessage()?.Method is { } method
-    && (method == HttpMethod.Get || method == HttpMethod.Head);
+// Section Resilience:Hedging: Enabled (true), DelayMs (250), MaxHedgedAttempts (1..10)
+builder.Services.AddHttpClient<I{Project}ReadApi, {Project}ReadApi>(c => c.BaseAddress = apiBaseUri)
+    .AddReadHedging(builder.Configuration);
 ```
 
 - Only the standard hedging pipeline snapshots the `HttpRequestMessage` for each attempt. A custom `AddResilienceHandler(...).AddHedging(...)` sends the same request instance concurrently; never build hedging that way or nest it inside the standard handler.
-- The standard hedging handler replaces the client's standard handler: attempt timeout, per-endpoint circuit breaker, and total timeout come from the hedging options, and GET retries become hedges. Guarding only `ShouldHandle` still duplicates a slow POST through the delay path.
-- `RemoveAllResilienceHandlers` is marked `[Experimental("EXTEXP0001")]`. Each call site, here or in a replaced custom pipeline, carries the scoped pragma above with its reason and removal criterion; never a project-wide `NoWarn`.
-- Tests prove a slow POST is sent exactly once and hedged attempts use distinct `HttpRequestMessage` instances. Proof: TaskFlow `src/Host/Aspire/ServiceDefaults/ReadHedgingExtensions.cs` and `tests/Test.Unit/Hosting/ReadHedgingTests.cs`.
+- `AddReadHedging` removes every resilience handler the client already has (the ServiceDefaults one included) and installs the standard hedging handler guarded to GET/HEAD on both the transient-outcome trigger and the latency trigger, so a slow POST is never duplicated. Attempt timeout, per-endpoint circuit breaker, and total timeout come from the hedging options, and GET retries become hedges. Apply it to a read-only client; a client that also writes keeps the standard handler.
+- A UI or console client outside ServiceDefaults that needs the standard handler with excluded status codes uses `AddCustomResilience(excludedStatusCodes, ...)` (EF.Http.Resilience), which never retries unsafe methods unless `retryUnsafeMethods: true`.
+- The package's tests prove a slow POST is sent once and hedged attempts use distinct `HttpRequestMessage` instances; the app proves only that the read client, and no write client, carries it.
 
 - In-process calls (service -> repository, domain methods) get no resilience wrapper - failures there are bugs or store outages, surfaced through `Result<T>`/exceptions, not retried.
 
@@ -87,7 +62,7 @@ private static bool IsRead(ResilienceContext context) =>
 - [ ] Internal clients rely on ServiceDefaults only (no custom pipeline stacked on the standard handler)
 - [ ] Each external client has exactly one named pipeline with settings-bound knobs
 - [ ] No retry on non-idempotent POSTs without an idempotency key; ServiceDefaults keeps `DisableForUnsafeHttpMethods()`
-- [ ] A hedged client replaced its handler with the GET/HEAD-guarded standard hedging handler, and tests prove a slow POST is sent once and each hedged attempt gets its own request instance
+- [ ] A hedged client is a read-only client with `AddReadHedging(configuration)`; no app hedging extension and no write client carries it
 - [ ] Read-only gRPC clients keep retries explicitly; gRPC clients carrying writes do not retry
 - [ ] Client total timeout exceeds the retry budget
 - [ ] Circuit-breaker open state surfaces as a `Result` failure / `ProblemDetails`, not an unhandled exception (see [api.md](api.md) section Error Handling Strategy)

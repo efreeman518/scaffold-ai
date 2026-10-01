@@ -1402,6 +1402,24 @@ FOUNDRY_LOCAL_PATTERN = re.compile(
     r"foundry\s+local|FoundryLocal|Microsoft\.AI\.Foundry\.Local", re.IGNORECASE
 )
 
+# EF.Packages ships these APIs and types, and the retired ids below are gone from the
+# catalog. The instruction set references the package surface; it never names a retired
+# id or API, and never tells an agent to declare a type the packages already provide.
+RETIRED_EF_SURFACE_PATTERN = re.compile(
+    r"EF\.Utility\.UI\b|EF\.IntegrationTesting\.Environment\b|\bNBomber\b|\bNetArchTest\b"
+    r"|(?<![\w.])RedisRateLimiting\b|\bAddGrpcClient2\b|\bAddOpenTelemetryWithConfig\b"
+    r"|HeaderPropagation\w*|\bScopedMessageHandler\b|\bConcurrencyMismatchException\b|\breadNoLock\b"
+)
+PACKAGE_TYPE_DECLARATION_PATTERN = re.compile(
+    r"\b(?:class|interface|record)\s+(?:LoadRunner|InboxStore|OutboxStore|OutboxStaging|OutboxStagingInterceptor"
+    r"|OutboxDispatcherService|IntegrationEventConsumerBase|IntegrationEnvelopeReader|ScaffoldAuthHandler"
+    r"|DefaultExceptionHandler|GlobalExceptionHandler|I?TenantBoundaryValidator|EntityBaseConfiguration"
+    r"|UtcDateTime(?:Offset)?Converter|ConcurrencyGuard|IfMatchEndpointFilter|ETagEndpointFilter|UuidV7|StrictEnum"
+    r"|DomainEventContainer|ITenantEntityDto|IStartupTask|IScheduledJobHandler|SchedulerHealthCheck"
+    r"|TickerQOccurrenceRetentionHandler|AspireTestHostContext|DockerRuntimePreflight|StubHttpMessageHandler"
+    r"|I?BusyTracker|BusyDelegatingHandler|ProblemDetailsDelegatingHandler|NoOpChatClient)\b"
+)
+
 # Model names age like package versions; examples use <latest-stable> and agents resolve
 # names from the catalog at scaffold time (skills/ai-integration.md). Keep in sync with
 # validate-reference.py CONCRETE_MODEL_PATTERN.
@@ -1448,6 +1466,22 @@ def check_no_foundry_local(path: Path, findings: Findings) -> None:
                 path,
                 f"line {num}: Foundry Local is not a supported provider lane - remove it "
                 f"(Azure AI Foundry, AddFoundry, and FoundryEndpoint are unaffected)",
+            )
+
+
+def check_no_retired_ef_surface(path: Path, findings: Findings) -> None:
+    for num, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        for match in RETIRED_EF_SURFACE_PATTERN.finditer(line):
+            findings.err(
+                path,
+                f"line {num}: {match.group(0)!r} is retired from the EF.Packages baseline - use the current "
+                "package or API (support/ef-packages-reference.md, support/ef-packages-optional.md)",
+            )
+        for match in PACKAGE_TYPE_DECLARATION_PATTERN.finditer(line):
+            findings.err(
+                path,
+                f"line {num}: {match.group(0)!r} declares a type EF.Packages provides - reference the "
+                "package type instead of generating it",
             )
 
 
@@ -1529,6 +1563,7 @@ def main() -> int:
         check_naive_plural_tokens(path, findings)
         check_nonexistent_commands(path, findings)
         check_no_foundry_local(path, findings)
+        check_no_retired_ef_surface(path, findings)
         check_no_concrete_model_names(path, findings)
 
     check_command_shape(findings)

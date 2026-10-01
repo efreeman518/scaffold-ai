@@ -57,17 +57,14 @@ public partial record {Entity}ListModel(
 ```csharp
 using CommunityToolkit.Mvvm.Messaging;
 using {Project}.Uno.Core.Business.Models;
-using {Project}.Uno.Core.Business.Services;
+using {Project}.Uno.Core.Business.Services.{Feature};
 
 namespace {Project}.Uno.Presentation.Presentation;
 
 public partial record {Entity}PageModel(
     {Entity}Model? Entity,
     INavigator Navigator,
-    I{Entity}ApiService {Entity}Service,
-    // inject child services as needed:
-    // ICommentApiService CommentService,
-    // IChecklistItemApiService ChecklistItemService,
+    I{Entity}ApiService {Entity}Service,   // children go through this root service too (GR-15)
     IMessenger Messenger)
 {
     // -- Mode -------------------------------------------------
@@ -91,7 +88,8 @@ public partial record {Entity}PageModel(
     // {
     //     _ = await CommentsVersion;
     //     if (Entity?.Id is null) return ImmutableList<CommentModel>.Empty;
-    //     return (IImmutableList<CommentModel>)(await CommentService.SearchAsync(Entity.Id, ct)).ToImmutableList();
+    //     var root = await {Entity}Service.GetAsync(Entity.Id.Value, ct);
+    //     return root?.Comments ?? ImmutableList<CommentModel>.Empty;
     // });
 
     // -- Inline add form states -------------------------------
@@ -122,7 +120,7 @@ public partial record {Entity}PageModel(
     public async ValueTask Delete(CancellationToken ct)
     {
         if (Entity?.Id is null) return;
-        await {Entity}Service.DeleteAsync(Entity.Id.Value, ct);
+        await {Entity}Service.DeleteAsync(Entity.Id.Value, Entity.Version, ct);   // Version -> If-Match
         await Navigator.NavigateRouteAsync(this, "{Entity}List", cancellation: ct);
     }
 
@@ -131,7 +129,7 @@ public partial record {Entity}PageModel(
     // {
     //     var body = await NewCommentBody;
     //     if (Entity?.Id is null || string.IsNullOrWhiteSpace(body)) return;
-    //     await CommentService.CreateAsync(new CommentModel { Body = body, {Entity}Id = Entity.Id.Value }, ct);
+    //     await {Entity}Service.AddCommentAsync(Entity.Id.Value, body, ct);
     //     await NewCommentBody.UpdateAsync(_ => string.Empty, ct);
     //     await CommentsVersion.UpdateAsync(v => v + 1, ct);  // triggers feed refresh
     // }
@@ -140,7 +138,8 @@ public partial record {Entity}PageModel(
     // public async ValueTask DeleteComment(CommentModel comment, CancellationToken ct)
     // {
     //     if (comment.Id is null) return;
-    //     await CommentService.DeleteAsync(comment.Id.Value, ct);
+    //     var root = await {Entity}Service.GetAsync(Entity!.Id!.Value, ct);        // the root's current Version
+    //     await {Entity}Service.RemoveCommentAsync(root!.Id!.Value, comment.Id.Value, root.Version, ct);
     //     await CommentsVersion.UpdateAsync(v => v + 1, ct);
     // }
 }

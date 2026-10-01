@@ -66,7 +66,6 @@ These are already part of the reference app and may be added without developer d
 | `ZiggyCreatures.FusionCache.*` | Hybrid cache + Redis backplane | [caching.md](caching.md) |
 | `StackExchange.Redis` | Redis client (backplane / direct) | [caching.md](caching.md) |
 | `Moq` | Test doubles | [testing.md](testing.md) |
-| `NetArchTest.Rules` | Architecture tests | [testing.md](testing.md) |
 | `Testcontainers.*` | Real-infra integration/E2E tests | [testing.md](testing.md) |
 | `BenchmarkDotNet` | Microbenchmarks | [testing.md](testing.md) |
 | `dotnet-stryker` (local tool) | Mutation testing runner | [testing-quality.md](testing-quality.md) |
@@ -89,7 +88,7 @@ Before adding any other package, pause and discuss with the developer. The bar i
 3. What is the maintenance, license, and transitive-dependency cost?
 4. Could equivalent behavior live as a thin extension package under `src/Packages/<packagePrefix>.<Layer>` (so it benefits other scaffolded apps) instead of as a third-party dependency?
 
-**No paid licenses by default.** A package, tool, or framework whose license requires payment for organizational or commercial use - including a free package whose current major moved to a commercial license - is excluded unless it adds significant value **and** no free built-in, allowlisted, in-house, or OSI-licensed option covers the need. Check the license of the version you would actually resolve, not the one you remember. An approved exception records the license name, cost basis, what the free options lacked, and an exit path in `.scaffold/DESIGN-DECISIONS.md`. Known exclusions: FluentAssertions ([testing.md](testing.md) section Assertion Policy), NBomber (replaced by the in-house `LoadRunner` in [test-templates-quality.md](../templates/test-templates-quality.md)), and MassTransit (use the owned outbox/transport port in [messaging.md](messaging.md)).
+**No paid licenses by default.** A package, tool, or framework whose license requires payment for organizational or commercial use - including a free package whose current major moved to a commercial license - is excluded unless it adds significant value **and** no free built-in, allowlisted, in-house, or OSI-licensed option covers the need. Check the license of the version you would actually resolve, not the one you remember. An approved exception records the license name, cost basis, what the free options lacked, and an exit path in `.scaffold/DESIGN-DECISIONS.md`. Known exclusions: FluentAssertions ([testing.md](testing.md) section Assertion Policy), commercial load-test packages (load tests use the EF.Testing `LoadRunner`, [test-templates-quality.md](../templates/test-templates-quality.md)), and MassTransit (use the EF.Data.Outbox outbox and the `IOutboxTransport` port, [messaging.md](messaging.md)).
 
 If a candidate clears that bar, propose it explicitly to the developer with a one-paragraph rationale. Examples of common categories where teams reach for a package but the reference-app stack already covers the need: input validation, object mapping, assertion DSLs, alternate mocking frameworks, alternate JSON serializers. Default response in these categories: **write the extension or use what's already there.**
 
@@ -143,9 +142,47 @@ Apply this only when an approved dependency has no maintained package for every 
 
 ---
 
+## Package Map
+
+Which project references which `<packagePrefix>.*` package, matching the TaskFlow csproj files. Reference a package directly where its types are named; do not re-reference what a project already gets transitively through a listed package. Add a capability row only when the capability is in scope. Type lists: [../support/ef-packages-reference.md](../support/ef-packages-reference.md) and [../support/ef-packages-optional.md](../support/ef-packages-optional.md).
+
+| Project | References | Notes |
+|---|---|---|
+| `{App}.Domain.Shared` | EF.Domain.Contracts | Typed ids, `IDomainEvent` |
+| `{App}.Domain.Model` | EF.Domain | Entities, `DomainEventContainer`; `[Mask]` comes from EF.Domain.Contracts, so no EF.Common reference |
+| `{App}.Application.Models` | EF.Common.Contracts, EF.Tenancy (multi-tenant) | DTOs, `ITenantEntityDto`, `ITenantScopedFilter` search filters |
+| `{App}.Application.Contracts` | EF.Common.Contracts, EF.Data.Contracts; EF.Messaging.Contracts (messaging); EF.Cache (entity caching) | Service and repository contracts, `IOutboxStaging` consumers |
+| `{App}.Application.Services` | EF.Common, EF.Common.Contracts | Services, `{Entity}StructureValidator` over `EntityDtoRules` |
+| `{App}.Application.Cqrs` | EF.CQRS, EF.Common.Contracts, EF.Data.Contracts | Only when `applicationStyle` is `cqrs` or `switch` |
+| `{App}.Application.MessageHandlers` | EF.BackgroundServices, EF.Audit.Contracts | Internal-bus handlers, `IntegrationEventConsumerBase` consumers (EF.Messaging.Contracts through Application.Contracts) |
+| `{App}.Infrastructure.Data` | EF.Data, EF.Data.Contracts, EF.Common.Contracts, EF.Domain.Contracts; EF.Data.PostgreSql and/or EF.Data.SqlServer per provider arm; EF.Data.Encryption, EF.Data.Outbox, EF.Audit.Data when enabled | DbContexts, configurations, outbox/inbox model |
+| `{App}.Infrastructure.Repositories` | EF.Data, EF.Data.Contracts, EF.Audit.Contracts | Repositories and updaters |
+| `{App}.Infrastructure.Caching` | EF.Cache | `AddTypedCache` and the shared Redis connection |
+| `{App}.Infrastructure.Storage` | EF.Storage, EF.Storage.Contracts, EF.Table, EF.Audit.AzureTable (Azure lane) | Blob/Table repositories, Azure Table audit sink |
+| `{App}.Infrastructure.Messaging.RabbitMq` | EF.Messaging.RabbitMq | Topology, consumers, outbox transport (NonAzure lane) |
+| `{App}.Infrastructure.AI` | EF.AI | Chat and embedding clients |
+| `ServiceDefaults` | EF.AspNetCore, EF.Host, EF.OpenTelemetry | Correlation, host lifecycle, OpenTelemetry, health endpoints |
+| `{App}.Bootstrapper` | EF.Host, EF.AspNetCore, EF.AspNetCore.DataProtection, EF.Data, EF.Common, EF.BackgroundServices; EF.Messaging (Service Bus arm), EF.Storage / EF.Storage.S3 / EF.CosmosDb per store, EF.AI when enabled | Shared host registration |
+| `{App}.Api` | EF.AspNetCore, EF.Auth, EF.Common; EF.RateLimiting.Redis (brings EF.RateLimiting) or EF.RateLimiting; EF.Grpc when gRPC is enabled | HTTP concerns |
+| `{App}.Gateway` | EF.Gateway (brings EF.Auth), EF.RateLimiting | YARP transforms, edge limiter |
+| `{App}.Scheduler` | EF.BackgroundServices, EF.BackgroundServices.TickerQ | Direct reference: the TickerQ source generator flows only to a project that references the package |
+| `{App}.Functions` | EF.Messaging.Functions | Service Bus triggers |
+| `{App}.DatabaseMigrator` | EF.Data | Migration runner |
+| `{App}.Blazor` | EF.Http.Resilience | Read hedging on the UI read client |
+| `{App}.Uno.Core` | EF.UI.Client | Busy, notifications, problem details, runtime base URL |
+| `Test.Support` | EF.Testing, EF.IntegrationTesting, EF.IntegrationTesting.PostgreSql, EF.IntegrationTesting.SqlServer (SQL Server arm), EF.IntegrationTesting.Aspire (`Test.Aspire` tier) | WAF adapter, `TestDatabaseContainer`, builders |
+| `Test.Unit` | EF.AI.Testing (AI in scope) plus the packages whose types the tests construct | No test framework helpers beyond EF.Testing through `Test.Support` |
+| `Test.Architecture` | EF.Testing, EF.Testing.Architecture | Architecture and source rules |
+| `Test.Endpoints`, `Test.Integration` | EF.IntegrationTesting; EF.AI.Testing (AI in scope) | |
+| `Test.Aspire` | EF.IntegrationTesting, EF.IntegrationTesting.Aspire | Mesh fixtures |
+| `Test.E2E` | EF.IntegrationTesting | |
+| `Test.UI`, `Test.Mobile` | EF.Testing | HTTP stubs, readiness, environment |
+
+---
+
 ## Critical Domain Contracts
 
-Full type list per package, including every package not summarized here (EF.Data.SqlServer, EF.Data.Encryption, EF.Audit.*, EF.Storage.Contracts, EF.Storage.S3, EF.Messaging.RabbitMq, EF.Cache, EF.Auth, EF.AspNetCore, EF.Host, EF.AI, EF.MSGraph, EF.IntegrationTesting, and the smaller utility packages): [../support/ef-packages-reference.md](../support/ef-packages-reference.md); capability-gated packages in [../support/ef-packages-optional.md](../support/ef-packages-optional.md).
+Full type list per package: [../support/ef-packages-reference.md](../support/ef-packages-reference.md); capability-gated packages in [../support/ef-packages-optional.md](../support/ef-packages-optional.md).
 
 ### `EF.Domain.Contracts` (identity and tenancy)
 
@@ -175,18 +212,18 @@ public abstract class EntityBase<TId> : IEntityBase<TId>, IVersionedEntity
     where TId : struct, IDomainId<TId>
 {
     public TId Id { get; init; }     // typed domain ID, value set from Guid.CreateVersion7()
-    public long Version { get; set; } // concurrency token, incremented by DbContextBase.SaveChangesAsync
+    public long Version { get; set; } // concurrency token: 1 after insert, incremented by DbContextBase on save
 }
 ```
 
-`AuditableBase<TAuditIdType>` is Guid-keyed (`: EntityBase, IAuditable<TAuditIdType>`) with `CreatedDate`, `CreatedBy`, `UpdatedDate`, `UpdatedBy`. `RowVersion` is `[Obsolete]`; never map or read it.
+`AuditableBase<TAuditIdType>` is Guid-keyed (`: EntityBase, IAuditable<TAuditIdType>`) with getter-only `CreatedAtUtc`, `ModifiedAtUtc`, `CreatedBy`, `ModifiedBy` stamped on save. An entity that needs only timestamps implements `ITimestampedEntity` with private setters.
 
 Critical invariants:
 - Entity IDs use `Guid.CreateVersion7()`.
 - Optimistic concurrency uses `Version` (`RegisterVersionConcurrencyTokens()` in EF.Data).
-- Tenant entities implement `ITenantEntity<T>`.
+- Tenant entities implement `ITenantEntity<T>` and map through `TenantEntityTypeConfiguration`.
 
-### `EF.Domain.Contracts` (results)
+### `EF.Domain.Contracts` (results and events)
 
 ```csharp
 public record DomainError(string Error, string? Code = null);
@@ -197,9 +234,7 @@ public record DomainError(string Error, string? Code = null);
 - `Errors: IReadOnlyList<DomainError>`
 - map/bind/match/tap helpers for railway flow
 
-Also available in `EF.Domain`:
-- `DomainException` (`EF.Domain.Exceptions`)
-- `EF.Domain.Attributes.MaskAttribute` for audit redaction of modified entries (sensitive properties also need the `EF.Common` one: [../support/data-persistence-advanced.md](../support/data-persistence-advanced.md) section Testing expectations)
+Also available: `IDomainEvent` / `IHasDomainEvents` (EF.Domain.Contracts), `DomainEventContainer` and `DomainException` (EF.Domain), and the one `MaskAttribute` (EF.Domain.Contracts) for audit and serialization redaction.
 
 ---
 
@@ -208,16 +243,11 @@ Also available in `EF.Domain`:
 ### `EF.Data`
 
 `DbContextBase<TAuditIdType, TTenantIdType>` provides:
-- audit/tenant context fields
-- tenant filter helpers
+- save-time stamping of timestamps, audit ids and `Version` from `Clock`
+- the named, fail-closed tenant filter (`ApplyTenantQueryFilters`, `AllTenants`)
 - concurrency-aware `SaveChangesAsync(OptimisticConcurrencyWinner winner, ...)`
 
-Also in `EF.Data`: `AuditInterceptor` (`EF.Data.Interceptors`), `DbContextScopedFactory`, `RegisterDomainIdConversions`, `RegisterVersionConcurrencyTokens`.
-
-The app-level `EntityBaseConfiguration<TEntity, TId>` (not a package type) standardizes:
-- key mapping (`Id`)
-- `ValueGeneratedNever()`
-- concurrency token configuration
+Also in `EF.Data`: `TenantEntityTypeConfiguration` (`EF.Data.Configurations`), `AuditInterceptor` (`EF.Data.Interceptors`), `DbContextScopedFactory`, `RegisterDomainIdConversions`, `RegisterUtcTemporalConversions`, `RegisterVersionConcurrencyTokens`. EF.Data references no database provider: add EF.Data.PostgreSql or EF.Data.SqlServer.
 
 ### `EF.Data.Contracts`
 
@@ -230,9 +260,10 @@ The app-level `EntityBaseConfiguration<TEntity, TId>` (not a package type) stand
 - include/split-query options
 
 Other key types:
-- `OptimisticConcurrencyWinner` (`ClientWins`, `DBWins`, `Throw`)
+- `OptimisticConcurrencyWinner` (`ClientWins`, `DBWins`, `Throw`) and `ConcurrencyGuard`
 - `SplitQueryThresholdOptions`
 - `ReadIsolation` (`Default`, `ReadUncommitted`) for the paging overloads
+- `RelationalProviderSettings`, keyset paging (`CursorCodec`, `InvalidCursorException`)
 - queryable helpers (`IQueryableExtensions`)
 
 ---
@@ -247,18 +278,19 @@ Other key types:
 - `PagedResponse<T>` - properties: `PageSize` (int), `PageIndex` (int), `Total` (int), `Data` (IReadOnlyList&lt;T&gt;)
 - `SearchRequest<TFilter>` - record with: `PageSize` (int), `PageIndex` (int), `Sorts` (IEnumerable&lt;Sort&gt;?), `Filter` (TFilter?)
 - `IEntityBaseDto<TKey>` (`TKey? Id`, `TKey : struct`) + non-generic `IEntityBaseDto : IEntityBaseDto<Guid>` alias - base DTO contract; app-level `EntityBaseDto` implements the alias, non-Guid-key apps derive `EntityBaseDto<TKey>`
+- `ITenantEntityDto`, `EntityDtoRules`, `IETagVersioned`, `UuidV7`
 - `Sort` - constructor: `Sort(string propertyName, SortOrder sortOrder)` - properties: `PropertyName`, `SortOrder`
 - `SortOrder` - enum: `Ascending = 0`, `Descending = 1`
 - `IMessage`
 - `AuditEntry<TAuditIdType, TTenantIdType>` + `AuditStatus`
+- `NotFoundException`, `ConflictException`, `PreconditionFailedException`, `PreconditionRequiredException`
 
 ### `EF.Common`
 
 - `ResultExtensions.ToResult(...)` for domain->application conversion
 - expression/predicate helpers for EF-safe composition
-- `CollectionUtility` (non-domain sync helpers)
-- `NotFoundException`, `ConflictException`, `ValidationException`, `PreconditionFailedException`, `PreconditionRequiredException` (`EF.Common.Exceptions`)
-- `MaskAttribute` (`EF.Common.Attributes`) honored by `SerializeToJson`
+- `ExceptionClassifier` and `ValidationException` (`EF.Common.Exceptions`)
+- `StrictEnum` and the `GetRequiredEnum` / `GetEnum` configuration readers
 
 ---
 
@@ -301,7 +333,7 @@ public interface IBackgroundTaskQueue
 ```csharp
 public interface IInternalMessageBus
 {
-    void AutoRegisterHandlers();
+    void AutoRegisterHandlers(params Assembly[] assemblies);
     void RegisterMessageHandler<T>(IMessageHandler<T> handler) where T : IMessage;
     void UnregisterMessageHandler<T>(IMessageHandler<T> handler) where T : IMessage;
     void Publish<T>(InternalMessageBusProcessMode mode, ICollection<T> messages) where T : IMessage;
@@ -317,14 +349,12 @@ public interface IMessageHandler<in T> where T : IMessage
 
 **Dispatch warning:** `Publish(...)` queues work onto the registered `IBackgroundTaskQueue`; it is not an inline handler invocation, and there is no `PublishAsync` / single-message overload.
 
-### `EF.Messaging`
+### Messaging packages
 
-Core abstractions used by scaffolding:
-- `IServiceBusSender`
-- `IEventGridPublisher`
-- `IEventHubProducer`
-
-Use package base classes for sender/publisher/processor implementations.
+- `EF.Messaging.Contracts`: envelope, tracing, metrics, the `IOutboxTransport` port, the inbox contract and `IntegrationEventConsumerBase`; domain, application and RabbitMQ-only projects reference it instead of `EF.Messaging`.
+- `EF.Data.Outbox`: outbox staging and dispatcher, `InboxStore<TContext>`, leased work tables.
+- `EF.Messaging`: Service Bus, Event Grid and Event Hub senders/processors and the Service Bus outbox transport. Use the package base classes for sender/publisher/processor implementations.
+- `EF.Messaging.RabbitMq`, `EF.Messaging.Functions`: transport adapters over the same consumer base.
 
 ---
 
@@ -361,7 +391,7 @@ Use package base classes for sender/publisher/processor implementations.
 
 ### `EF.Grpc`
 
-`ClientErrorInterceptor`, `ServiceErrorInterceptor`, and `AddGrpcClient2<TClient>()` for consistent gRPC error handling.
+`ServiceErrorInterceptor` (through `ExceptionClassifier`), `ClientErrorInterceptor`, and `AddEFGrpcClient<TClient>()` for consistent gRPC error handling and client registration.
 
 ### `EF.FilterBuilder`
 
@@ -384,8 +414,9 @@ Durable, JSON-defined workflow orchestration engine. Add only when the requireme
 
 ## Public Packages Used with EF.*
 
-- `Refit.HttpClientFactory`
-- `Microsoft.Extensions.Http.Resilience`
+- `Refit` / `Refit.HttpClientFactory` (typed clients; `RefitCallHelper` in EF.UI.Refit)
+- `Microsoft.Extensions.Http.Resilience` (ServiceDefaults standard handler; EF.Http.Resilience builds on it)
+- `TickerQ.EntityFrameworkCore` (the scheduler's `TickerQDbContext` in the migration-owning data project) and `TickerQ.Dashboard` (when the dashboard is enabled); `TickerQ` itself arrives through EF.BackgroundServices.TickerQ
 
 Pattern reference: [external-api.md](external-api.md)
 

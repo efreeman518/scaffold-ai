@@ -10,7 +10,7 @@ For base types used here (`DbContextBase`, `DbContextScopedFactory`, `AuditInter
 
 **Source:** `{App}.Bootstrapper/Registration/RegisterServices.Database.cs`
 
-Dual-context registration: pooled factories only after their option delegates and interceptors pass lifetime validation, `DbContextScopedFactory` wrappers for scoped resolution, audit interceptor on Trxn only, `ConnectionNoLockInterceptor` on SQL Server contexts that need it, one provider branch (PostgreSQL on the default `NonAzure` lane; SQL Server or Azure SQL on the `Azure` lane), `ReadOnly` intent injection for SQL Server Query contexts.
+Dual-context registration: pooled factories only after their option delegates and interceptors pass lifetime validation, `DbContextScopedFactory` wrappers with the explicit all-tenants rule for scoped resolution, audit (and [MESSAGING] outbox staging) interceptors on Trxn only, one provider branch over the EF.Data provider packages (PostgreSQL on the default `NonAzure` lane; SQL Server or Azure SQL on the `Azure` lane), and an independently authored Query connection string.
 
 On the `Azure` lane, set all SQL Server and Azure SQL EF registrations to compatibility level 170. This is SQL Server 2025 compatibility and enables native JSON type support, vector data types, and related indexing features.
 
@@ -51,8 +51,10 @@ private static void AddDatabaseServices(IServiceCollection services, IConfigurat
     // Interceptors
     // Empty sink list: persistence goes through the bus handler (skills/data-persistence.md section Audit Strategy)
     services.AddTransient(sp => new AuditInterceptor<string, Guid?>(sp.GetRequiredService<IInternalMessageBus>(), []));
-    // SQL Server arm only, and only when a context uses ReadIsolation.ReadUncommitted:
-    // services.AddTransient<EF.Data.SqlServer.Interceptors.ConnectionNoLockInterceptor>();
+    // [MESSAGING] EF.Data.Outbox stages raised domain events in the same SaveChanges as the write
+    // services.AddSingleton<IOutboxEventMapper, {App}OutboxEventMapper>();
+    // services.AddOutbox<{App}DbContextTrxn>(o => o.DefaultDestination = {App}IntegrationEvents.Destination);
+    // services.AddInbox<{App}DbContextTrxn>();
 
     ConfigureDatabaseContexts(services, config);
 }
@@ -61,86 +63,76 @@ private static void AddDatabaseServices(IServiceCollection services, IConfigurat
 **Dual context wiring with pooling compatibility proof:**
 
 ```csharp
+// The EF.Data tenant filter fails closed: a tenant-less context reads nothing unless marked all-tenants.
+internal static bool AllowsAllTenants(IRequestContext<string, Guid?> rc) =>
+    rc.TenantId is null && (rc.RoleExists(AppConstants.ROLE_SYSTEM) || rc.RoleExists(AppConstants.ROLE_GLOBAL_ADMIN));
+
 private static void ConfigureSqlDatabase(IServiceCollection services, {App}DbProvider provider,
     string dbConnectionStringTrxn, string dbConnectionStringQuery)
 {
-    // -- TRXN context: audit interceptor + exception processor
+    // -- TRXN context: audit interceptor (+ [MESSAGING] OutboxStagingInterceptor)
     services.AddPooledDbContextFactory<{App}DbContextTrxn>((sp, options) =>
     {
-        ConfigureTrxnDbContext(options, provider, dbConnectionStringTrxn);
-        var auditInterceptor = sp.GetRequiredService<AuditInterceptor<string, Guid?>>();
-        options.UseExceptionProcessor().AddInterceptors(auditInterceptor);
+        options.Use{App}Provider(provider, dbConnectionStringTrxn);
+        options.AddInterceptors(sp.GetRequiredService<AuditInterceptor<string, Guid?>>());
     });
-    services.AddScoped<DbContextScopedFactory<{App}DbContextTrxn, string, Guid?>>();
+    services.AddScoped(sp => new DbContextScopedFactory<{App}DbContextTrxn, string, Guid?>(
+        sp.GetRequiredService<IDbContextFactory<{App}DbContextTrxn>>(),
+        sp.GetRequiredService<IRequestContext<string, Guid?>>(),
+        sp.GetService<TimeProvider>(),
+        AllowsAllTenants));
     services.AddScoped(sp => sp.GetRequiredService<DbContextScopedFactory<{App}DbContextTrxn, string, Guid?>>()
         .CreateDbContext());
 
-    // -- QUERY context: no audit interceptor, no-tracking, ReadOnly intent on SQL Server
+    // -- QUERY context: no audit interceptor, no-tracking
     services.AddPooledDbContextFactory<{App}DbContextQuery>((sp, options) =>
     {
-        ConfigureQueryDbContext(options, provider, dbConnectionStringQuery);
-        options.UseExceptionProcessor();
+        options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
+        options.Use{App}Provider(provider, dbConnectionStringQuery);
     });
-    services.AddScoped<DbContextScopedFactory<{App}DbContextQuery, string, Guid?>>();
+    services.AddScoped(sp => new DbContextScopedFactory<{App}DbContextQuery, string, Guid?>(
+        sp.GetRequiredService<IDbContextFactory<{App}DbContextQuery>>(),
+        sp.GetRequiredService<IRequestContext<string, Guid?>>(),
+        sp.GetService<TimeProvider>(),
+        AllowsAllTenants));
     services.AddScoped(sp => sp.GetRequiredService<DbContextScopedFactory<{App}DbContextQuery, string, Guid?>>()
         .CreateDbContext());
 }
 ```
 
-**Provider branch + ReadOnly intent for SQL Server Query:** `provider` comes from the shared lane resolver (`HostingLaneResolver.Resolve(config).Database`).
+The all-tenants rule is owned by [../skills/multi-tenant.md](../skills/multi-tenant.md) section Automatic Query Filters.
+
+**The one provider branch:** `provider` comes from the shared lane resolver (`HostingLaneResolver.Resolve(config).Database`). Runtime registrations, the migrator, design-time factories and test fixtures all call this one extension, so schema, history table, retry and timeout cannot drift.
 
 ```csharp
-private const string SchemaName = "{app}";
-private const string HistoryTableName = "__EFMigrationsHistory";
-
-private static void ConfigureSqlOptions(DbContextOptionsBuilder options, {App}DbProvider provider, string connectionString)
+public static DbContextOptionsBuilder Use{App}Provider(this DbContextOptionsBuilder options,
+    {App}DbProvider provider, string connectionString)
 {
-    if (provider == {App}DbProvider.PostgreSql) // NonAzure lane (default)
+    var settings = new RelationalProviderSettings
     {
-        options.UseNpgsql(connectionString, npgsqlOptions =>
-        {
-            npgsqlOptions.MigrationsHistoryTable(HistoryTableName, SchemaName);
-            npgsqlOptions.EnableRetryOnFailure(maxRetryCount: 5,
-                maxRetryDelay: TimeSpan.FromSeconds(30), errorCodesToAdd: null);
-        });
-    }
-    else if (connectionString.Contains("database.windows.net")) // Azure lane: Azure SQL
+        ConnectionString = connectionString,
+        MigrationsAssembly = {App}DbProviderSelector.MigrationsAssembly(provider),
+        MigrationsHistoryTable = "__EFMigrationsHistory",
+        MigrationsHistorySchema = "{app}",
+        MaxRetryCount = 5,
+        MaxRetryDelay = TimeSpan.FromSeconds(30)
+    };
+    return provider switch
     {
-        options.UseAzureSql(connectionString, sqlOptions =>
-        {
-            sqlOptions.UseCompatibilityLevel(170);
-            sqlOptions.MigrationsHistoryTable(HistoryTableName, SchemaName);
-            sqlOptions.EnableRetryOnFailure(maxRetryCount: 5,
-                maxRetryDelay: TimeSpan.FromSeconds(30), errorNumbersToAdd: null);
-        });
-    }
-    else // Azure lane: SQL Server container or instance
-    {
-        options.UseSqlServer(connectionString, sqlOptions =>
-        {
-            sqlOptions.UseCompatibilityLevel(170);
-            sqlOptions.MigrationsHistoryTable(HistoryTableName, SchemaName);
-            sqlOptions.EnableRetryOnFailure(maxRetryCount: 5,
-                maxRetryDelay: TimeSpan.FromSeconds(30), errorNumbersToAdd: null);
-        });
-    }
-}
-
-private static void ConfigureQueryDbContext(DbContextOptionsBuilder options, {App}DbProvider provider, string connectionString)
-{
-    // ApplicationIntent is a SQL Server keyword; Npgsql rejects it. PostgreSQL routes replica reads by connection string.
-    if (provider == {App}DbProvider.SqlServer && !connectionString.Contains("ApplicationIntent="))
-        connectionString += ";ApplicationIntent=ReadOnly";
-    options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
-    ConfigureSqlOptions(options, provider, connectionString);
+        {App}DbProvider.PostgreSql => options.UsePostgreSqlProvider(settings),        // NonAzure lane (default), EF.Data.PostgreSql
+        {App}DbProvider.SqlServer => options.UseSqlServerProvider(settings, 170),     // Azure lane, EF.Data.SqlServer
+        _ => throw new ArgumentOutOfRangeException(nameof(provider), provider, null)
+    };
 }
 ```
+
+`UseSqlServerProvider` selects the Azure SQL flavor from the data-source host suffix and the generic SQL Server provider otherwise; both providers register the typed constraint-exception processor. The Query connection string is authored independently per environment: SQL Server callers put `ApplicationIntent=ReadOnly` in it, PostgreSQL callers point it at the read replica. Nothing is appended at runtime.
 
 Pooling is an optimization, not a blanket context rule. Every service resolved by a pooled factory's options delegate is retained with the pool and must be safe for that lifetime; it must not capture request/tenant state or resolve a dependency that needs the same context. Register a context with scoped `AddDbContextFactory(..., ServiceLifetime.Scoped)` when a required interceptor or option dependency is genuinely scoped. Keep another context pooled when its dependency graph is safe.
 
 Leave one DI composition test that builds with `new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true }`, creates a scope, resolves each `IDbContextFactory<T>`, and creates a context. This catches scoped-from-root capture and recursive factory construction before host startup. Test both selected database providers when their registrations differ.
 
-Keep schema and history-table configuration inside this central provider-options helper so runtime, migrator, tests, and design-time factories cannot drift. Every provider arm uses the same rule; Npgsql must call `MigrationsHistoryTable(HistoryTableName, SchemaName)` explicitly rather than relying on PostgreSQL `search_path`.
+Keep schema and history-table configuration inside this central provider helper so runtime, migrator, tests, and design-time factories cannot drift. Every provider arm sets the history schema explicitly through `RelationalProviderSettings`, never relying on PostgreSQL `search_path`.
 
 ---
 
@@ -171,29 +163,18 @@ public abstract class {App}DbContextBase(DbContextOptions options)
         modelBuilder.ApplyConfigurationsFromAssembly(                            // 3. All IEntityTypeConfiguration<T>
             typeof({App}DbContextBase).Assembly);
 
-        ConfigurePostgreSqlModel(modelBuilder);                                  // 4. Forced provider-only types
-        ConfigureTenantQueryFilters(modelBuilder);                               // 5. Tenant filters
+        modelBuilder.ApplyOutboxModel("{schemaName}");                          // 4. [MESSAGING] EF.Data.Outbox tables
+        modelBuilder.ApplyInboxModel("{schemaName}");
+
+        ConfigurePostgreSqlModel(modelBuilder);                                  // 5. Forced provider-only types
+        ApplyTenantQueryFilters<TenantId>(modelBuilder);                         // 6. Named, fail-closed tenant filter (EF.Data)
+        modelBuilder.RegisterVersionConcurrencyTokens();                         // 7. Version token on every IVersionedEntity
     }
 ```
 
 Type-level conventions run in `ConfigureConventions`, before EF discovers the model, and are owned by [../templates/ef-configuration-template.md](../templates/ef-configuration-template.md) section Model Conventions. `ConfigurePostgreSqlModel` is the only provider branch in the model: it returns unless `Database.ProviderName` is Npgsql and maps the types SQL Server cannot create (`jsonb`, `vector` and its extension), so the SQL Server migration snapshot never carries them. Omit it when the model has no provider-only type.
 
-**Dynamic tenant query filter** -- applied to every entity implementing `ITenantEntity<TenantId>`:
-
-```csharp
-    private void ConfigureTenantQueryFilters(ModelBuilder modelBuilder)
-    {
-        var tenantEntityClrTypes = modelBuilder.Model.GetEntityTypes()
-            .Where(entityType => typeof(ITenantEntity<TenantId>).IsAssignableFrom(entityType.ClrType))
-            .Select(entityType => entityType.ClrType);
-
-        foreach (var clrType in tenantEntityClrTypes)
-        {
-            var filter = BuildTenantFilter(clrType);   // from DbContextBase -- uses IRequestContext.TenantId
-            modelBuilder.Entity(clrType).HasQueryFilter(filter);
-        }
-    }
-```
+**Tenant query filter** -- `ApplyTenantQueryFilters<TenantId>` (EF.Data) applies the named filter `"Tenant"` to every root entity implementing `ITenantEntity<TenantId>`; generate no filter loop. It fails closed: a context with no tenant reads nothing unless the scoped factory's all-tenants rule marks it `AllTenants` ([../skills/multi-tenant.md](../skills/multi-tenant.md) section Automatic Query Filters).
 
 Table names come from each configuration's `ToTable` ([../templates/ef-configuration-template.md](../templates/ef-configuration-template.md)); the base context runs no table-naming loop.
 
@@ -201,7 +182,7 @@ Table names come from each configuration's `ToTable` ([../templates/ef-configura
 
 ## Startup Tasks
 
-`IStartupTask` (app-level, in the Bootstrapper; not a package type) is the interface for tasks that run after `builder.Build()` but before the host accepts requests. The Bootstrapper's `app.RunStartupTasks()` resolves and executes all registered implementations in order ([../skills/bootstrapper.md](../skills/bootstrapper.md)).
+`IStartupTask` (EF.Host) is the interface for tasks that run after `builder.Build()` but before the host accepts requests. The Bootstrapper's `app.RunStartupTasks()` registers the message handlers and calls EF.Host's `RunStartupTasksAsync`, which runs every registered task in registration order, one DI scope each ([../skills/bootstrapper.md](../skills/bootstrapper.md)).
 
 ### Registration
 
@@ -210,8 +191,8 @@ public static partial class RegisterServices
 {
     private static void AddStartupTasks(IServiceCollection services)
     {
-        services.AddTransient<IStartupTask, WarmupDependencies>();
-        services.AddTransient<IStartupTask, LoadCacheStartup>();
+        services.AddStartupTask<WarmupDependencies>();
+        services.AddStartupTask<LoadCacheStartup>();
     }
 }
 ```
@@ -224,13 +205,13 @@ Startup tasks are runtime warm-up only (cache preload, dependency warmup, local-
 public class LoadCacheStartup(
     IConfiguration config,
     ILogger<LoadCacheStartup> logger,
-    IFusionCacheProvider cache,
+    ITypedCache cache,
     IRepositoryQuery<{Entity}, {Entity}Id> repoQuery) : IStartupTask
 {
-    public async Task ExecuteAsync(CancellationToken cancellationToken = default)
+    public async Task ExecuteAsync(CancellationToken cancellationToken)
     {
         logger.LogInformation("Startup LoadCache Start");
-        // Use FusionCache to preload hot data from repoQuery
+        // Use ITypedCache.SetAsync to preload hot data from repoQuery
         await Task.CompletedTask;
         logger.LogInformation("Startup LoadCache Finish");
     }
@@ -245,21 +226,23 @@ public class SeedDataTask(
     IHostEnvironment env,
     ILogger<SeedDataTask> logger) : IStartupTask
 {
-    public async Task ExecuteAsync(CancellationToken ct = default)
+    public async Task ExecuteAsync(CancellationToken ct)
     {
         if (!env.IsDevelopment()) return;
 
         using var db = await factory.CreateDbContextAsync(ct);
+        db.AuditId = SeedConstants.DevUserId.ToString();
+        db.AllTenants = true;   // the fail-closed tenant filter hides every row from a tenant-less context
         if (await db.Set<{Entity}>().AnyAsync(ct)) return; // already seeded
 
         // Seed the dev tenant FIRST (and the dev user, when the app models users as an entity with an
-        // owner FK) so the write-identity seam and ScaffoldAuthHandler - which emit SeedConstants.DevUserId
+        // owner FK) so the write-identity seam and the Scaffold fixed principal - which carry SeedConstants.DevUserId
         // / DevTenantId as claims - resolve their FKs. Apps whose "owner" is just the audit-id string
         // (the IRequestContext<string, Guid?> default) need only the tenant.
         db.Add(Tenant.Create("Dev Tenant", SeedConstants.DevTenantId));
         db.Add(User.Create(SeedConstants.DevUserId, "Scaffold Principal", SeedConstants.DevTenantId)); // when a user entity exists
         db.Add({Entity}.Create("Sample {Entity}", SeedConstants.DevTenantId));
-        await db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
         logger.LogInformation("Seed data applied for local development.");
     }
 }
@@ -269,7 +252,7 @@ public class SeedDataTask(
 - Guard with `AnyAsync` - idempotent, safe on repeat runs.
 - Gate dev-only tasks with `IHostEnvironment.IsDevelopment()`.
 - Use deterministic IDs for the dev tenant and dev user (`SeedConstants.DevTenantId`,
-  `SeedConstants.DevUserId`) so the dev write-identity seam, `ScaffoldAuthHandler`, and tests can all
+  `SeedConstants.DevUserId`) so the dev write-identity seam, the Scaffold fixed principal, and tests can all
   reference the same rows. See [../support/data-persistence-advanced.md](../support/data-persistence-advanced.md)
   section Startup Seeding and [api-host-wiring.md](api-host-wiring.md) section Dev-Mode Write Identity.
 

@@ -61,15 +61,19 @@ public record DefaultRequest<T>
 }
 
 // Application.Models/DefaultResponse.cs
-public record DefaultResponse<T>
+public record DefaultResponse<T> : IETagVersioned   // EF.Common.Contracts
 {
     public DefaultResponse() { }
     public DefaultResponse(T? item) { Item = item; }
     public T? Item { get; init; }  // multi-tenant scaffolds add TenantInfo (see skills/application-layer.md BuildResponse)
+
+    /// <summary>ETag currency: the aggregate version EF.AspNetCore's WithETag() writes as the strong ETag.</summary>
+    [JsonIgnore]
+    public long? ETagVersion => Item is EntityBaseDto dto ? dto.Version : null;
 }
 ```
 
-The wrapper member is named `Item` - service/endpoint/test templates all consume `.Item`. Do not rename it (e.g. `Data`).
+The wrapper member is named `Item` - service/endpoint/test templates all consume `.Item`. Do not rename it (e.g. `Data`). A child response whose ETag must be the root aggregate's version adds an `AggregateVersion` that `ETagVersion` prefers.
 
 > **Application style first.** The contract shapes below show the `service` style (the default). For `applicationStyle: cqrs` generate command/query request records + one handler per request instead of `I{Entity}Service`; for `switch` generate both. See [Application Style Branch](#application-style-branch) at the end of this file - it is authoritative for which surface each style emits.
 
@@ -79,8 +83,8 @@ The wrapper member is named `Item` - service/endpoint/test templates all consume
 public interface I{Entity}Service
 {
     Task<Result<DefaultResponse<{Entity}Dto>>> CreateAsync(DefaultRequest<{Entity}Dto> request, CancellationToken ct = default);
-    Task<Result<DefaultResponse<{Entity}Dto>>> UpdateAsync(DefaultRequest<{Entity}Dto> request, CancellationToken ct = default);
-    Task<Result> DeleteAsync(Guid id, CancellationToken ct = default);
+    Task<Result<DefaultResponse<{Entity}Dto>>> UpdateAsync(DefaultRequest<{Entity}Dto> request, long? expectedVersion, CancellationToken ct = default);
+    Task<Result> DeleteAsync(Guid id, long? expectedVersion, CancellationToken ct = default);
     Task<Result<DefaultResponse<{Entity}Dto>>> GetAsync(Guid id, CancellationToken ct = default);
     Task<Result<PagedResponse<{Entity}Dto>>> SearchAsync(SearchRequest<{Entity}SearchFilter> request, CancellationToken ct = default);
 }

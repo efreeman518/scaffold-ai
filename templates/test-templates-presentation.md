@@ -48,30 +48,14 @@ Do not reference:
 
 ## Stub HTTP Handler
 
-Use a real API client and service over a stub `HttpMessageHandler`. This verifies JSON envelopes and service mapping without starting the Gateway.
+Use a real API client and service over `StubHttpMessageHandler` from EF.Testing (`EF.Testing.Http`); generate no stub handler class. It records every request (method, URI, headers, body) and numbers attempts, so the same test can assert the `If-Match` header a write sent. This verifies JSON envelopes and service mapping without starting the Gateway.
 
 ```csharp
-private sealed class StubHttpMessageHandler : HttpMessageHandler
-{
-    private readonly Queue<HttpResponseMessage> _responses = new();
-    public List<HttpRequestMessage> Requests { get; } = [];
+using EF.Testing.Http;
 
-    public void EnqueueJson(string json, HttpStatusCode statusCode = HttpStatusCode.OK)
-    {
-        _responses.Enqueue(new HttpResponseMessage(statusCode)
-        {
-            Content = new StringContent(json, Encoding.UTF8, "application/json")
-        });
-    }
-
-    protected override Task<HttpResponseMessage> SendAsync(
-        HttpRequestMessage request,
-        CancellationToken cancellationToken)
-    {
-        Requests.Add(request);
-        return Task.FromResult(_responses.Dequeue());
-    }
-}
+// One fixed reply per call, or Sequence(...) for an ordered set that throws when it runs out.
+var handler = StubHttpMessageHandler.Returns(HttpStatusCode.OK, """{ "item": { "id": "00000000-0000-0000-0000-000000000001", "title": "Draft" } }""");
+Assert.AreEqual("\"3\"", handler.Requests[^1].Headers["If-Match"][0]);   // after a write
 ```
 
 Stub CRUD responses with the shared `DefaultResponse<T>` envelope:
@@ -110,10 +94,10 @@ public sealed class {Entity}PresentationModelTests
     private TestNavigator _navigator = null!;
     private IMessenger _messenger = null!;
 
-    [TestInitialize]
-    public void Setup()
+    private void UseReplies(params string[] jsonReplies)
     {
-        _handler = new StubHttpMessageHandler();
+        _handler = StubHttpMessageHandler.Sequence([.. jsonReplies.Select(json => (Func<HttpResponseMessage>)(() =>
+            new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") }))]);
         var http = new HttpClient(_handler) { BaseAddress = new Uri("https://gateway.test") };
         _apiClient = new {Project}ApiClient(http);
         _messenger = new StrongReferenceMessenger();
@@ -125,7 +109,7 @@ public sealed class {Entity}PresentationModelTests
     [TestCategory("Presentation")]
     public async Task Given_SearchResponse_When_ListFeedRead_Then_ItemsLoaded()
     {
-        _handler.EnqueueJson("""
+        UseReplies("""
         {
           "data": [
             { "id": "00000000-0000-0000-0000-000000000001", "title": "Draft" }

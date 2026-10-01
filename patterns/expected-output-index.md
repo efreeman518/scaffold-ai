@@ -39,10 +39,7 @@ Expected file layout when scaffolding is complete. All paths are relative to the
 | Structure validator | `src/Application/{Project}.Application.Services/Rules/{Entity}StructureValidator.cs` |
 | Service error messages | `src/Application/{Project}.Application.Services/Rules/ServiceErrorMessages.cs` |
 | Tenant info DTO | `src/Application/{Project}.Application.Models/TenantInfoDto.cs` *(multi-tenant only)* |
-| Tenant boundary validator | `src/Application/{Project}.Application.Services/TenantBoundaryValidator.cs` *(multi-tenant only)* |
-| Tenant boundary interface | `src/Application/{Project}.Application.Contracts/ITenantBoundaryValidator.cs` *(multi-tenant only)* |
-| Validation helper | `src/Application/{Project}.Application.Services/Rules/ValidationHelper.cs` *(multi-tenant only)* |
-| Tenant logging extensions | `src/Application/{Project}.Application.Services/Rules/TenantBoundaryLoggingExtensions.cs` *(multi-tenant only)* |
+| Client-input exception | `src/Application/{Project}.Application.Contracts/InvalidRequestException.cs` (the app type mapped to 400) |
 | Message handler | `src/Application/{Project}.Application.MessageHandlers/TodoItemCreatedEventHandler.cs` |
 | Application style switch | `src/Application/{Project}.Application.Contracts/ApplicationStyle.cs` *(when applicationStyle: switch)* |
 | CQRS requests | `src/Application/{Project}.Application.Cqrs/Features/{EntityPlural}/{Entity}Requests.cs` *(when applicationStyle: cqrs or switch)* |
@@ -84,7 +81,7 @@ Default scaffold and TaskFlow reference app keep DTOs and mappers in `Applicatio
 | Integration (component) - store fixtures | `tests/Test.Support/Hosting/TestDatabaseContainer.cs`, `tests/Test.Integration/Infrastructure/DbContainerFixture.cs` (+ `RedisContainerFixture.cs`, `RabbitMqBrokerFixture.cs`, `SeaweedFsContainerFixture.cs` per selected store; `AzuriteContainerFixture.cs` on the `Azure` arm) |
 | Integration (component) - assembly lifecycle | `tests/Test.Integration/Infrastructure/IntegrationTestSetup.cs` (starts store fixtures in parallel; captures `StartupError`) |
 | Integration (component) - repo integration | `tests/Test.Integration/{Entity}RepositoryIntegrationTests.cs` (migrations + CRUD + tenant filter + M:N) |
-| Integration (component) - audit repo | `tests/Test.Integration/RelationalAuditLogRepositoryTests.cs` (`AuditLogRepositoryAzuriteTests.cs` on the `Azure` arm) |
+| Integration (component) - audit repo | `tests/Test.Integration/RelationalAuditLogRepositoryTests.cs` (the `Azure` arm's Table sink is proven by the mesh audit pipelines) |
 | Integration (component) - RabbitMQ transport | `tests/Test.Integration/RabbitMqTransportTests.cs` *(when messagingProvider: RabbitMq)* |
 | Integration (component) - projection pipeline | `tests/Test.Integration/DomainEventPipelineTests.cs` |
 | Aspire (mesh) - lazy host + lifecycle | `tests/Test.Aspire/AspireTestHost.cs` (lazy `EnsureStartedAsync`), `AspireMeshLifecycle.cs` (`[AssemblyCleanup]`) |

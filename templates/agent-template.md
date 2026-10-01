@@ -86,8 +86,9 @@ internal sealed class {Agent}AgentService : I{Agent}Agent
     private readonly AIAgent _agent;
 
     // Inject the IChatClient registered by AddAzureChatCompletionsClient("chat").AddChatClient().
-    // The model/deployment is bound at that registration, not here. When no chat client is wired,
-    // AddAiServices registers a no-op IChatClient, so this service still constructs and boots offline.
+    // The model/deployment is bound at that registration, not here. When no provider is selected, EF.AI
+    // registers its Disabled client: the service still constructs and boots offline, chatClient.IsDisabled()
+    // is true, and a call throws EFAIDisabledException, which the host maps to 503.
     public {Agent}AgentService(
         IChatClient chatClient,
         I{Entity}Service entityService)

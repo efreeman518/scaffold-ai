@@ -9,13 +9,18 @@
 | **Depends on** | [repository-template](repository-template.md), [data-mapping-template](data-mapping-template.md), [structure-validator-template](structure-validator-template.md) |
 | **Referenced by** | [endpoint-template](endpoint-template.md), [bootstrapper.md](../skills/bootstrapper.md) |
 
-> **Token vs log placeholder:** one `ILogger` template below carries both - in `"Failed to publish {Entity}CreatedEvent for {Id}; ..."`, `{Entity}` is a scaffold token and `{Id}` is the log property bound to the single trailing argument. Substitute the first, leave the second verbatim, then confirm the surviving `{...}` count equals the trailing-argument count. Rule: [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) section Disambiguating Tokens From Logging And Interpolation.
+> **Token vs log placeholder:** in `"{Entity} {Id} created"`, `{Entity}` is a scaffold token and `{Id}` the log property bound to the trailing argument; in the cache tag `$"{entity}:{tenantId}:{id}"`, `{entity}` is the token and the rest are interpolated parameters. Substitute tokens only, then confirm the surviving `{...}` count equals the trailing-argument count. Rule: [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) section Disambiguating Tokens From Logging And Interpolation.
 
-> **Multi-tenant toggle:** Lines marked `// [MULTI-TENANT]` apply only when the domain specification enables multi-tenancy. DTOs retain `TenantId` for response/round-trip compatibility, but write services overwrite it from `IRequestContext` before validation/mapping; clients never select tenant ownership. For single-tenant scaffolds, omit `ITenantBoundaryValidator` injection, tenant stamping, boundary checks, tenant filter enforcement, and `TenantInfoDto` in `DefaultResponse`. TaskFlow demonstrates multi-tenant patterns.
+> **Multi-tenant toggle:** Lines marked `// [MULTI-TENANT]` apply only when the domain specification enables multi-tenancy. DTOs keep `TenantId` for round-trips; write services overwrite it from `IRequestContext` before validation, so clients never pick the owner. `ITenantBoundaryValidator` is the EF.Tenancy singleton ([../skills/multi-tenant.md](../skills/multi-tenant.md)) and logs its own security events. Single-tenant scaffolds omit it, tenant stamping, boundary checks, filter enforcement, the cache tag's tenant segment and `TenantInfoDto`.
 
 ## File: Application/Services/{Entity}Service.cs
 
 ```csharp
+using EF.Cache;
+using EF.Common.Contracts;
+using EF.Data.Contracts;
+using EF.Tenancy;   // [MULTI-TENANT]
+
 namespace Application.Services;
 
 internal class {Entity}Service(
@@ -23,16 +28,14 @@ internal class {Entity}Service(
     IRequestContext<string, Guid?> requestContext,
     I{Entity}RepositoryTrxn repoTrxn,
     I{Entity}RepositoryQuery repoQuery,
-    IInternalMessageBus messageBus,
-    IEntityCacheProvider cache,
-    IFusionCacheProvider fusionCacheProvider,
+    ITypedCache cache,
     ITenantBoundaryValidator tenantBoundaryValidator) : I{Entity}Service  // [MULTI-TENANT] omit ITenantBoundaryValidator for single-tenant
 {
-    private readonly IFusionCache _cache = fusionCacheProvider.GetCache(AppConstants.DEFAULT_CACHE);
-
     private Guid? RequestTenantId => requestContext.TenantId;                           // [MULTI-TENANT]
     private IReadOnlyCollection<string> RequestRoles => requestContext.Roles;            // [MULTI-TENANT]
-    private bool IsGlobalAdmin => RequestRoles.Contains(AppConstants.ROLE_GLOBAL_ADMIN); // [MULTI-TENANT]
+
+    // After the commit, never before; tenant-scoped like the key (caching.md sections Cache Key Rules, Scale Hazards).
+    private Task InvalidateAsync(Guid tenantId, Guid id, CancellationToken ct) => cache.RemoveByTagAsync($"{entity}:{tenantId}:{id}", ct);
 
     #region Helpers
 
@@ -45,16 +48,8 @@ internal class {Entity}Service(
     public async Task<PagedResponse<{Entity}Dto>> SearchAsync(
         SearchRequest<{Entity}SearchFilter> request, CancellationToken ct = default)
     {
-        // [MULTI-TENANT] enforce tenant filter for non-admin requests
-        if (!IsGlobalAdmin)
-        {
-            request.Filter ??= new();
-            if (request.Filter.TenantId is Guid supplied && supplied != RequestTenantId)
-            {
-                logger.LogTenantFilterManipulation("{Entity}Search", RequestTenantId, supplied);
-            }
-            request.Filter.TenantId = RequestTenantId;
-        }
+        // [MULTI-TENANT] Forces the caller's tenant for any non-cross-tenant caller; logs a supplied foreign tenant.
+        request.Filter = tenantBoundaryValidator.EnforceTenantFilter(request.Filter, RequestTenantId, RequestRoles, "{Entity}Search");
         return await repoQuery.Search{Entity}Async(request, ct);
     }
 
@@ -66,8 +61,8 @@ internal class {Entity}Service(
 
         // [MULTI-TENANT]
         var boundary = tenantBoundaryValidator.EnsureTenantBoundary(
-            logger, RequestTenantId, RequestRoles, entity.TenantId,
-            "{Entity}:Get", nameof({Entity}), entity.Id);
+            RequestTenantId, RequestRoles, entity.TenantId.Value,
+            "{Entity}:Get", nameof({Entity}), entity.Id.Value);
         if (boundary.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(boundary.ErrorMessage!);
 
         return Result<DefaultResponse<{Entity}Dto>>.Success(BuildResponse(entity.ToDto()));
@@ -86,17 +81,17 @@ internal class {Entity}Service(
 
         // [IDENTITY] Stamp owner/created-by from request context when the entity has one - UI-driven
         // creates arrive with an empty owner and would otherwise violate the user FK. The audit id is a
-        // real seeded user GUID in dev (ScaffoldAuthHandler -> DevSeedIds.UserId). See
+        // real seeded user GUID in dev (the fixed principal's user id claim). See
         // ../patterns/api-host-wiring.md section Dev-Mode Write Identity. Omit for ownerless entities.
         // dto.OwnerId = ParseAuditId(requestContext.AuditId); // overwrite untrusted payload
 
-        // Structure validation (delegates to StructureValidators for common checks)
+        // Structure validation (EntityDtoRules common checks plus the entity's own rules)
         var validation = {Entity}StructureValidator.ValidateCreate(dto);
         if (validation.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(validation.Errors);
 
         // [MULTI-TENANT] Tenant boundary
         var boundary = tenantBoundaryValidator.EnsureTenantBoundary(
-            logger, RequestTenantId, RequestRoles, authoritativeTenantId,
+            RequestTenantId, RequestRoles, authoritativeTenantId,
             "{Entity}:Create", nameof({Entity}));
         if (boundary.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(boundary.ErrorMessage!);
 
@@ -109,28 +104,17 @@ internal class {Entity}Service(
         var entity = entityResult.Value!;
         repoTrxn.Create(ref entity);
 
+        // The aggregate raised {Entity}CreatedEvent in its factory; when messaging is enabled, the EF.Data.Outbox
+        // staging interceptor writes it as an outbox row in this same save (messaging.md). No publish call here.
         await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
-
-        await _cache.SetAsync($"{Entity}:{entity.Id}", entity.ToDto(), token: ct);
-
-        // Publish integration event (fire-and-forget - entity is already saved)
-        try
-        {
-            await messageBus.PublishAsync(
-                new {Entity}CreatedEvent(entity.Id, entity.TenantId),
-                requestContext.CorrelationId, ct);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to publish {Entity}CreatedEvent for {Id}; entity was saved successfully", entity.Id);
-        }
+        logger.LogInformation("{Entity} {Id} created", entity.Id.Value);
 
         return Result<DefaultResponse<{Entity}Dto>>.Success(BuildResponse(entity.ToDto()));
     }
 
     // ===== Update =====
     public async Task<Result<DefaultResponse<{Entity}Dto>>> UpdateAsync(
-        DefaultRequest<{Entity}Dto> request, CancellationToken ct = default)
+        DefaultRequest<{Entity}Dto> request, long? expectedVersion, CancellationToken ct = default)
     {
         var dto = request.Item;
 
@@ -149,13 +133,16 @@ internal class {Entity}Service(
 
         // [MULTI-TENANT] Tenant boundary
         var boundary = tenantBoundaryValidator.EnsureTenantBoundary(
-            logger, RequestTenantId, RequestRoles, entity.TenantId,
-            "{Entity}:Update", nameof({Entity}), entity.Id);
+            RequestTenantId, RequestRoles, entity.TenantId.Value,
+            "{Entity}:Update", nameof({Entity}), entity.Id.Value);
         if (boundary.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(boundary.ErrorMessage!);
+
+        // Stale If-Match -> PreconditionFailedException -> 412 with the current ETag (RequireIfMatch filter).
+        ConcurrencyGuard.Require(expectedVersion, entity.Version, nameof({Entity}), entity.Id.Value);
 
         // [MULTI-TENANT] Prevent tenant change
         var tenantChange = tenantBoundaryValidator.PreventTenantChange(
-            logger, entity.TenantId, authoritativeTenantId, nameof({Entity}), entity.Id);
+            entity.TenantId.Value, authoritativeTenantId, nameof({Entity}), entity.Id.Value);
         if (tenantChange.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(tenantChange.ErrorMessage!);
 
         // Update domain entity via UpdateFromDto (handles children).
@@ -168,29 +155,29 @@ internal class {Entity}Service(
             return Result<DefaultResponse<{Entity}Dto>>.Failure(updateResult.ErrorMessage);
 
         await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
-
-        await _cache.SetAsync($"{Entity}:{entity.Id}", entity.ToDto(), token: ct);
+        await InvalidateAsync(entity.TenantId.Value, entity.Id.Value, ct);
 
         return Result<DefaultResponse<{Entity}Dto>>.Success(BuildResponse(entity.ToDto()));
     }
 
     // ===== Delete (idempotent - return success if not found) =====
-    public async Task<Result> DeleteAsync(Guid id, CancellationToken ct = default)
+    public async Task<Result> DeleteAsync(Guid id, long? expectedVersion, CancellationToken ct = default)
     {
         var entity = await repoTrxn.Get{Entity}Async(id, false, ct);
         if (entity == null) return Result.Success();  // idempotent
 
         // [MULTI-TENANT]
         var boundary = tenantBoundaryValidator.EnsureTenantBoundary(
-            logger, RequestTenantId, RequestRoles, entity.TenantId,
-            "{Entity}:Delete", nameof({Entity}), entity.Id);
+            RequestTenantId, RequestRoles, entity.TenantId.Value,
+            "{Entity}:Delete", nameof({Entity}), entity.Id.Value);
         if (boundary.IsFailure) return Result.Failure(boundary.ErrorMessage!);
+
+        ConcurrencyGuard.Require(expectedVersion, entity.Version, nameof({Entity}), entity.Id.Value);
 
         repoTrxn.Delete(entity);
 
         await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
-
-        await _cache.RemoveAsync($"{Entity}:{entity.Id}", token: ct);
+        await InvalidateAsync(entity.TenantId.Value, entity.Id.Value, ct);
 
         return Result.Success();
     }
@@ -199,8 +186,8 @@ internal class {Entity}Service(
     public async Task<StaticList<StaticItem<Guid, Guid?>>> LookupAsync(
         Guid? tenantId, string? search, CancellationToken ct = default)
     {
-        // [MULTI-TENANT] Use request-context tenant if not global admin
-        if (!IsGlobalAdmin) tenantId = RequestTenantId;
+        // [MULTI-TENANT] Only a cross-tenant role may name another tenant.
+        if (tenantBoundaryValidator.EnsureCrossTenantRole(RequestRoles, "{Entity}:Lookup").IsFailure) tenantId = RequestTenantId;
         return await repoQuery.Lookup{Entity}Async(tenantId, search, ct);
     }
 }
@@ -216,8 +203,8 @@ public interface I{Entity}Service
     Task<PagedResponse<{Entity}Dto>> SearchAsync(SearchRequest<{Entity}SearchFilter> request, CancellationToken ct = default);
     Task<Result<DefaultResponse<{Entity}Dto>>> GetAsync(Guid id, CancellationToken ct = default);
     Task<Result<DefaultResponse<{Entity}Dto>>> CreateAsync(DefaultRequest<{Entity}Dto> request, CancellationToken ct = default);
-    Task<Result<DefaultResponse<{Entity}Dto>>> UpdateAsync(DefaultRequest<{Entity}Dto> request, CancellationToken ct = default);
-    Task<Result> DeleteAsync(Guid id, CancellationToken ct = default);
+    Task<Result<DefaultResponse<{Entity}Dto>>> UpdateAsync(DefaultRequest<{Entity}Dto> request, long? expectedVersion, CancellationToken ct = default);
+    Task<Result> DeleteAsync(Guid id, long? expectedVersion, CancellationToken ct = default);
     Task<StaticList<StaticItem<Guid, Guid?>>> LookupAsync(Guid? tenantId, string? search, CancellationToken ct = default);
 }
 ```
@@ -232,9 +219,10 @@ public interface I{Entity}Service
 6. **[Multi-tenant] Missing authoritative TenantId stamp** - Immediately after `var dto = request.Item;`, compute `var authoritativeTenantId = RequestTenantId ?? Guid.Empty`, overwrite `dto.TenantId`, then validate/map with `authoritativeTenantId`. Never use `RequestTenantId ?? dto.TenantId`; that lets a forged payload establish ownership when trusted context is absent.
 7. **Update not-found returns Failure** - Use `Result<DefaultResponse<{Entity}Dto>>.Failure($"{ErrorConstants.ERROR_ITEM_NOTFOUND}: {dto.Id}")`, not `Success` with `Item = null`.
 8. **Inline entity name strings** - Always use `nameof({Entity})` in boundary-validator calls and error messages, not hardcoded strings.
+13. **Version check after the load, not the save alone** - `ConcurrencyGuard.Require(expectedVersion, entity.Version, ...)` runs right after the boundary check, so a stale `If-Match` answers 412 with the current ETag before any change; `SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct)` still catches a lost update between load and save.
 9. **Missing BuildResponse** - All success paths should use the private static `BuildResponse` helper, not inline `new() { Item = ... }`.
 10. **[Multi-tenant] Missing PreventTenantChange in Update** - After boundary check, before domain update, compare the existing entity tenant with the stamped authoritative tenant as a defense-in-depth invariant.
-11. **Invented repository members (GR-14)** - Call only members that exist on the injected contract. Read the interface (or the first green service/handler in the codebase) before writing call sites. `IRepositoryQuery<TEntity, TId>` exposes `GetAsync(id)` / `ListAsync(predicate)`; paged search lives on the bespoke `I{Entity}RepositoryQuery.Search{Entity}Async`. There is no `QueryPageAsync` on the consumer-facing contracts - `QueryPageAsync` / `QueryPageProjectionAsync` are protected `RepositoryBase` helpers, callable only inside repository implementations.
+11. **Invented repository members (GR-14)** - Call only members that exist on the injected contract. Read the interface (or the first green service/handler) before writing call sites. `IRepositoryQuery<TEntity, TId>` exposes `GetAsync(id)` / `ListAsync(predicate)`; paged search lives on the bespoke `I{Entity}RepositoryQuery.Search{Entity}Async`. `QueryPageAsync` / `QueryPageProjectionAsync` are protected `RepositoryBase` helpers for repository implementations only.
 12. **Provider error text in a result** - Save exceptions propagate to the exception handler, which maps concurrency to 412 and everything else to a generic 500. Never return `ex.Message` or `GetBaseException().Message`: it leaks SQL, schema, and connection details to the caller. Catch only an app-mapped constraint exception (for example a unique-name violation) and return a fixed `ErrorConstants` message.
 
 ## Policy Notes
@@ -243,5 +231,5 @@ public interface I{Entity}Service
 
 ---
 
-**TaskFlow proof (local):** `../scaffold-proof/src/Application/TaskFlow.Application.Services/TaskItemService.cs` + companion `Rules/TaskItemStructureValidator.cs` (multi-tenant variant) and `Rules/ServiceErrorMessages.cs`
+**TaskFlow proof (local):** `../scaffold-proof/src/Application/TaskFlow.Application.Services/CategoryService.cs` (single aggregate) and `TaskItemService.cs` (children) + companion `Rules/{Entity}StructureValidator.cs`
 **TaskFlow proof (remote fallback):** <https://github.com/efreeman518/scaffold-proof/blob/main/src/Application/TaskFlow.Application.Services/TaskItemService.cs>

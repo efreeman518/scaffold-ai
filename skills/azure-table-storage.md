@@ -2,6 +2,8 @@
 
 > **Shared shape** (settings class, repository wrapper, DI registration, Aspire integration, local inspection tools) lives in [azure-data-storage.md](azure-data-storage.md). This file covers Table-specific guidance only.
 
+Package API: [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Azure Table Storage.
+
 ### Purpose
 
 Use Table Storage for low-cost, high-volume key-value access where queries are primarily `PartitionKey + RowKey` driven.

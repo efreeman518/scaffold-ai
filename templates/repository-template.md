@@ -189,6 +189,7 @@ public interface I{Entity}RepositoryTrxn : IRepositoryBase
     // Task DeleteAsync<T>(CancellationToken ct, params object[] keyValues)
     // void Delete<T>(T entity)
     // Task<int> SaveChangesAsync(OptimisticConcurrencyWinner winner, CancellationToken ct)
+    // Task<T> RetryOnConcurrencyAsync<T>(Func<CancellationToken, Task<T>> work, int attempts = 3, CancellationToken ct = default)
 }
 ```
 

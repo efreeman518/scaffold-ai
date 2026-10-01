@@ -66,7 +66,7 @@ Use this when adding a new entity to an **already-scaffolded** solution. Skip fu
 - [ ] If `applicationStyle` is `cqrs` or `switch`: CQRS feature registration is included in `CqrsHandlerRegistrationCatalog`
 - [ ] If `applicationStyle` is `cqrs` or `switch`: shared DTO/mapper placement is intentional, or feature-specific DTO/mapper placement is consolidated under `Application.Cqrs/Features/{Entity}`
 - [ ] If `applicationStyle` is `switch`: `WebApplicationBuilderExtensions.cs` maps exactly one CRUD endpoint set at runtime
-- [ ] **[Multi-tenant only]** `ITenantBoundaryValidator` registered (once, not per entity)
+- [ ] **[Multi-tenant only]** EF.Tenancy `AddTenancy` registered (once, not per entity)
 - [ ] Aspire AppHost updated (only if new project added to solution)
 
 #### Wiring proof (run it - `dotnet build` does not cover this)
@@ -260,7 +260,7 @@ Registration and routing are proven by the Wiring proof in the Fast Path section
 - [ ] Repository wiring matches `repositoryContractStyle`: a generic-coverable entity resolves the open-generic `IRepositoryTrxn<{Entity}, {Entity}Id>` / `IRepositoryQuery<{Entity}, {Entity}Id>` (registered once - no per-entity registration); a bespoke entity has `I{Entity}Repository* -> {Entity}Repository*` registered (`per-entity` style: both registered for every entity)
 - [ ] If `applicationStyle` is `cqrs` or `switch`: request/handler/registration files are colocated under `Application.Cqrs/Features/{Entity}`
 - [ ] If `applicationStyle` is `switch`: the endpoint filter above passes under both `Application:Style=Service` and `Application:Style=Cqrs`
-- [ ] **[Multi-tenant only]** `ITenantBoundaryValidator` -> `TenantBoundaryValidator` registered (once for all entities): `Get-ChildItem src/Host -Recurse -Filter *.cs | Select-String 'Add(Scoped|Transient|Singleton)<ITenantBoundaryValidator\s*,'`
+- [ ] **[Multi-tenant only]** EF.Tenancy `AddTenancy` registered once for all entities and no app validator class exists: `Get-ChildItem src -Recurse -Filter *.cs | Select-String 'AddTenancy\(|class\s+TenantBoundaryValidator'` (one `AddTenancy(` hit, no class hit)
 
 ### Data Access
 

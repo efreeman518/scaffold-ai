@@ -59,7 +59,7 @@ CONDITIONAL_EVIDENCE: tuple[
     ),
     (
         ({"includeKeyVault": True},),
-        (("src/Host/TaskFlow.Bootstrapper/Registration/RegisterServices.DataProtection.cs", "ProtectKeysWithAzureKeyVault"),),
+        (("src/Host/TaskFlow.Bootstrapper/Registration/RegisterServices.DataProtection.cs", "settings.KeyVaultKeyUri"),),
         ("infra/modules/key-vault.bicep",),
     ),
     (
@@ -119,8 +119,8 @@ CONDITIONAL_EVIDENCE: tuple[
             ("tests/Test.Unit/Hosting/HostingLaneContractTests.cs", "Resolve_NonAzureAzureServiceSetting_Throws"),
             ("tests/Test.Unit/Hosting/HostingLaneContractTests.cs", "ResolveFromEnvironment_NonAzureAzureServiceSetting_Throws"),
             ("src/Host/TaskFlow.Bootstrapper/Registration/ProviderSwitchAttribute.cs", "ProviderSwitchAttribute"),
-            ("src/Host/Aspire/ServiceDefaults/Extensions.cs", 'MapHealthChecks("/healthz/live"'),
-            ("src/Host/Aspire/ServiceDefaults/Extensions.cs", 'MapHealthChecks("/healthz/ready"'),
+            ("src/Host/Aspire/ServiceDefaults/Extensions.cs", "app.MapEfHealthEndpoints();"),
+            ("src/Host/Aspire/ServiceDefaults/Extensions.cs", "AddSelfCheck()"),
             ("deploy/compose/docker-compose.yml", "Hosting__Lane: NonAzure"),
             ("infra/main.bicep", "{ name: 'Hosting__Lane', value: 'Azure' }"),
         ),
@@ -135,12 +135,11 @@ CONDITIONAL_EVIDENCE: tuple[
     (
         ({"externalDependencyModes": {"openObserve": "deployment-only"}},),
         (
-            ("src/Host/Aspire/ServiceDefaults/Extensions.cs", 'GetValue("OpenTelemetry:MetricsEnabled", true)'),
-            ("src/Host/Aspire/ServiceDefaults/Extensions.cs", "logging.AddOtlpExporter();"),
-            ("src/Host/Aspire/ServiceDefaults/Extensions.cs", "tracing.AddOtlpExporter();"),
-            ("src/Host/TaskFlow.Api/Middleware/ProblemDetailsCorrelation.cs", 'Extensions["requestId"]'),
-            ("src/Host/TaskFlow.Api/Middleware/ProblemDetailsCorrelation.cs", "activity.TraceId.ToHexString()"),
-            ("src/Host/TaskFlow.Api/Middleware/ProblemDetailsCorrelation.cs", "activity.SpanId.ToHexString()"),
+            ("src/Host/Aspire/ServiceDefaults/Extensions.cs", "builder.AddEfOpenTelemetry(o =>"),
+            ("tests/Test.Unit/Hosting/OpenTelemetryMetricsRegistrationTests.cs", "ServiceDefaults_DisabledMetrics_KeepLogsAndTracesWithoutMeterProvider"),
+            ("tests/Test.Endpoints/GlobalExceptionHandlerTests.cs", 'root.GetProperty("requestId")'),
+            ("tests/Test.Endpoints/GlobalExceptionHandlerTests.cs", "activity.TraceId.ToHexString()"),
+            ("tests/Test.Endpoints/GlobalExceptionHandlerTests.cs", "activity.SpanId.ToHexString()"),
             ("deploy/compose/docker-compose.yml", "openobserve-data:"),
             (".github/workflows/deploy-vps.yml", "OPENOBSERVE_RETENTION_DAYS"),
             (".github/workflows/deploy-vps.yml", "telemetrygen@sha256:"),

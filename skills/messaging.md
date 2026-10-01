@@ -1,6 +1,6 @@
 # Messaging
 
-Base types come from `EF.Messaging.RabbitMq` (`IRabbitMqPublisher`, `IRabbitMqMessageHandler`) and `EF.Messaging` (`IServiceBusSender`, `IEventGridPublisher`, `IEventHubProducer`) - see [package-dependencies.md](package-dependencies.md) and the [EF.Packages repo](https://github.com/efreeman518/EF.Packages) for full API details.
+Base types come from EF.Messaging.Contracts (envelope, inbox, consumer base, outbox port), EF.Data.Outbox (outbox, dispatcher, inbox store), `EF.Messaging.RabbitMq` (`IRabbitMqPublisher`, `IRabbitMqMessageHandler`), EF.Messaging.Functions, and `EF.Messaging` (`IServiceBusSender`, `IEventGridPublisher`, `IEventHubProducer`) - see [package-dependencies.md](package-dependencies.md) and the [EF.Packages repo](https://github.com/efreeman518/EF.Packages) for full API details.
 
 ## Prerequisites
 
@@ -15,10 +15,9 @@ Rule: use `IInternalMessageBus` for in-process events; use this skill for cross-
 
 Cross-process bus payloads are application/integration contracts, not domain artifacts.
 
-- Place externally published event records in `Application.Contracts.Events`.
-- Use `IIntegrationEventPublisher` for the broker (RabbitMQ or Service Bus) and Event Grid.
-- Keep domain events in `Domain` only when raised from aggregate invariants and handled in-process before integration mapping.
-- Do not publish `Domain` namespace events directly over transport - map to an `Application.Contracts.Events` record at the boundary.
+- Aggregates raise domain events (`IDomainEvent`, buffered by `DomainEventContainer` behind `IHasDomainEvents`); the app's `IOutboxEventMapper` turns each into an `IntegrationEventEnvelope` at the application boundary. The envelope frame is the package's; the app owns the payload records, their versions, and the headers (tenant) it adds.
+- Keep the envelope helpers (`{Project}IntegrationEvents`: destination, per-type versions, `Envelope(...)`, `Entry(...)`, `ConfigureReader(...)`) in `Application.Contracts.Messaging`; domain, application and consumer projects reference EF.Messaging.Contracts, never EF.Messaging.
+- Payload types and the envelope are registered on the app's source-generated messaging `JsonSerializerContext`, and its options are passed everywhere an envelope is serialized or read.
 
 > **Shared infrastructure pattern:** Messaging follows the same **Settings -> Named client -> DI -> Resilience** integration chain as external APIs. See [external-api.md](external-api.md) for the general pattern with Refit/resilience pipeline. This file covers messaging-specific adapters.
 
@@ -33,10 +32,9 @@ Cross-process bus payloads are application/integration contracts, not domain art
 
 ## Core Pattern
 
-Implement messaging as provider-specific adapters with shared conventions:
+The outbox, dispatcher, inbox and consumer base are package code (EF.Data.Outbox, EF.Messaging.Contracts; API in [../support/ef-packages-optional.md](../support/ef-packages-optional.md)); the app generates only its mapper, its consumers, its topology, and the registration branch per provider:
 
-- settings class per concrete sender/processor
-- one provider-neutral transport port plus one registration branch per provider
+- the provider-neutral `IOutboxTransport` port, packaged per broker (`AddRabbitMqOutboxTransport`, `AddServiceBusOutboxTransport`)
 - named Azure SDK clients via `IAzureClientFactory<T>` when Azure is selected
 - correlation IDs + metadata propagation
 - scoped DI in background handlers
@@ -58,51 +56,94 @@ Declaring `outboxEnabled: true` is not implementation. The producer, dispatcher,
 
 When a committed database mutation must publish an integration event:
 
-1. Map domain events to a versioned integration envelope at the application boundary.
-2. Insert the envelope into an outbox table in the same `SaveChanges` transaction as the aggregate mutation. A `SaveChangesInterceptor` is the normal common path; non-tracked bulk operations stage explicitly in the same transaction.
-3. Claim a bounded batch with a unique lease token, owner, expiry, availability time, and attempt count. The claim takes only rows whose attempt count is below `MaxAttempts`, bound from configuration and shared with the dead-letter rule; an exhausted row whose lease expired is dead-lettered, never reclaimed. Read back only rows carrying that token. Never use a claim timestamp as identity because provider precision differs.
-4. Publish through a provider-neutral transport and settle each message on its own result: one failed message never fails or re-sends the rest of the batch. Mark complete only after broker confirmation. Settle on a bounded token that host shutdown does not cancel, so a confirmed send is not left leased and sent again. A failure remains retryable and visible; never catch and discard it.
-5. Retain exhausted rows with last error and dead-letter time. Provide an observable replay operation and a bounded retention job.
+```csharp
+// Bootstrapper (every host with the write context)
+services.AddSingleton<IOutboxEventMapper, {Project}OutboxEventMapper>();   // envelope + TenantId header
+services.AddOutbox<{Project}DbContextTrxn>(o =>
+{
+    o.DefaultDestination = {Project}IntegrationEvents.Destination;
+    o.SerializerOptions = {Project}MessagingJsonContext.Default.Options;
+});
+// The write context adds the singleton interceptor: options.AddInterceptors(sp.GetRequiredService<OutboxStagingInterceptor>())
+// OnModelCreating: modelBuilder.ApplyOutboxModel(SchemaName);
 
-Provider-specific atomic claim SQL such as SQL Server `READPAST` or PostgreSQL `SKIP LOCKED` is an optimization after the provider-neutral conditional-lease path has contention evidence. The test contract is two or more concurrent claimers with no overlapping ownership plus lease-expiry recovery.
+// Dispatcher host only (every replica that should send)
+services.AddOptions<OutboxDispatcherOptions>().Bind(config.GetSection("OutboxDispatcher"));
+services.AddOutboxDispatcher();
+services.AddHealthChecks().AddLeasedWorkBacklogCheck<OutboxMessage>("outbox", tags: ["ready"]);
+```
+
+1. `OutboxStagingInterceptor` drains every tracked aggregate's raised events into `OutboxMessage` rows in the same `SaveChanges` as the mutation, with the W3C trace context of the request. Events no aggregate raises (a scheduler job) are staged through `IOutboxStaging.Stage(...)` before that unit's `SaveChanges`, with a deterministic envelope id so a rerun is a duplicate.
+2. The dispatcher claims a bounded batch under a lease token, sends each destination group through `IOutboxTransport` under `SendTimeout`, completes accepted rows, retries or dead-letters failures per message, and settles on a token host shutdown does not cancel. `MaxAttempts` defaults to 5; set it in the `OutboxDispatcher` section when the envelope says otherwise. The host fails to start unless `LeaseDuration > SendTimeout + SettlementTimeout`.
+3. Retain exhausted rows (parked with last error) and give operators a replay (`RetryDeadLetteredAsync`) and a bounded retention job (`PurgeDeadLetteredAsync`).
+
+The test contract is two or more concurrent claimers with no overlapping ownership plus lease-expiry recovery, against every provider; the app proves its mapper and wiring, the package its claim.
 
 ### At-Least-Once Consumer: Inbox
 
-Every side-effecting at-least-once consumer needs an idempotency boundary: an inbox row keyed `(Consumer, MessageId)` with two states. Before the work, the consumer claims the row as `Processing` with a lease owner and expiry. `Completed` is written in the same transaction as the business mutation, or after an external effect succeeds. A delivery that finds `Completed` acknowledges without repeating the effect; a live `Processing` lease means retry later, never success and never a second run; an expired lease is reclaimable. Failure releases the claim or lets it expire so broker retry can run. Broker duplicate detection is an additional optimization, not a substitute, because not every transport provides it.
+Every side-effecting at-least-once consumer derives from `IntegrationEventConsumerBase` over the package inbox (`AddInbox<{Project}DbContextTrxn>()`, `ApplyInboxModel(SchemaName)`; it needs the pooled `IDbContextFactory` because lease renewal runs beside the handler). The claim is a row keyed `(Consumer, MessageId)` with two states: in progress under a lease that the owning delivery renews, then completed after the effect. A delivery that finds it completed settles as `Duplicate` without repeating the effect; a live claim held by another delivery means retry later (`InProgress` after the bounded wait), never success and never a second run; an expired lease is taken over. Failure releases the claim and rethrows so broker retry can run. Broker duplicate detection is an additional optimization, not a substitute.
+
+```csharp
+public sealed class {Entity}ProjectionConsumer(
+    IInboxStore inbox, I{Entity}ProjectionService projection, MessagingMetrics metrics,
+    ILogger<{Entity}ProjectionConsumer> logger, IOptions<InboxClaimOptions>? claimOptions = null)
+    : IntegrationEventConsumerBase(inbox, metrics, logger, claimOptions)
+{
+    public const string Name = "projection";
+    public override string ConsumerName => Name;
+    public override bool Handles(string eventType) => eventType is nameof({Entity}CreatedEvent);
+    protected override Task ConsumeAsync(IntegrationEventEnvelope envelope, CancellationToken ct) =>
+        projection.Project{Entity}Async(PayloadGuid(envelope, nameof({Entity}CreatedEvent.{Entity}Id)), ct);
+}
+```
+
+Claim timings bind from `Messaging:Inbox` (`ClaimLease` 60 s, `RenewalInterval` 20 s, `WaitPollInterval`, `WaitMargin`). `MaxClaimDuration` (10 min) ends renewal, so a hung handler's claim lapses and redelivers; bound handler I/O with timeouts. Known limit: the effect and the completion are atomic only when the effect writes to the inbox database inside a transaction opened before `HandleAsync`, so make any other effect idempotent. A retention job purges completed claims past a window longer than the broker's redelivery horizon.
 
 Replay the same envelope in an integration test and assert exactly one business effect. Scheduler/event jobs that mint messages use deterministic IDs from stable business inputs so a rerun does not create a new logical event.
 
 ### Provider Switch and Transport Boundary
 
-When more than one broker is declared, keep the outbox, envelope, consumer, and inbox unchanged behind a small transport port such as `SendBatchAsync(destination, messages, ct)` that returns one result per message. The resolver follows `environment > config > lane default > hard default`, and an unknown explicit value fails startup. A third-party bus framework is optional: adopt it only when it replaces owned retry/outbox/consumer infrastructure rather than duplicating a proven path.
+When more than one broker is declared, the outbox, envelope, consumers and inbox stay unchanged and only the `IOutboxTransport` registration and the consumer host differ. The resolver follows `environment > config > lane default > hard default`, and an unknown explicit value fails startup. A third-party bus framework is optional: adopt it only when it replaces owned retry/outbox/consumer infrastructure rather than duplicating a proven path.
 
 RabbitMQ consumers normally run in a worker/scheduler host; Service Bus may use a worker or Functions trigger. Selecting one transport disables the competing consumer host so one event is not processed by both.
 
-At the transport boundary, parse and validate envelope type, version, message identity, and required routing metadata before resolving a handler. Unknown or malformed envelopes follow the explicit retry/dead-letter policy with a diagnostic reason; they are never acknowledged as successful dispatch.
+At the transport boundary, `IntegrationEnvelopeReader.TryRead(body, readerOptions, out envelope, out reason)` parses and validates the envelope before any consumer runs; `readerOptions` carries the app's serializer options and its known-type predicate. Unknown or malformed envelopes are dead-lettered with the reason (`MalformedEnvelope`, `UnsupportedEventType`); they are never acknowledged as successful dispatch. The packaged adapters (`RabbitMqIntegrationEventHandler<TConsumer>`, `ServiceBusIntegrationEventDispatcher`) do this and settle by the consumer's verdict.
 
-Broker confirmation is bounded. For RabbitMQ, enable publisher confirms, publish with mandatory routing when unroutable messages are failures, and wait under a configured timeout linked to caller cancellation. Distinguish caller cancellation, confirm timeout, broker nack/channel failure, and unroutable delivery in logs and retry state. Mark an outbox row complete only after a positive confirmation.
+Broker confirmation is bounded. The RabbitMQ transport publishes with confirms and fails only unconfirmed indices; the Service Bus transport fails an oversize item alone as permanent. Mark an outbox row complete only after a positive confirmation - the package dispatcher does.
 
 ### Broker Trace Context
 
-The envelope carries correlation identifiers, while W3C trace context travels in transport headers. On publish, start a Producer activity parented on the `traceparent`/`tracestate` persisted with the outbox row (not the dispatcher's own activity), inject its context, and keep it open until the send completes. On consume, extract them and start a Consumer activity with the extracted parent. Missing or malformed trace context starts a new trace without failing message processing. Prove parent continuity for each transport adapter.
+The envelope carries correlation identifiers, while W3C trace context travels in transport headers. The package transports start the producer span (`send {destination}`) parented on the `traceparent`/`tracestate` persisted with the outbox row, not the dispatcher's own activity, and the consumer adapters start `process {destination}` from the extracted context. Missing or malformed trace context starts a new trace without failing message processing. Export `MessagingActivitySource.Name` and `OutboxActivitySource.Name` ([observability.md](observability.md)) and prove parent continuity for each transport.
 
 ### RabbitMQ (default lane: queue/topic workflows)
 
-`EF.Messaging.RabbitMq` owns confirmed publishing, topology declaration, and consumer hosting; API list in [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section RabbitMQ (EF.Messaging.RabbitMq). The transport adapter implements the provider-neutral port; only the consumer host registers consumers.
+`EF.Messaging.RabbitMq` owns confirmed publishing, topology declaration, consumer hosting, the outbox transport and the consumer adapter; API list in [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section RabbitMQ (EF.Messaging.RabbitMq). Only the consumer host registers consumers.
 
 ```csharp
 // Every host that dispatches outbox rows
 services.AddRabbitMqMessaging(config, "Messaging:RabbitMq");
-services.AddSingleton<IIntegrationEventTransport, {Project}RabbitMqEventTransport>(); // provider-neutral port
+services.AddRabbitMqOutboxTransport(o => o.DefaultExchange = {Project}RabbitMqTopology.Exchange);
 
 // Consumer host only (worker/scheduler; Functions has no RabbitMQ trigger)
-services.AddRabbitMqConsumer<{Consumer}Handler>("{consumer}-queue");
+services.AddRabbitMqTopology({Project}RabbitMqTopology.Build());
+services.AddRabbitMqConsumer<RabbitMqIntegrationEventHandler<{Entity}ProjectionConsumer>>({Project}RabbitMqTopology.ProjectionQueue);
 services.AddHealthChecks().AddRabbitMqHealthCheck(tags: "ready");
 ```
 
-`{Consumer}Handler : IRabbitMqMessageHandler` validates the envelope, returns `ConsumeResult.Reject(reason)` for an unreadable message (dead-letter), lets transient failures throw (requeue up to the delivery bound, then dead-letter), and returns `ConsumeResult.Ack` after the handler commits.
+The adapter dead-letters an unreadable body, acks consumed and duplicate deliveries, and retries `InProgress` and failures after `RabbitMqConsumerOptions.RetryDelay` (`Messaging:RabbitMq:Consumers:<queue>:RetryBaseDelay` / `RetryMaxDelay`), up to the delivery bound, then dead-letters.
 
 ### Service Bus (`Azure` lane: queue/topic workflows)
+
+```csharp
+// Every host that dispatches outbox rows
+services.AddServiceBusOutboxTransport(o =>
+{
+    o.ClientName = "{Project}SBClient";
+    o.Entities[{Project}IntegrationEvents.Destination] = config["DomainEventsTopic"] ?? "{project}-events";
+});
+```
+
+Consumers run as Functions Service Bus triggers, one per subscription, each a one-line `ServiceBusIntegrationEventDispatcher.DispatchAsync(message, actions, consumer, readerOptions.Value, logger, ct)` with auto-complete off ([function-app.md](function-app.md)). A non-Functions processor derives from `ServiceBusProcessorBase` and calls the same consumer.
 
 ```csharp
 public interface IServiceBusSender
@@ -121,21 +162,6 @@ public class {Project}ServiceBusProcessor : ServiceBusProcessorBase, I{Project}S
 services.AddAzureClients(builder =>
     builder.AddServiceBusClient(config.GetConnectionString("ServiceBus1")!)
         .WithName("{Project}SBClient"));
-
-services.Configure<{Project}ServiceBusSenderSettings>(config.GetSection("{Project}ServiceBusSenderSettings"));
-services.Configure<{Project}ServiceBusProcessorSettings>(config.GetSection("{Project}ServiceBusProcessorSettings"));
-```
-
-```csharp
-sbProcessor.RegisterProcessor("todoitem-processing", null,
-    async args =>
-    {
-        using var scope = serviceProvider.CreateScope();
-        var svc = scope.ServiceProvider.GetRequiredService<ITodoItemService>();
-        var payload = JsonSerializer.Deserialize<TodoItemCompletedMessage>(args.Message.Body.ToString());
-        await svc.ProcessCompletionAsync(payload!.TodoItemId, stoppingToken);
-    },
-    args => { logger.LogError(args.Exception, "Service Bus error on {EntityPath}", args.EntityPath); return Task.CompletedTask; });
 ```
 
 ### Event Grid (pub/sub notifications)
@@ -248,9 +274,9 @@ See [aspire.md](aspire.md) -> *Local Explorer Tooling* for the canonical port ma
 - [ ] Batch sending handles message-size constraints
 - [ ] Aspire references match connection names used by services
 - [ ] Delivery semantics (idempotency/outbox/dedup window) are explicitly configured per channel
-- [ ] `outboxEnabled: true` has a same-transaction outbox row, bounded lease dispatcher, retained failure state, and replay proof
-- [ ] Side-effecting consumers have an inbox or equivalent atomic idempotency claim and duplicate-delivery test
-- [ ] Every transport proves confirm/ack, retry, malformed-message dead-letter, and trace-parent propagation
-- [ ] RabbitMQ proves bounded positive confirm, nack/unroutable failure, confirm timeout, and caller cancellation independently
+- [ ] `outboxEnabled: true` registers `AddOutbox` with the staging interceptor on the write context, `AddOutboxDispatcher` on the dispatcher host, the backlog health check, a retention job, and a replay proof
+- [ ] Side-effecting consumers derive from `IntegrationEventConsumerBase` over `AddInbox` and have a duplicate-delivery test
+- [ ] Every transport proves the app's topology routing, malformed-message dead-letter, and trace-parent propagation; confirm, nack and timeout handling are the package's tests
+- [ ] No app code defines an outbox/inbox store, a transport, an envelope reader, or a consumer base
 - [ ] Mixed-store slices include a reconciliation path (drift detection + replay-safe correction)
 - [ ] Timeline projection exists for workflows requiring support/dispute traceability

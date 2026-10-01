@@ -30,13 +30,14 @@ High-signal lookup for structure, dependencies, DI patterns, and common routes/c
 
 | Package | Primary Purpose |
 |---|---|
-| `EF.Domain` | entity bases, domain exceptions, mask attribute |
-| `EF.Domain.Contracts` | typed IDs, tenant contracts, `DomainResult` / `DomainError` |
-| `EF.Data` | EF repo/config base abstractions |
+| `EF.Domain` | entity bases, domain exceptions, `DomainEventContainer` |
+| `EF.Domain.Contracts` | typed IDs, tenant contracts, `DomainResult` / `DomainError`, `MaskAttribute`, domain-event contracts |
+| `EF.Data` | EF repo/config base abstractions, tenant filter, `TenantEntityTypeConfiguration` |
 | `EF.Common` | `ResultExtensions`, helpers, predicates, app-facing exceptions |
 | `EF.Common.Contracts` | `Result`, request context, paging/search contracts, DTO base contract |
 | `EF.BackgroundServices` | internal message bus, handlers, background queue |
-| `EF.Host` | `AddAzureAppConfiguration` host/configuration extensions |
+| `EF.Host` | `AddEfAzureAppConfiguration`, `AzureCredentialFactory`, `IStartupTask`, host lifecycle |
+| `EF.AspNetCore` | problem details, proxy forwarding, correlation, health endpoints, request context, concurrency filters |
 
 ---
 
@@ -45,7 +46,7 @@ High-signal lookup for structure, dependencies, DI patterns, and common routes/c
 | Event Type | Layer | Transport | Naming/Contract |
 |---|---|---|---|
 | Domain event | `Domain.*` | In-process only | Raised from aggregate invariants |
-| Integration event | `Application.Contracts.Events` | Cross-process bus (Service Bus/Event Grid) | Published through `IIntegrationEventPublisher` |
+| Integration event | `Application.Contracts.Events` | Cross-process bus (RabbitMQ/Service Bus) | Staged by the EF.Data.Outbox outbox, sent by `IOutboxTransport` |
 
 Rules:
 - If a message crosses process boundaries, define it in `Application.Contracts.Events`.
@@ -61,7 +62,7 @@ Rules:
 | `EntityBase` | common Id + `Version` concurrency base entity |
 | `ITenantEntity<TTenantId>` | tenant ownership contract |
 | `DomainResult<T>` | domain-level success/failure monad |
-| `EntityBaseConfiguration<TEntity, TId>` | app-level base EF configuration (not a package type) |
+| `TenantEntityTypeConfiguration<TEntity, TId, TTenantId>` | EF.Data base configuration: tenant-first key, `Id`, `TenantId` |
 | `RepositoryBase<TContext, TAuditId, TTenantId>` | common repository operations |
 | `IRequestContext<TAuditId, TTenantId>` | scoped audit/tenant/role context |
 | `IInternalMessageBus` | internal publish/subscribe pipeline |
@@ -87,7 +88,7 @@ private static void AddApplicationServices(IServiceCollection services)
 {
     services.AddScoped<I{Entity}Service, {Entity}Service>();
     services.AddScoped<IMessageHandler<{EventName}>, {EventName}Handler>();
-    services.AddSingleton<IIntegrationEventPublisher, ServiceBusIntegrationEventPublisher>();
+    services.AddSingleton<IOutboxEventMapper, {App}OutboxEventMapper>();   // [MESSAGING]
 }
 
 public static void AutoRegisterMessageHandlers(this IHost host)
@@ -170,6 +171,6 @@ Pinned ports for local Aspire runs (SQL `38433`, Redis `6379`, RedisInsight `554
 | `ConnectionStrings:Redis1` | cache/backplane connection |
 | `Gateway_EntraExt` | gateway auth config |
 | `Api_EntraID` | API auth config |
-| `ServiceAuth:{clusterId}` | service-to-service token config |
+| `ForwardedClaims` | claims relay header and trusted callers, shared by Gateway and API |
 | `CacheDurations` | cache TTL settings |
 | `OpenApiSettings:Enable` | OpenAPI docs toggle |

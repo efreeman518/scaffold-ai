@@ -2,6 +2,8 @@
 
 > **Shared shape** (settings class, repository wrapper, DI registration, Aspire integration, local inspection tools) lives in [azure-data-storage.md](azure-data-storage.md). This file covers Cosmos DB-specific guidance only.
 
+Package API: [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Azure Cosmos DB.
+
 ### Purpose
 
 Use Cosmos DB for document-first aggregates (nested JSON, high-throughput partitioned access, globally distributed reads/writes). Keep relational workflows in SQL/EF Core when data requires joins, foreign keys, and cross-aggregate transaction boundaries.

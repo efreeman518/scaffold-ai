@@ -25,8 +25,14 @@ startupLogger.LogInformation("{AppName} {Environment} - Startup.", appName, env)
 
 try
 {
-    // 1. Service defaults (OpenTelemetry, health, resilience)
+    // 0. Azure App Configuration (EF.Host AddEfAzureAppConfiguration; no-op without AppConfig:Endpoint), first so
+    //    every later configuration read sees its values.
+    builder.Add{App}AppConfiguration();
+
+    // 1. Service defaults (OpenTelemetry, health, correlation, host lifecycle, resilience) and trusted proxy forwarding
     builder.AddServiceDefaults();
+    builder.AddProxyForwarding();                // EF.AspNetCore, section Proxy
+    builder.Add{App}DataProtection(startupLogger); // EF.AspNetCore.DataProtection (security.md section Data Protection)
 
     // 2. Registration chain -- order matters for dependency resolution
     services
@@ -39,7 +45,7 @@ try
     // 3. Build + pipeline
     var app = builder.Build().ConfigurePipeline();
 
-    // 4. Startup tasks (cache warmup, dev seeding - never schema migrations)
+    // 4. Handler registration + EF.Host startup tasks (cache warmup, dev seeding - never schema migrations)
     await app.RunStartupTasks();
 
     // 5. Switch to runtime logger
@@ -50,6 +56,7 @@ try
 catch (Exception ex)
 {
     startupLogger.LogCritical(ex, "{AppName} {Environment} - Host terminated unexpectedly.", appName, env);
+    throw;
 }
 finally
 {
@@ -79,25 +86,28 @@ ILogger<Program> CreateStartupLogger()
 ```csharp
 public static WebApplication ConfigurePipeline(this WebApplication app)
 {
-    // 1. Security headers (CSP, X-Frame, etc.)
-    app.UseMiddleware<SecurityHeadersMiddleware>();
+    // 1. Public scheme/host/client IP from the trusted proxy (EF.AspNetCore) - everything below reads them
+    app.UseProxyForwarding();
 
-    // 2. Correlation tracking
-    app.UseMiddleware<CorrelationIdMiddleware>();
+    // 2. Security headers (EF.AspNetCore)
+    app.UseBasicSecurityHeaders();
 
-    // 3. Catch unhandled exceptions (before routing)
+    // 3. Correlation tracking (EF.AspNetCore; AddCorrelationId is in ServiceDefaults)
+    app.UseCorrelationId();
+
+    // 4. Catch unhandled exceptions (before routing; AddEfProblemDetails)
     app.UseExceptionHandler();
 
-    // 4. CORS
+    // 5. CORS
     app.UseCors("UiCors");
 
-    // 5. Authenticate
+    // 6. Authenticate
     app.UseAuthentication();
 
-    // 6. Authorize
+    // 7. Authorize
     app.UseAuthorization();
 
-    // 7. Rate limiting after auth so tenant/user partitions see the principal (skills/security.md)
+    // 8. Rate limiting after auth so tenant partitions see the principal (skills/security.md)
     app.UseRateLimiter();
 
     // OpenAPI + Scalar (feature-gated)
@@ -111,12 +121,8 @@ public static WebApplication ConfigurePipeline(this WebApplication app)
         });
     }
 
-    // Scaffold ServiceDefaults maps /healthz/live, /healthz/ready, and /healthz here.
+    // ServiceDefaults maps /healthz/live, /healthz/ready, and /healthz here (MapEfHealthEndpoints).
     app.MapDefaultEndpoints();
-
-    // Optional backward-compatible aliases; canonical orchestrator targets stay under /healthz/*.
-    app.MapHealthChecks("/health", new() { Predicate = r => r.Tags.Contains("ready") }).AllowAnonymous();
-    app.MapHealthChecks("/alive", new() { Predicate = r => r.Tags.Contains("live") }).AllowAnonymous();
 
     // API endpoint groups
     SetupApiEndpoints(app);
@@ -125,46 +131,15 @@ public static WebApplication ConfigurePipeline(this WebApplication app)
 }
 ```
 
-**Why:** Security and correlation must envelope every response, exception handling must wrap downstream failures, CORS must answer preflight before authentication, and authentication must establish the principal before authorization. Therefore preserve this middleware order.
+**Why:** Forwarded values must be applied before anything reads them, security and correlation must envelope every response, exception handling must wrap downstream failures, CORS must answer preflight before authentication, and authentication must establish the principal before authorization. Therefore preserve this middleware order.
 
 ---
 
 ## Gateway Claim Relay Trust Boundary
 
-API may consume `X-Orig-Request` only after bearer authentication validates issuer, audience, and an allowlisted gateway application identity (`azp`/`appid`). A forwarded-claims transformer may then add context to the authenticated principal; `IRequestContext` reads that principal, never the raw header. Direct-user-token and other service-token paths ignore the envelope. The canonical trust boundary and forged-header cases live in [gateway.md](../skills/gateway.md#forwarded-claims-trust-boundary).
+API may consume the relay header only after bearer authentication validates issuer, audience, and an allowlisted gateway application identity (`azp`/`appid`). `services.AddForwardedClaimsTransformation(config)` (EF.Auth) then replaces the principal with a new identity holding only the allowlisted forwarded claims plus a relayed-by marker; `IRequestContext` reads that principal, never the raw header. Direct-user-token and other service-token paths ignore the envelope. The canonical trust boundary and forged-header cases live in [gateway.md](../skills/gateway.md#forwarded-claims-trust-boundary); generate no claims transformer.
 
-When claim relay is used, bind `ForwardedClaims:TrustedGatewayClientIds` from validated configuration and fail startup when the allowlist is empty. Register the transformer only for that path. `IClaimsTransformation` runs during authentication, before authorization; the transformer itself must enforce the caller check before reading the header. On success it returns a new principal with a new `ClaimsIdentity` holding only the allowlisted forwarded claims plus a relayed-by marker, never a clone of the gateway service identity: merging them attributes every request to the gateway `oid` and hands the user the gateway's app roles. It may run more than once; the transformed principal carries no trusted-caller claim, so a second run is a no-op.
-
-```csharp
-private bool IsTrustedGatewayCaller(ClaimsPrincipal principal)
-{
-    if (principal.Identity?.IsAuthenticated != true) return false;
-
-    // App-only (client-credentials) token only: a delegated user token issued to the gateway client id
-    // carries the same azp, so any delegated scope disqualifies the caller.
-    if (principal.HasClaim(c => c.Type is "scp" or "http://schemas.microsoft.com/identity/claims/scope"))
-        return false;
-
-    var callerAppId = principal.FindFirst("azp")?.Value
-        ?? principal.FindFirst("appid")?.Value; // v1 fallback only when azp is absent
-
-    return callerAppId is not null
-        && trustedGatewayClientIds.Contains(callerAppId, StringComparer.OrdinalIgnoreCase);
-}
-
-public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
-{
-    if (!IsTrustedGatewayCaller(principal)) return Task.FromResult(principal);
-    var request = httpContextAccessor.HttpContext?.Request;
-    if (request is null || !request.Headers.TryGetValue("X-Orig-Request", out var envelope))
-        return Task.FromResult(principal);
-    if (envelope.Count != 1) return Task.FromResult(principal);
-
-    // Parse validated gateway context into a NEW identity with allowlisted claim types only.
-    // Never copy the gateway identity's claims or arbitrary claim names.
-    return BuildForwardedPrincipalAsync(principal, envelope);
-}
-```
+Bind the one `ForwardedClaims` section the Gateway binds (`HeaderName`, `ClaimTypes`, `TrustedCallerIds`). An empty `TrustedCallerIds` disables the relay (fail closed), so a scaffold that relays nothing registers the transformation with an empty list and stays inert.
 
 ---
 
@@ -172,99 +147,37 @@ public Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
 
 **Source:** `Host/{App}.Bootstrapper/Registration/RegisterServices.RequestContext.cs`
 
-Scoped `IRequestContext<string, Guid?>` factory: correlation ID from `X-Correlation-ID` header, claim precedence (`oid` > `NameIdentifier` > `sub`), tenant from the authenticated principal's `userTenantId` claim, role extraction, and an explicit system context outside a request.
+The scoped `IRequestContext<string, Guid?>` is EF.AspNetCore's claims-based context; generate no factory:
 
 ```csharp
-private static void AddRequestContextServices(IServiceCollection services)
+internal static void AddRequestContext(IServiceCollection services)
 {
-    services.AddScoped<IRequestContext<string, Guid?>>(provider =>
-    {
-        var httpContext = provider.GetService<IHttpContextAccessor>()?.HttpContext;
-
-        // Correlation ID: prefer header, fallback to new GUID
-        var correlationId = Guid.NewGuid().ToString();
-        if (httpContext != null)
+    services.AddHttpRequestContext<Guid?>(
+        value => Guid.TryParse(value, out var tenantId) ? tenantId : null,
+        options =>
         {
-            var headers = httpContext.Request?.Headers;
-            if (headers != null && headers.TryGetValue("X-Correlation-ID", out var headerValues))
-            {
-                var headerValue = headerValues.FirstOrDefault();
-                if (!string.IsNullOrWhiteSpace(headerValue))
-                    correlationId = headerValue;
-            }
-        }
-
-        // No HttpContext (background job, Functions trigger): an explicit system context with no tenant,
-        // the fixed system user id, and the system role. Never the scaffold/dev principal or a default tenant.
-        if (httpContext == null)
-        {
-            return new RequestContext<string, Guid?>(
-                correlationId, AppConstants.SYSTEM_USER_ID, null, [AppConstants.ROLE_SYSTEM]);
-        }
-
-        // Claim precedence for audit identity
-        var user = httpContext.User;
-        var auditId = user.Claims.FirstOrDefault(c => c.Type == "oid")?.Value
-            ?? user.Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value
-            ?? user.Claims.FirstOrDefault(c => c.Type == "sub")?.Value
-            ?? "NoAuditClaim";
-
-        // Tenant from custom claim
-        var tenantIdClaim = user.Claims.FirstOrDefault(c => c.Type == "userTenantId")?.Value;
-        var tenantId = Guid.TryParse(tenantIdClaim, out var tenantGuid)
-            ? tenantGuid : (Guid?)null;
-
-        // Roles
-        var rolesList = user.Claims
-            .Where(c => c.Type == ClaimTypes.Role)
-            .Select(c => c.Value).ToList();
-
-        return new RequestContext<string, Guid?>(correlationId, auditId, tenantId, rolesList);
-    });
+            options.SystemAuditId = AppConstants.SYSTEM_USER_ID;
+            options.SystemRoles = [AppConstants.ROLE_SYSTEM];   // CrossTenantRoles includes it (multi-tenant.md)
+        });
 }
 ```
 
-> **Claim source must match these reads.** When the scaffold runs with auth on via `ScaffoldAuthHandler`,
-> that handler must emit roles as `ClaimTypes.Role`, tenant as a `userTenantId` claim, and the seeded
-> dev-user GUID as `NameIdentifier` - see
-> [../skills/identity-management.md](../skills/identity-management.md) section Claim-type contract. The
-> reads above are the other half of that contract; a mismatch silently empties roles and tenant.
-> When claims originate at Gateway, a forwarded-claims transformer may add them only after validating the
-> allowlisted gateway service identity in [gateway.md](../skills/gateway.md#forwarded-claims-trust-boundary). The request-context factory reads the resulting
-> principal; it never parses `X-Orig-Request` itself.
+- Correlation id: `HttpContext.TraceIdentifier` (set by `UseCorrelationId`), else the W3C trace id, else a GUID.
+- Authenticated request: audit id from `oid` > name identifier > `sub`, tenant from `tenant_id`, roles from `ClaimTypes.Role`.
+- Unauthenticated request: `anonymous`, no tenant, no roles.
+- No HttpContext (background job, consumer, Functions trigger): the explicit system context - no tenant, `SYSTEM_USER_ID`, and every `SystemRoles` role. Never the scaffold/dev principal or a default tenant. A token can never claim a system role: every `SystemRoles` entry is stripped from inbound roles.
 
-### Dev-Mode Tenant Fallback (Auth Off)
+> **Claim source must match these reads.** The Scaffold fixed principal emits roles as `ClaimTypes.Role`, tenant as `tenant_id`, and the seeded dev-user GUID as `oid` / `NameIdentifier` - see
+> [../skills/identity-management.md](../skills/identity-management.md) section Claim-type contract. A mismatch silently empties roles and tenant.
+> When claims originate at Gateway, the EF.Auth relay adds them only after validating the
+> allowlisted gateway service identity in [gateway.md](../skills/gateway.md#forwarded-claims-trust-boundary). The request context reads the resulting
+> principal; it never parses the relay header itself.
 
-When the scaffold ships with auth off (`Auth:Enabled: false` or no `Auth` section), `userTenantId` claims are absent and the tenant resolves to `null`. The EF tenant query filter then matches nothing and the entire UI looks silently empty (zero rows on every list). Two acceptable mitigations - pick **one** and record it in `HANDOFF.md`:
+### No Tenant Means No Rows
 
-1. **Single-tenant scaffold** (preferred when only one tenant exists in dev): drop `ITenantEntity<TenantId>` from the entity, remove the tenant query filter, and skip this section.
-2. **Dev tenant header**: keep multi-tenancy on, register a `DevRequestContextMiddleware` that reads a tenant id from a project-scoped header (e.g., `X-{App}-Tenant`) **only when** `app.Environment.IsDevelopment()` and `Auth:Enabled` is false. This is an explicit local-only exception to the authenticated-claim boundary and must never activate in staging/production. The matching Blazor `TenantHeaderHandler` lives in [../skills/ui-blazor.md](../skills/ui-blazor.md) -> *Dev Tenant Header*.
+The EF.Data tenant filter fails closed: a request with no tenant claim reads nothing ([../skills/multi-tenant.md](../skills/multi-tenant.md) section Automatic Query Filters). A multi-tenant scaffold therefore never runs with authentication off: from the first API wiring it registers the `Scaffold` fixed principal ([../skills/identity-management.md](../skills/identity-management.md)), whose `tenant_id` claim is the seeded dev tenant. A single-tenant scaffold drops `ITenantEntity<TenantId>` and the tenant filter instead.
 
-Wire the middleware before `UseAuthentication`:
-
-```csharp
-// Host/{App}.Api/Middleware/DevRequestContextMiddleware.cs
-public sealed class DevRequestContextMiddleware(RequestDelegate next)
-{
-    public async Task InvokeAsync(HttpContext ctx, IConfiguration config)
-    {
-        if (!ctx.Request.Headers.TryGetValue($"X-{{App}}-Tenant", out var raw))
-        {
-            var fallback = config["{App}:DefaultTenantId"];
-            if (!string.IsNullOrWhiteSpace(fallback)) raw = fallback;
-        }
-        if (Guid.TryParse(raw, out var tenantId))
-        {
-            ctx.Items["DevTenantId"] = tenantId;
-        }
-        await next(ctx);
-    }
-}
-```
-
-Inside the `IRequestContext` factory, prefer `httpContext.Items["DevTenantId"]` when the `userTenantId` claim is absent. Production paths still rely on claims - the dev branch is a `IsDevelopment()` short-circuit.
-
-**Symptom:** if a Blazor or external client lands at the API without either a tenant claim or the dev header, every list endpoint returns an empty payload and no error. Log the resolved tenant id at `Information` once per request during dev so the empty-payload case is observable.
+**Symptom:** if a client lands at the API without a tenant claim, every list endpoint returns an empty payload and no error. Log the resolved tenant id at `Information` once per request during dev so the empty-payload case is observable.
 
 ### Dev-Mode Write Identity (owner/tenant stamping)
 
@@ -290,7 +203,7 @@ dto.OwnerId = ParseAuditId(requestContext.AuditId);   // overwrite untrusted pay
 `dto.TenantId`; that would let a caller establish its own tenant boundary.
 
 For the owner FK to resolve, the audit id must be a real, seeded user GUID - hence the
-`ScaffoldAuthHandler` emits the fixed `SeedConstants.DevUserId` and the dev seeder inserts that user (see
+Scaffold fixed principal carries the fixed `SeedConstants.DevUserId` and the dev seeder inserts that user (see
 [../support/data-persistence-advanced.md](../support/data-persistence-advanced.md) section Startup Seeding). The
 client may round-trip tenant/owner fields for contract compatibility, but the server owns them in every
 mode. Production resolves both from claims; dev resolves them from the scaffold principal + seeded user.
@@ -317,4 +230,4 @@ private static void AddAuthorization(IServiceCollection services)
 }
 ```
 
-The auth configuration implements no-op path when config section is missing; full JwtBearer + MicrosoftIdentityWebApi + fallback policy when present. The scaffold-vs-live `AuthMode` toggle and `ScaffoldAuthHandler` are owned by [../skills/identity-management.md](../skills/identity-management.md) (Phase 5e).
+The auth configuration registers the EF.Auth fixed principal in `Scaffold` mode and JwtBearer + MicrosoftIdentityWebApi + fallback policy in live modes. The scaffold-vs-live `AuthMode` toggle and the `ScaffoldPrincipal` claims are owned by [../skills/identity-management.md](../skills/identity-management.md).

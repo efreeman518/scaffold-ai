@@ -568,7 +568,7 @@ Before running `dotnet run --project src/Host/Aspire/AppHost`, confirm the subst
    Without this, the SQL container starts but cannot authenticate. Not needed when the parameter is created with an inline value (the canonical AppHost passes `LocalSqlSettings.SharedSaPassword`) or when `AddAzureSqlServer(...).RunAsContainer()` runs bare - see Aspire API Facts.
 5. **Ports available:** No stale containers holding SQL/Redis ports. Run `docker ps` / `podman ps` to check.
 6. **NuGet restore clean:** `dotnet restore` on the AppHost project succeeds (catches `packageSourceMapping` issues before launch).
-7. **AI provider (only when `includeAiServices: true`):** the default `AiServices:Provider=None` needs nothing installed - the app boots with a no-op `IChatClient`. A live run needs the selected provider's configuration present before launch (Azure endpoint/deployment, or OpenAI-compatible endpoint/model/secret key); see [ai-integration.md](ai-integration.md) -> *Local Run Preflight*. There is no on-device model runtime to install.
+7. **AI provider (only when `includeAiServices: true`):** the default `AiServices:Provider=None` needs nothing installed - the app boots with the EF.AI disabled `IChatClient`. A live run needs the selected provider's configuration present before launch (Azure endpoint/deployment, or OpenAI-compatible endpoint/model/secret key); see [ai-integration.md](ai-integration.md) -> *Local Run Preflight*. There is no on-device model runtime to install.
 8. **Functions Core Tools (only if running Azure Functions locally):**
    ```powershell
    npm i -g azure-functions-core-tools@4 --unsafe-perm true

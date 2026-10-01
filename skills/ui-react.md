@@ -43,6 +43,7 @@ Baseline stack:
 - Established component system first. Use Material UI when the app has no existing design system.
 - `lucide-react` for command/icon buttons.
 - Typed fetch wrapper or generated OpenAPI client. Keep route contracts aligned with `/api/v1`.
+- PUT and DELETE send `If-Match` with the DTO's `Version` (the API answers 428 without it and 412 on a stale one); keep the `Version` from the latest response for the next write.
 
 Do not duplicate DTO semantics by hand when shared/generated contracts are available. If a hand-written TypeScript contract is needed, keep it thin and map the API envelope explicitly.
 

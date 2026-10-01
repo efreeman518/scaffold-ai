@@ -23,7 +23,7 @@ Do not promote `deployment-only` or `documented-only` examples as compiled proof
 
 - **Pattern lookups** - when an instruction or template describes a pattern (e.g., middleware ordering, repository split, cache key format), TaskFlow contains the working implementation.
 - **Wiring verification** - cross-project DI registration, startup sequences, and Aspire resource definitions are all present and buildable.
-- **Test structure** - unit, integration, architecture, endpoint, and full-stack test projects are scaffolded. `tests/Test.Support/Hosting/DockerRuntimePreflight.cs` owns the bounded dual-stream capability check; `tests/Test.Support/Aspire/AspireTestHostContext.cs` owns the cumulative startup deadline, named resource waits, diagnostics, and bounded cleanup. Mesh and Playwright/WASM adapters consume the context; component container tiers reuse the generic preflight.
+- **Test structure** - unit, integration, architecture, endpoint, and full-stack test projects are scaffolded. EF.Testing `DockerRuntimePreflight` owns the bounded dual-stream capability check; EF.IntegrationTesting.Aspire `AspireTestHostContext` owns the cumulative startup deadline, named resource waits, diagnostics, and bounded cleanup. Mesh and Playwright/WASM adapters consume the context; component container tiers reuse the generic preflight.
 
 For a phase-by-phase pointer map into the reference app, use [taskflow-proof-map.md](taskflow-proof-map.md).
 

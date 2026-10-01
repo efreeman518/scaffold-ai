@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Generates** | `tests/Test.Endpoints/Endpoints/{Entity}EndpointsTests.cs`, `tests/Test.Endpoints/Middleware/DefaultExceptionHandlerTests.cs`, `tests/Test.Endpoints/HealthProbeContractTests.cs` |
+| **Generates** | `tests/Test.Endpoints/Endpoints/{Entity}EndpointsTests.cs`, `tests/Test.Endpoints/Middleware/ExceptionMappingTests.cs`, `tests/Test.Endpoints/HealthProbeContractTests.cs` |
 | **Requires** | [endpoint-template](endpoint-template.md), [exception-handler-template](exception-handler-template.md), [health-check-template](health-check-template.md), CustomApiFactory from Phase 4, DTOs from Phase 4 |
 | **Phase** | 5b (App Core TDD) |
 | **Protocol** | Write these tests BEFORE implementing endpoints. See [../ai/tdd-protocol.md](../ai/tdd-protocol.md). |
@@ -46,6 +46,7 @@ using EF.IntegrationTesting.AspNetCore;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Test.Support;
@@ -60,7 +61,8 @@ public abstract class WebApplicationFactoryBase<TProgram, TTrxnContext, TQueryCo
     where TTrxnContext : DbContextBase<string, Guid?>
     where TQueryContext : DbContextBase<string, Guid?>
 {
-    protected override string? StartupTaskServiceTypeFullName => "{App}.Bootstrapper.IStartupTask";
+    // EF.Host keeps registered startup tasks in one registry; removing it makes RunStartupTasksAsync a no-op.
+    protected override string? StartupTaskServiceTypeFullName => "EF.Host.StartupTaskRegistry";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -71,16 +73,47 @@ public abstract class WebApplicationFactoryBase<TProgram, TTrxnContext, TQueryCo
             logging.AddConsole();
         });
     }
+
+    // Tenant-less harness contexts read nothing under the fail-closed filter unless marked all-tenants;
+    // tenant isolation is proven by the container-backed tests.
+    protected override void ConfigureAdditionalTestServices(IServiceCollection services)
+    {
+        AllTenants<TTrxnContext>(services);
+        AllTenants<TQueryContext>(services);
+    }
+
+    private static void AllTenants<TContext>(IServiceCollection services)
+        where TContext : DbContextBase<string, Guid?>
+    {
+        var scoped = services.Last(d => d.ServiceType == typeof(TContext)).ImplementationFactory!;
+        services.AddScoped(sp =>
+        {
+            var context = (TContext)scoped(sp);
+            context.AllTenants = true;
+            return context;
+        });
+
+        var factory = (IDbContextFactory<TContext>)services
+            .Last(d => d.ServiceType == typeof(IDbContextFactory<TContext>)).ImplementationInstance!;
+        services.AddSingleton<IDbContextFactory<TContext>>(new EfTestDbContextFactory<TContext>(() =>
+        {
+            var context = factory.CreateDbContext();
+            context.AllTenants = true;
+            return context;
+        }));
+    }
 }
 ```
 
-**What the package base does** (`EfWebApplicationFactoryBase`, namespace `EF.IntegrationTesting.AspNetCore`): removes the production EF registrations for both contexts (pooled contexts and pool/lease plumbing, `DbContextOptions<T>`, `IDbContextFactory<T>` + `DbContextScopedFactory`, the audit and SQL-only interceptors), re-registers test-mode `IDbContextFactory<T>` + scoped contexts built from the options the derived factory supplies, creates contexts via reflection (bypasses `required` audit/tenant member enforcement - no CS9035), and suppresses app startup tasks named by `StartupTaskServiceTypeFullName`. Descriptor removal no-ops when a registration is absent, so the adapter is safe in a Phase 4 contract scaffold where the host registers no DbContext yet.
+**What the package base does** (`EfWebApplicationFactoryBase`, namespace `EF.IntegrationTesting.AspNetCore`): removes the production EF registrations for both contexts (pooled contexts and pool/lease plumbing, `DbContextOptions<T>`, `IDbContextFactory<T>` + `DbContextScopedFactory`, the audit interceptor and the SQL Server NOLOCK interceptor by type name), re-registers test-mode `IDbContextFactory<T>` + scoped contexts built from the options the derived factory supplies, creates contexts via reflection (bypasses `required` audit/tenant member enforcement - no CS9035), and suppresses app startup tasks named by `StartupTaskServiceTypeFullName`. Descriptor removal no-ops when a registration is absent, so the adapter is safe in a Phase 4 contract scaffold where the host registers no DbContext yet.
 
 **Critical details:**
 
 1. **Typed options per context** (`DbContextOptionsFactory.BuildInMemoryOptions<{App}DbContextTrxn>(...)`). `DbContextBase` constructors take non-generic `DbContextOptions`, but EF validates the generic type at runtime.
-2. Derived factories provide only the test-mode store (override the `protected virtual` `BuildTrxnOptions()` / `BuildQueryOptions()`, or `ConnectionString`, which throws unless overridden, plus `BuildOptionsFor<TContext>(connectionString)` to build both contexts through one helper); `ConfigureTestConfiguration(IConfigurationBuilder)` is the hook for app-specific test configuration.
-3. Do not hand-roll descriptor-removal or reflection-creation plumbing in the app - it ships in `EF.IntegrationTesting` (see [../support/ef-packages-reference.md](../support/ef-packages-reference.md) section Testing).
+2. Derived factories provide only the test-mode store: override `BuildTrxnOptions()` / `BuildQueryOptions()`, or `ConnectionString` plus `BuildOptionsFor<TContext>(connectionString)`, which has no provider default and throws until overridden with `PostgreSqlTestDbContextOptions.Build` or `SqlServerTestDbContextOptions.Build`.
+3. **`HostSettings` vs `ConfigureTestConfiguration`:** `Program` reads configuration while it registers services, before `ConfigureAppConfiguration` sources exist. A key registration reads (lane, application style, provider toggles) goes in `HostSettings`, which the base applies both as a host setting and in the final configuration; `ConfigureTestConfiguration(IConfigurationBuilder)` affects only the final configuration.
+4. **`ConfigureAdditionalTestServices`** runs after the swap; the adapter marks both harness contexts all-tenants there.
+5. Do not hand-roll descriptor-removal or reflection-creation plumbing in the app - it ships in `EF.IntegrationTesting` (see [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Testing (EF.Testing, EF.Testing.Architecture, EF.AI.Testing, EF.IntegrationTesting.*)).
 
 ## DbAggregateSeeder (in Test.Support)
 
@@ -109,7 +142,7 @@ public sealed class DbAggregateSeeder(IDbContextFactory<{App}DbContextTrxn> fact
         await using var db = await factory.CreateDbContextAsync(ct);
 
         // 1. Tenant first (and the user, when the app models users as an entity with an owner FK) -
-        //    use the same fixed ids the dev principal/claims use so seeded rows, ScaffoldAuthHandler
+        //    use the same fixed ids the dev principal/claims use so seeded rows, fixed-principal
         //    claims, and stamped owners all line up. Drop the user step for audit-id-string owners.
         if (!await db.Set<Tenant>().AnyAsync(t => t.Id == SeedConstants.DevTenantId, ct))
             db.Add(Tenant.Create("Test Tenant", SeedConstants.DevTenantId));
@@ -139,58 +172,35 @@ integration tier ([test-templates-integration.md](test-templates-integration.md)
 
 ## Test.Endpoints derived factory (in-memory)
 
-The endpoint tier needs no container. It pins the lane explicitly - a Development host otherwise resolves whatever the developer's environment selects - and gives each of that lane's external data planes an inert endpoint plus a no-op replacement. Pin a lane whose registration opens no connection. The reference app pins `Azure` (lazy SDK clients) because its `NonAzure` Redis Data Protection store connects at registration; a single-lane `NonAzure` app pins `NonAzure`, which requires that registration to stay connection-free.
+The endpoint tier needs no container. It pins the lane explicitly - a Development host otherwise resolves whatever the developer's environment selects - and gives each of that lane's external data planes an inert endpoint plus an in-process replacement. Pin a lane whose registration opens no connection: the package Redis Data Protection store and the EF.Cache shared multiplexer connect lazily, so the default `NonAzure` lane qualifies.
 
-`tests/Test.Endpoints/CustomApiFactory.cs`:
+`tests/Test.Support/Hosting/InertLane.cs` holds the registration-time `Settings` and a `ReplaceDataPlanes(IServiceCollection)` that swaps every store the in-memory contexts cannot serve (Data Protection to `EphemeralDataProtectionProvider`, object storage, audit sink, read-model store) for an in-process implementation. `tests/Test.Endpoints/CustomApiFactory.cs`:
 
 ```csharp
 public sealed class CustomApiFactory : WebApplicationFactoryBase<Program, {App}DbContextTrxn, {App}DbContextQuery>
 {
-    private static readonly Dictionary<string, string?> InertLane = new()
-    {
-        ["Hosting:Lane"] = "Azure",
-        ["DataProtectionKeysFileUrl"] = "https://{app}test.blob.core.windows.net/data-protection/keys.xml",
-        ["ConnectionStrings:BlobStorage1"] = "https://{app}test.blob.core.windows.net/",
-        ["ConnectionStrings:TableStorage1"] = "https://{app}test.table.core.windows.net/",
-        ["ConnectionStrings:CosmosDb1"] = "https://{app}test.documents.azure.com:443/",
-        ["ServiceBus1:fullyQualifiedNamespace"] = "{app}test.servicebus.windows.net"
-    };
-
     private readonly string _dbName = $"TestDb_{Guid.NewGuid()}";
+
+    // Program reads these while registering services, so they go in as host settings.
+    protected override IReadOnlyDictionary<string, string?> HostSettings => InertLane.Settings;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        // Program reads these while registering services, so they go in as host settings.
-        foreach (var (key, value) in InertLane) builder.UseSetting(key, value);
         base.ConfigureWebHost(builder);
-        builder.ConfigureServices(services =>
-        {
-            services.RemoveAll<IObjectStorageRepository>();
-            services.AddSingleton<IObjectStorageRepository, NoOpObjectStorageRepository>();
-            services.RemoveAll<IAuditLogRepository>();
-            services.AddSingleton<IAuditLogRepository, NoOpAuditLogRepository>();
-            services.RemoveAll<IIntegrationEventTransport>();
-            services.AddSingleton<IIntegrationEventTransport, NoOpEventTransport>();
-            services.RemoveAll<I{Entity}ViewRepository>();
-            services.AddSingleton<I{Entity}ViewRepository, NoOp{Entity}ViewRepository>();
-        });
+        builder.ConfigureServices(InertLane.ReplaceDataPlanes);
     }
 
-    protected override void ConfigureTestConfiguration(IConfigurationBuilder config) =>
-        config.AddInMemoryCollection(InertLane);
-
-    // The concurrency-version interceptor is part of the ETag contract, not of the database provider.
     protected override DbContextOptions BuildTrxnOptions() =>
-        DbContextOptionsFactory.BuildInMemoryOptions<{App}DbContextTrxn>(
-            _dbName, options => options.AddInterceptors(/* the hosts' version stamp interceptor */));
+        DbContextOptionsFactory.BuildInMemoryOptions<{App}DbContextTrxn>(_dbName);
 
     protected override DbContextOptions BuildQueryOptions() =>
-        DbContextOptionsFactory.BuildInMemoryOptions<{App}DbContextQuery>(
-            _dbName, options => options.AddInterceptors(/* the hosts' version stamp interceptor */));
+        DbContextOptionsFactory.BuildInMemoryOptions<{App}DbContextQuery>(_dbName);
 }
 ```
 
-> **`NonAzure` pin:** `Hosting:Lane=NonAzure` with inert `Redis1`, `Storage:S3:*`, and `Messaging:RabbitMq:ConnectionString` values, and a no-op for every store the in-memory contexts cannot serve.
+`DbContextBase` stamps `Version` and the timestamps on save, so the in-memory contexts carry the ETag contract without an extra interceptor. The API host registers no outbox dispatcher, so staged rows stay in the in-memory database and no transport needs replacing.
+
+> **`NonAzure` pin:** `Hosting:Lane=NonAzure` with inert `Redis1` (`abortConnect=false`), `Storage:S3:*`, and `Messaging:RabbitMq:ConnectionString` values, and a `CacheSettings` Redis connection name with no connection string so the cache and the rate limiter stay in process. **Azure pin:** inert Blob, Table, Cosmos and Service Bus endpoints; the SDK clients are lazy.
 
 The pooled-context swap, interceptor removal, factory plumbing, and reflection-based context creation are inherited. `Test.E2E` derives `DbApiFactory` from the same base on a real database container: [test-templates-e2e.md](test-templates-e2e.md) section DbApiFactory. Full distributed-app tests use `AspireTestHost` ([test-templates-aspire.md](test-templates-aspire.md)); one-class-vs-one-store tests use the `Test.Integration` fixtures ([test-templates-integration.md](test-templates-integration.md)). The WAF base is for HTTP-in-API-out testing.
 
@@ -305,21 +315,38 @@ public class {Entity}EndpointsTests : EndpointTestBase
         var getResponse = await client.GetAsync($"v1/tenant/{tenantId}/{entities}/{entityId}");
         Assert.AreEqual(HttpStatusCode.OK, getResponse.StatusCode);
 
-        // Update
+        // Update - EF.Testing ConcurrencyHttpExtensions sends the strong ETag as If-Match
         var updateDto = new DefaultRequest<{Entity}Dto>
         {
             Item = new {Entity}Dto { Id = entityId, Name = "Updated", TenantId = tenantId }
         };
-        var updateResponse = await client.PutAsJsonAsync($"v1/tenant/{tenantId}/{entities}/{entityId}", updateDto);
+        var updateResponse = await client.PutAsJsonWithIfMatchAsync($"v1/tenant/{tenantId}/{entities}/{entityId}", updateDto,
+            ConcurrencyHttpExtensions.FormatStrongETag(created.Item.Version!.Value), Default);
         Assert.AreEqual(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updated = await updateResponse.Content.ReadFromJsonAsync<DefaultResponse<{Entity}Dto>>(Default);
 
         // Delete
-        var deleteResponse = await client.DeleteAsync($"v1/tenant/{tenantId}/{entities}/{entityId}");
-        Assert.AreEqual(HttpStatusCode.OK, deleteResponse.StatusCode);
+        var deleteResponse = await client.DeleteWithIfMatchAsync($"v1/tenant/{tenantId}/{entities}/{entityId}",
+            ConcurrencyHttpExtensions.FormatStrongETag(updated!.Item!.Version!.Value));
+        Assert.AreEqual(HttpStatusCode.NoContent, deleteResponse.StatusCode);
 
         // Verify deleted
         var verifyResponse = await client.GetAsync($"v1/tenant/{tenantId}/{entities}/{entityId}");
         Assert.AreEqual(HttpStatusCode.NotFound, verifyResponse.StatusCode);
+    }
+
+    [TestCategory("Endpoint")]
+    [TestMethod]
+    public async Task Given_NoIfMatch_When_PutEntity_Then_Returns428()
+    {
+        using var client = await GetHttpClient();
+        var tenantId = Guid.NewGuid();
+        var id = Guid.NewGuid();
+
+        var response = await client.PutAsJsonAsync($"v1/tenant/{tenantId}/{entities}/{id}",
+            new DefaultRequest<{Entity}Dto> { Item = new {Entity}Dto { Id = id, Name = "x", TenantId = tenantId } }, Default);
+
+        Assert.AreEqual(HttpStatusCode.PreconditionRequired, response.StatusCode);
     }
 
     [TestCategory("Endpoint")]
@@ -349,160 +376,150 @@ public class {Entity}EndpointsTests : EndpointTestBase
 
 ---
 
-## Exception Handler Tests
+## Exception Mapping Tests
 
-### File: `tests/Test.Endpoints/Middleware/DefaultExceptionHandlerTests.cs`
+### File: `tests/Test.Endpoints/Middleware/ExceptionMappingTests.cs`
 
-**Generate this whenever [exception-handler-template](exception-handler-template.md) is generated - it is not optional.** The handler decides by environment whether the client receives `exception.ToString()` (full stack trace, internal type names, file paths) or, for a 5xx, a fixed generic detail. That is an information-disclosure control, so both arms need a test that fails if the environment gate is inverted, widened, or dropped. The handler is a plain class, so test it directly against a `DefaultHttpContext` - no host boot, no HTTP.
+**Generate this whenever [exception-handler-template](exception-handler-template.md) is generated - it is not optional.** It builds the API's exception registration alone (`AddEfProblemDetails()` plus `AddExceptionClassifier(RegisterApiServices.MapExceptions)`) and drives the package `ProblemDetailsExceptionHandler` against a `DefaultHttpContext` - no host boot. The exception-text gate and the mapping table both need a test that fails if either drifts.
 
 ```csharp
+using System.Text.Json;
+using EF.AspNetCore.ExceptionHandling;
+using EF.Common.Contracts;
+using EF.Common.Exceptions;
+using EF.Data.Contracts;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Features;
-using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging.Abstractions;
-using Moq;
-using {Host}.Api.Middleware;
+using Microsoft.Extensions.Hosting.Internal;
+using {Host}.Api;
 
 namespace Test.Endpoints.Middleware;
 
-/// <summary>
-/// Pins the environment gate on <c>ProblemDetails.Detail</c>. Development may return the full exception;
-/// every other environment returns a fixed generic detail for a 5xx. Also covers the HasStarted guard, which exists so a
-/// second write cannot mask the original exception.
-/// </summary>
 [TestClass]
 [TestCategory("Endpoint")]
-public sealed class DefaultExceptionHandlerTests
+public sealed class ExceptionMappingTests
 {
-    // Async test class -> declare the instance TestContext and flow TestContext.CancellationToken
-    // into every cancellable async call. See ../skills/testing.md Cancellation-Token discipline.
     public TestContext TestContext { get; set; } = null!;
 
-    private readonly Mock<IProblemDetailsService> _problemDetailsServiceMock = new();
-    private ProblemDetails? _written;
-
-    [TestInitialize]
-    public void Setup()
+    [TestMethod]
+    public async Task Given_CallerAbort_When_Handled_Then_Returns499WithoutBody()
     {
-        _problemDetailsServiceMock
-            .Setup(s => s.TryWriteAsync(It.IsAny<ProblemDetailsContext>()))
-            .Callback<ProblemDetailsContext>(context => _written = context.ProblemDetails)
-            .ReturnsAsync(true);
+        using var aborted = new CancellationTokenSource();
+        await aborted.CancelAsync();
+        using var provider = BuildProvider();
+        var context = NewContext(provider);
+        context.RequestAborted = aborted.Token;
+
+        await Handler(provider).TryHandleAsync(context, new OperationCanceledException(aborted.Token), TestContext.CancellationToken);
+
+        Assert.AreEqual(499, context.Response.StatusCode);
+        Assert.AreEqual(0, context.Response.Body.Length);
     }
 
     [TestMethod]
-    public async Task Given_DevelopmentEnvironment_When_ExceptionHandled_Then_DetailCarriesStackTrace()
+    [DataRow("Production")]
+    [DataRow("Staging")]
+    public async Task Given_ServerFaultOutsideDevelopment_When_Handled_Then_NoExceptionText(string environmentName)
     {
-        // Arrange
-        var exception = CaptureThrownException();
-        var handler = CreateHandler(Environments.Development);
+        using var provider = BuildProvider(environmentName);
+        var context = NewContext(provider);
 
-        // Act
-        var handled = await handler.TryHandleAsync(
-            NewHttpContext(), exception, TestContext.CancellationToken);
+        await Handler(provider).TryHandleAsync(
+            context, new Exception("Login failed for user 'sa' on server sql-internal"), TestContext.CancellationToken);
 
-        // Assert
-        Assert.IsTrue(handled);
-        Assert.IsNotNull(_written);
-        Assert.AreEqual(exception.ToString(), _written!.Detail);
-        StringAssert.Contains(_written.Detail!, nameof(CaptureThrownException));  // a real stack frame leaked
-    }
-
-    [DataTestMethod]
-    [DataRow(Environments.Staging)]
-    [DataRow(Environments.Production)]
-    public async Task Given_DeployedEnvironment_When_ServerFaultHandled_Then_DetailIsGeneric(
-        string environmentName)
-    {
-        // Arrange
-        var exception = CaptureThrownException();
-        var handler = CreateHandler(environmentName);
-
-        // Act
-        var handled = await handler.TryHandleAsync(
-            NewHttpContext(), exception, TestContext.CancellationToken);
-
-        // Assert
-        Assert.IsTrue(handled);
-        Assert.IsNotNull(_written);
-        Assert.AreEqual(StatusCodes.Status500InternalServerError, _written!.Status);
-        Assert.IsFalse(_written.Detail!.Contains(exception.Message, StringComparison.Ordinal),
-            "A deployed 5xx must not expose exception text");
-        Assert.IsFalse(_written.Detail.Contains(nameof(CaptureThrownException), StringComparison.Ordinal),
-            "Production ProblemDetails must not expose stack frames");
-        Assert.IsFalse(_written.Detail.Contains(exception.GetType().FullName!, StringComparison.Ordinal),
-            "Production ProblemDetails must not expose internal type names");
+        var root = await ReadBodyAsync(context);
+        Assert.AreEqual(StatusCodes.Status500InternalServerError, context.Response.StatusCode);
+        Assert.IsFalse(root.TryGetProperty("detail", out var detail) && detail.ValueKind == JsonValueKind.String,
+            "A 5xx must not carry exception text outside Development.");
     }
 
     [TestMethod]
-    public async Task Given_ResponseAlreadyStarted_When_ExceptionHandled_Then_NothingIsWritten()
+    public async Task Given_MappedExceptions_When_Handled_Then_ReturnTheirStatus()
     {
-        // Arrange - a started response cannot take a body; writing one would throw and mask the original.
-        var context = NewHttpContext(responseHasStarted: true);
-        var handler = CreateHandler(Environments.Production);
+        (Exception Exception, int Status)[] cases =
+        [
+            (new PreconditionFailedException("{Entity}", Guid.CreateVersion7().ToString(), 1, 2), StatusCodes.Status412PreconditionFailed),
+            (new DbUpdateConcurrencyException(), StatusCodes.Status412PreconditionFailed),
+            (new ConflictException("{Entity}", Guid.CreateVersion7().ToString()), StatusCodes.Status409Conflict),
+            (new InvalidRequestException("page size out of range"), StatusCodes.Status400BadRequest),
+            (new InvalidCursorException("tampered"), StatusCodes.Status400BadRequest),
+            (new OperationCanceledException(), StatusCodes.Status504GatewayTimeout)
+        ];
 
-        // Act
-        var handled = await handler.TryHandleAsync(
-            context, new InvalidOperationException("boom"), TestContext.CancellationToken);
-
-        // Assert
-        Assert.IsTrue(handled);
-        _problemDetailsServiceMock.Verify(
-            s => s.TryWriteAsync(It.IsAny<ProblemDetailsContext>()), Times.Never);
-    }
-
-    private DefaultExceptionHandler CreateHandler(string environmentName) =>
-        new(NullLogger<DefaultExceptionHandler>.Instance,
-            new TestHostEnvironment { EnvironmentName = environmentName },
-            _problemDetailsServiceMock.Object);
-
-    /// <summary>Throws and catches so <c>StackTrace</c> is populated - a constructed exception has none.</summary>
-    private static Exception CaptureThrownException()
-    {
-        try
+        using var provider = BuildProvider();
+        foreach (var (exception, status) in cases)
         {
-            throw new InvalidOperationException("boom");
-        }
-        catch (InvalidOperationException ex)
-        {
-            return ex;
+            var context = NewContext(provider);
+            await Handler(provider).TryHandleAsync(context, exception, TestContext.CancellationToken);
+            Assert.AreEqual(status, context.Response.StatusCode, exception.GetType().Name);
         }
     }
 
-    private static DefaultHttpContext NewHttpContext(bool responseHasStarted = false)
+    /// <summary>Framework exceptions are server bugs, never caller mistakes: 500 with no exception text.</summary>
+    [TestMethod]
+    public async Task Given_FrameworkFaults_When_Handled_Then_Return500()
     {
-        var context = new DefaultHttpContext { TraceIdentifier = "request-123" };
-        if (responseHasStarted)
-        {
-            // HasStarted is driven by the response feature, not settable on DefaultHttpContext.
-            // Swap the feature before touching Response, or the body set here is discarded with it.
-            context.Features.Set<IHttpResponseFeature>(new StartedResponseFeature());
-        }
+        Exception[] faults =
+        [
+            Capture(() => ArgumentOutOfRangeException.ThrowIfLessThan(0, 1)),
+            Capture(() => int.Parse("x", System.Globalization.CultureInfo.InvariantCulture)),
+            Capture(() => Array.Empty<int>().First())
+        ];
 
+        using var provider = BuildProvider();
+        foreach (var fault in faults)
+        {
+            var context = NewContext(provider);
+            await Handler(provider).TryHandleAsync(context, fault, TestContext.CancellationToken);
+            Assert.AreEqual(StatusCodes.Status500InternalServerError, context.Response.StatusCode, fault.GetType().Name);
+        }
+    }
+
+    private static ServiceProvider BuildProvider(string environmentName = "Production")
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IHostEnvironment>(new HostingEnvironment { EnvironmentName = environmentName, ContentRootFileProvider = new NullFileProvider() });
+        services.AddEfProblemDetails();
+        services.AddExceptionClassifier(RegisterApiServices.MapExceptions);
+        return services.BuildServiceProvider();
+    }
+
+    private static IExceptionHandler Handler(IServiceProvider provider) =>
+        provider.GetServices<IExceptionHandler>().OfType<ProblemDetailsExceptionHandler>().Single();
+
+    private static DefaultHttpContext NewContext(IServiceProvider provider)
+    {
+        var context = new DefaultHttpContext { RequestServices = provider };
         context.Request.Method = HttpMethods.Get;
         context.Request.Path = "/failure";
         context.Response.Body = new MemoryStream();
         return context;
     }
 
-    private sealed class TestHostEnvironment : IHostEnvironment
+    private static async Task<JsonElement> ReadBodyAsync(DefaultHttpContext context)
     {
-        public string EnvironmentName { get; set; } = Environments.Production;
-        public string ApplicationName { get; set; } = nameof(Test.Endpoints);
-        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
-        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+        context.Response.Body.Position = 0;
+        using var document = await JsonDocument.ParseAsync(context.Response.Body);
+        return document.RootElement.Clone();
     }
 
-    private sealed class StartedResponseFeature : HttpResponseFeature
+    /// <summary>A genuinely thrown exception, so the stack trace is populated.</summary>
+    private static Exception Capture(Action action)
     {
-        public override bool HasStarted => true;
+        try { action(); }
+        catch (Exception ex) { return ex; }
+        throw new AssertFailedException("The action did not throw.");
     }
+
 }
 ```
 
-Add one `[DataTestMethod]` over the *Exception-to-Status Mapping* table in [exception-handler-template](exception-handler-template.md) as each mapping is added - one `DataRow` per exception type asserting `context.Response.StatusCode`. Cover `OperationCanceledException` twice: with a cancelled `RequestAborted` (set `context.RequestAborted` from a cancelled source) it is 499, and with a live one it is 500. Keep correlation assertions (`requestId` separate from W3C `traceId`/`spanId`) in whichever test already boots a real host; they need the registered `CustomizeProblemDetails` callback, which this class replaces with a mock.
+Add one case per row the app adds to `MapExceptions`. Correlation assertions (`requestId` separate from W3C `traceId`/`spanId`) run here too: start a W3C `Activity`, set `context.TraceIdentifier`, and assert the three properties on the body.
 
 ---
 

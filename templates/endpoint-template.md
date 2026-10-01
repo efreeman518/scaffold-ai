@@ -27,18 +27,16 @@ Endpoint templates map relative routes only. The API host owns the outer route g
 > Each nested handler loads the root via its transactional repository, calls the matching `Add*`/`Update`/`Remove*` method, and saves the aggregate in one transaction (return `Success(Item=null)` for a missing root so the shared 2-arg `Match` maps to 404). A child read endpoint (`GetById`/`Search`) is still allowed because reads may cross aggregate boundaries. See [../skills/domain-model.md](../skills/domain-model.md) section Aggregate Roots vs Internal Children.
 
 ```csharp
+using EF.AspNetCore;
+using EF.AspNetCore.Concurrency;
 using Microsoft.AspNetCore.Mvc;
 
 namespace {Host}.Api.Endpoints;
 
 public static class {Entity}Endpoints
 {
-    private static bool _problemDetailsIncludeStackTrace;
-
-    public static IEndpointRouteBuilder Map{Entity}Endpoints(this IEndpointRouteBuilder group, bool problemDetailsIncludeStackTrace)
+    public static IEndpointRouteBuilder Map{Entity}Endpoints(this IEndpointRouteBuilder group)
     {
-        _problemDetailsIncludeStackTrace = problemDetailsIncludeStackTrace;
-
         group.MapPost("/search", Search)
             .Produces<PagedResponse<{Entity}Dto>>(StatusCodes.Status200OK)
             .WithSummary("Search {Entities} with paging, filters, and sorts");
@@ -57,13 +55,16 @@ public static class {Entity}Endpoints
             .ProducesValidationProblem()
             .WithSummary("Create a new {Entity}");
 
+        // RequireIfMatch: 428 without If-Match, 400 malformed, 412 + current ETag on PreconditionFailedException.
         group.MapPut("/{id:guid}", Update)
+            .RequireIfMatch()
             .Produces<DefaultResponse<{Entity}Dto>>()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status404NotFound)
             .WithSummary("Update an existing {Entity}");
 
         group.MapDelete("/{id:guid}", Delete)
+            .RequireIfMatch()
             .Produces(StatusCodes.Status204NoContent)
             .ProducesValidationProblem()
             .WithSummary("Delete a {Entity}");
@@ -97,8 +98,7 @@ public static class {Entity}Endpoints
         var result = await service.GetAsync(id, ct);
         return result.Match<IResult>(
             response => TypedResults.Ok(response),
-            errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
-                errors: errors, statusCodeOverride: StatusCodes.Status400BadRequest)),
+            errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)),
             () => TypedResults.NotFound(id));
     }
 
@@ -110,46 +110,40 @@ public static class {Entity}Endpoints
     {
         var result = await service.CreateAsync(request, ct);
         return result.Match<IResult>(
-            response => TypedResults.Created(httpContext.Request.Path, response),
-            errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
-                errors: errors, statusCodeOverride: StatusCodes.Status400BadRequest,
-                includeStackTrace: _problemDetailsIncludeStackTrace)));
+            response => TypedResults.Created($"{httpContext.Request.Path}/{response.Item?.Id}", response),
+            errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)));
     }
 
     private static async Task<IResult> Update(
-        HttpContext httpContext,
         [FromServices] I{Entity}Service service,
         Guid id,
+        IfMatch ifMatch,
         [FromBody] DefaultRequest<{Entity}Dto> request,
         CancellationToken ct)
     {
         if (request.Item.Id != null && request.Item.Id != id)
-            return TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponse(
-                statusCodeOverride: StatusCodes.Status400BadRequest,
-                message: ErrorConstants.ERROR_URL_BODY_ID_MISMATCH));
+            return TypedResults.Problem(ProblemDetailsHelper.Create(
+                StatusCodes.Status400BadRequest, $"{ErrorConstants.ERROR_URL_BODY_ID_MISMATCH}: {id} <> {request.Item.Id}"));
 
-        var result = await service.UpdateAsync(request, ct);
+        var result = await service.UpdateAsync(request, ifMatch.ExpectedVersion, ct);
         return result.Match(
             response => response.Item is null ? Results.NotFound(id) : TypedResults.Ok(response),
-            errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
-                errors: errors, statusCodeOverride: StatusCodes.Status400BadRequest,
-                includeStackTrace: _problemDetailsIncludeStackTrace)));
+            errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)));
     }
 
     private static async Task<IResult> Delete(
-        HttpContext httpContext,
-        [FromServices] I{Entity}Service service, Guid id,
+        [FromServices] I{Entity}Service service, Guid id, IfMatch ifMatch,
         CancellationToken ct)
     {
-        var result = await service.DeleteAsync(id, ct);
+        var result = await service.DeleteAsync(id, ifMatch.ExpectedVersion, ct);
         return result.Match<IResult>(
             () => TypedResults.NoContent(),
-            errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
-                errors: errors, statusCodeOverride: StatusCodes.Status400BadRequest,
-                includeStackTrace: _problemDetailsIncludeStackTrace)));
+            errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)));
     }
 }
 ```
+
+`IfMatch` and `RequireIfMatch()` come from EF.AspNetCore (`EF.AspNetCore.Concurrency`); do not generate `If-Match` parsing, an ETag filter, or an OpenAPI transformer - the host calls `AddConcurrencyOpenApiContract()` once. `ifMatch.ExpectedVersion` throws when no header was bound, so a route that binds `IfMatch` without `RequireIfMatch()` fails loudly instead of skipping the check. `ProblemDetailsHelper.FromErrors` emits the ordered `{code, message}` array under `extensions.errors` (status 400 by default); exception text on unexpected failures is the exception handler's job ([exception-handler-template.md](exception-handler-template.md)).
 
 ## Custom Action Routes (Optional)
 
@@ -173,14 +167,12 @@ private static async Task<IResult> {ActionName}(
     var result = await service.{ActionName}Async(id, request, ct);
     return result.Match<IResult>(
         response => TypedResults.Ok(response),
-        errors => TypedResults.Problem(ProblemDetailsHelper.BuildProblemDetailsResponseMultiple(
-            errors: errors, statusCodeOverride: StatusCodes.Status400BadRequest,
-            includeStackTrace: _problemDetailsIncludeStackTrace)),
+        errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)),
         () => TypedResults.NotFound(id));
 }
 ```
 
-The handler shape mirrors `GetById` / `Update` deliberately - same `Result.Match()` three-branch mapping, same `ProblemDetails` builder, same `CancellationToken` placement. The service method invokes the entity's domain method (e.g. `entity.{ActionName}(...)`) and emits `afterAction({ActionName})` per the event model.
+The handler shape mirrors `GetById` / `Update` deliberately - same `Result.Match()` three-branch mapping, same `ProblemDetailsHelper.FromErrors` builder, same `CancellationToken` placement. An action that changes a versioned aggregate adds `.RequireIfMatch()` and passes `ifMatch.ExpectedVersion` like `Update`. The service method invokes the entity's domain method (e.g. `entity.{ActionName}(...)`) and emits `afterAction({ActionName})` per the event model.
 
 ## Registration in Pipeline
 
@@ -191,13 +183,15 @@ In `WebApplicationBuilderExtensions.cs`, add to `SetupApiEndpoints`:
 app.MapGroup("/api/{entities}")
     .WithTags("{Entities}")
     .RequireAuthorization()
-    .Map{Entity}Endpoints(problemDetailsIncludeStackTrace);
+    .WithETag()          // EF.AspNetCore.Concurrency: strong ETag from DefaultResponse.ETagVersion, 304 on If-None-Match
+    .Map{Entity}Endpoints();
 
 // Versioned + tenant-scoped pattern (when needed)
 app.MapGroup("v{apiVersion:apiVersion}/tenant/{tenantId}/{entity}")
     .WithApiVersionSet(apiVersionSet)
     .RequireAuthorization("TenantMatch")
-    .Map{Entity}Endpoints(problemDetailsIncludeStackTrace);
+    .WithETag()
+    .Map{Entity}Endpoints();
 ```
 
 For kebab-case route segments, use `{entity-route}` in route definitions.

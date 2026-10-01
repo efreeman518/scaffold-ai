@@ -49,10 +49,40 @@ This is a complete reference of all configuration sections used across the solut
     "Audience": "api://{api-client-id}"
   },
 
+  "Proxy": {
+    "ForwardedHeaders": { "Enabled": false, "ForwardLimit": 1, "KnownProxies": [], "KnownNetworks": [], "AllowedHosts": [] },
+    "PathBase": ""
+  },
+
   "ForwardedClaims": {
-    "TrustedGatewayClientIds": [
-      "{gateway-service-client-id}"
-    ]
+    "HeaderName": "X-Forwarded-User-Claims",
+    "ClaimTypes": [ "sub", "oid", "name", "roles", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier",
+                    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name", "http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "tenant_id" ],
+    "TrustedCallerIds": [ "{gateway-service-client-id}" ],
+    "ServicePathPrefixes": [ "/healthz" ]
+  },
+
+  "Cors": {
+    "AllowedOrigins": [ "http://localhost:5173" ],
+    "AllowCredentials": false
+  },
+
+  "RateLimiting": {
+    "Tenants": {
+      "TenantClaimType": "tenant_id",
+      "DefaultTier": "standard",
+      "Tiers": { "standard": { "PermitLimit": 100, "WindowSeconds": 60 } },
+      "Budgets": { "export": { "PermitLimit": 5, "WindowSeconds": 60 } }
+    }
+  },
+
+  "OpenTelemetry": {
+    "MetricsEnabled": true,
+    "Tracing": { "SampleRatio": 1.0 }
+  },
+
+  "Messaging": {
+    "Inbox": { "ClaimLease": "00:01:00", "RenewalInterval": "00:00:20" }
   },
 
   "DataProtection": {
@@ -117,13 +147,26 @@ This is a complete reference of all configuration sections used across the solut
     "Audience": "{gateway-client-id}"
   },
 
-  "ServiceAuth": {
-    "api-cluster": {
-      "TenantId": "{entra-tenant-id}",
-      "ClientId": "{gateway-service-client-id}",
-      "ClientSecret": "{gateway-service-client-secret}",
-      "Scope": "api://{api-client-id}/.default"
-    }
+  "Proxy": {
+    "ForwardedHeaders": { "Enabled": false, "ForwardLimit": 1 },
+    "PathBase": ""
+  },
+
+  "ForwardedClaims": {
+    "HeaderName": "X-Forwarded-User-Claims",
+    "ClaimTypes": [ "sub", "oid", "name", "roles", "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier",
+                    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name", "http://schemas.microsoft.com/ws/2008/06/identity/claims/role", "tenant_id" ],
+    "TrustedCallerIds": [ "{gateway-service-client-id}" ]
+  },
+
+  "RateLimiting": {
+    "Edge": { "Enabled": true, "TokensPerPeriod": 200, "ReplenishmentSeconds": 1, "QueueLimit": 0, "MaxConcurrentRequests": 1000 }
+  },
+
+  "AggregateHealthCheck": {
+    "{Project}ApiHealthUrl": "https+http://{project}api/healthz/ready",
+    "TokenScope": "",
+    "TimeoutSeconds": 5
   },
 
   "ReverseProxy": {
@@ -145,21 +188,41 @@ This is a complete reference of all configuration sections used across the solut
           "api": {
             "Address": "https://localhost:7065"
           }
+        },
+        "Metadata": {
+          "TokenScope": "api://{api-client-id}/.default",
+          "RelayUserClaims": "true"
         }
       }
     }
   },
 
-"CorsSettings": {
-"AllowedOrigins": ["https://localhost:44318", "http://localhost:5173"]
-},
+  "CorsSettings": {
+    "AllowedOrigins": ["https://localhost:44318", "http://localhost:5173"],
+    "AllowCredentials": true
+  },
 
-"Logging": {
-"LogLevel": {
+  "Logging": {
+    "LogLevel": {
       "Default": "Information",
       "Microsoft.AspNetCore": "Warning",
       "Yarp": "Information"
     }
+  }
+}
+```
+
+## Scheduler appsettings.json (sections beyond the shared ones)
+
+```json
+{
+  "OutboxDispatcher": { "MaxAttempts": 10 },
+  "Scheduling": {
+    "UsePersistence": true,
+    "MaxConcurrency": 5,
+    "PollIntervalSeconds": 30,
+    "Retention": { "OccurrenceRetention": "7.00:00:00" },
+    "Health": { "StallThreshold": "12:00:00" }
   }
 }
 ```
@@ -190,11 +253,13 @@ This is a complete reference of all configuration sections used across the solut
 - Connection strings show the default `NonAzure` lane (PostgreSQL). The `Azure` lane uses the SQL Server form `Server=localhost,38433;Database={project}db;User Id=sa;Password={sql-password};TrustServerCertificate=True`, with `;ApplicationIntent=ReadOnly` on the Query string only. Supply real passwords through user secrets, never committed config
 - With Aspire, connection strings are **injected automatically** via `.WithReference(projectDb, connectionName: ...)` - no manual config needed in development
 - Redis connection string name (`Redis1`) must match the `RedisConnectionStringName` in `CacheSettings`
-- `CacheSettings` is an array - each entry creates a named FusionCache instance
+- `CacheSettings` is an array bound by EF.Cache `AddTypedCache` - each entry creates a named cache instance; `KeyNamespace` (default: the host environment name), `SchemaVersion`, `Serializer` and `Profiles` are optional per entry, and code decisions (schema version, profile durations) go in the `configure` callback
 - `FailSafeThrottleDurationSeconds` - note the unit is **seconds** (passed to `TimeSpan.FromSeconds()`)
-- `ForwardedClaims:TrustedGatewayClientIds` is the API allowlist for gateway service-token `azp`/`appid` values; omit the section when claim relay is unused, and fail startup if claim relay is registered with an empty list
+- `ForwardedClaims` is one section bound by both the API (`AddForwardedClaimsTransformation`) and the Gateway (`AddDownstreamAuthTransforms`), so the relay header name and claim allowlist match. `TrustedCallerIds` lists the gateway service-token `azp`/`appid` values the API trusts; an empty list disables the relay (fail closed). `ClaimTypes` replaces the package default, so it lists the default set plus `tenant_id`, and `ServicePathPrefixes` (API only) lists service endpoints alone ([gateway.md](../skills/gateway.md) section Forwarded Claims Trust Boundary)
 - Phase 2 maps `hostingLaneDefaults.<active>.dataProtectionPersistence` to runtime `DataProtection:Persistence`; `TASKFLOW_DATAPROTECTION_PERSISTENCE` is the environment override. `AzureBlob` requires either `DataProtectionKeysFileUrl` or the `BlobStorage1` endpoint/connection used to derive it; `Redis` requires `Redis1`; `None` is limited to isolated development/test hosts. Key Vault encryption is independent and optional. Tests that select a persistence arm must inject that arm's required input. See [security.md](../skills/security.md#data-protection). Supply credentials through managed identity, never URL query strings.
-- `ServiceAuth` section in Gateway maps cluster IDs to OAuth2 client credential configs
+- A Gateway cluster's `Metadata:TokenScope` gets a downstream token from `AccessTokenCache`; `Metadata:RelayUserClaims` adds the relay header. A cluster without `TokenScope` passes the inbound `Authorization` header through unchanged
+- `Proxy`, `Cors`/`CorsSettings`, `RateLimiting:Tenants`, `RateLimiting:Edge`, `OpenTelemetry`, `Messaging:Inbox`, `OutboxDispatcher` and `Scheduling` are validated at registration or host start by their EF packages; an invalid value fails startup
+- `OutboxDispatcher:MaxAttempts` defaults to 5 when unset
 - `AuthMode` belongs on each auth-owning host and must be one validated value (`Scaffold`, `Local`, or `Entra`); production hosts use the same intended mode across the chain
 - `AiServices:Provider` is the sole activation source. Endpoint, deployment, and connection values validate the selected provider but never activate it. Default to `None`. `OpenAICompatible` additionally requires `AiServices:ApiKey`, supplied only through user secrets or an environment/secret store.
 - For production/Azure: use Key Vault references or App Configuration for secrets
