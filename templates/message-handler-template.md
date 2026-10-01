@@ -68,7 +68,7 @@ public class {EventName}Handler(
 
 In-process events are published through `IInternalMessageBus` from service methods. Integration events that leave the process are not published here: the aggregate raises them and the EF.Data.Outbox staging interceptor writes them in the same save ([../skills/messaging.md](../skills/messaging.md)).
 
-> **CRITICAL:** `IInternalMessageBus.Publish()` is a synchronous fire-and-forget API over the background queue. It takes a process mode plus a **collection** of messages. There is NO `PublishAsync` method and no single-message overload.
+> **CRITICAL:** `IInternalMessageBus.Publish()` is synchronous fire-and-forget over the background queue and takes a process mode plus a **collection** of messages. There is NO `PublishAsync` and no single-message overload.
 
 ```csharp
 // In a service class (e.g., {Entity}Service.cs)
@@ -113,7 +113,7 @@ public static void AutoRegisterMessageHandlers(this IHost host) =>
     host.Services.GetRequiredService<IInternalMessageBus>().AutoRegisterHandlers(typeof({EventName}Handler).Assembly);
 ```
 
-`AutoRegisterHandlers(assemblies)` scans the handler assembly and throws at that call for any discovered handler that is not registered in DI, so a missing registration fails at startup instead of silently dropping messages. Each dispatch resolves the handler of exactly the discovered type from a new DI scope, so scoped dependencies (a repository, a `DbContext`) live exactly as long as that dispatch.
+`AutoRegisterHandlers(assemblies)` throws at that call for any discovered handler not registered in DI, so a missing registration fails at startup instead of silently dropping messages. Each dispatch resolves the handler of exactly the discovered type from a new DI scope, so scoped dependencies (a repository, a `DbContext`) live exactly as long as that dispatch.
 
 ---
 
@@ -148,15 +148,16 @@ public class RescheduleCallRequestHandler(
     ILogger<RescheduleCallRequestHandler> logger,
     I{Entity}RepositoryTrxn repo) : IMessageHandler<RescheduleCallRequest>
 {
-    public async Task HandleAsync(RescheduleCallRequest message, CancellationToken ct = default)
-    {
-        var entity = await repo.Get{Entity}Async(message.EntityId, false, ct);
-        if (entity == null) return;
-
-        // Apply side effect
-        entity.Update(/* ... */);
-        await repo.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
-    }
+    // Read-decide-save, fresh read per attempt (data-persistence.md, Concurrency Discipline)
+    public Task HandleAsync(RescheduleCallRequest message, CancellationToken ct = default) =>
+        repo.RetryOnConcurrencyAsync(async token =>
+        {
+            var entity = await repo.Get{Entity}Async(message.EntityId, false, token);
+            if (entity == null) return false;
+            entity.Update(/* ... */);
+            await repo.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, token);
+            return true;
+        }, 3, ct);
 }
 ```
 

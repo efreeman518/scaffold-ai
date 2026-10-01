@@ -9,9 +9,9 @@
 | **Depends on** | [repository-template](repository-template.md), [data-mapping-template](data-mapping-template.md), [structure-validator-template](structure-validator-template.md) |
 | **Referenced by** | [endpoint-template](endpoint-template.md), [bootstrapper.md](../skills/bootstrapper.md) |
 
-> **Token vs log placeholder:** one `ILogger` template below carries both - in `"{Entity} {Id} created"`, `{Entity}` is a scaffold token and `{Id}` is the log property bound to the single trailing argument; in the cache tag `$"{entity}:{id}"`, `{entity}` is the token and `{id}` the interpolated parameter. Substitute the first, leave the second verbatim, then confirm the surviving `{...}` count equals the trailing-argument count. Rule: [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) section Disambiguating Tokens From Logging And Interpolation.
+> **Token vs log placeholder:** in `"{Entity} {Id} created"`, `{Entity}` is a scaffold token and `{Id}` the log property bound to the trailing argument; in the cache tag `$"{entity}:{tenantId}:{id}"`, `{entity}` is the token and the rest are interpolated parameters. Substitute tokens only, then confirm the surviving `{...}` count equals the trailing-argument count. Rule: [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) section Disambiguating Tokens From Logging And Interpolation.
 
-> **Multi-tenant toggle:** Lines marked `// [MULTI-TENANT]` apply only when the domain specification enables multi-tenancy. DTOs retain `TenantId` for response/round-trip compatibility, but write services overwrite it from `IRequestContext` before validation/mapping; clients never select tenant ownership. `ITenantBoundaryValidator` is the EF.Tenancy singleton ([../skills/multi-tenant.md](../skills/multi-tenant.md)); it logs its own security events. For single-tenant scaffolds, omit its injection, tenant stamping, boundary checks, tenant filter enforcement, and `TenantInfoDto` in `DefaultResponse`. TaskFlow demonstrates multi-tenant patterns.
+> **Multi-tenant toggle:** Lines marked `// [MULTI-TENANT]` apply only when the domain specification enables multi-tenancy. DTOs keep `TenantId` for round-trips; write services overwrite it from `IRequestContext` before validation, so clients never pick the owner. `ITenantBoundaryValidator` is the EF.Tenancy singleton ([../skills/multi-tenant.md](../skills/multi-tenant.md)) and logs its own security events. Single-tenant scaffolds omit it, tenant stamping, boundary checks, filter enforcement, the cache tag's tenant segment and `TenantInfoDto`.
 
 ## File: Application/Services/{Entity}Service.cs
 
@@ -34,8 +34,8 @@ internal class {Entity}Service(
     private Guid? RequestTenantId => requestContext.TenantId;                           // [MULTI-TENANT]
     private IReadOnlyCollection<string> RequestRoles => requestContext.Roles;            // [MULTI-TENANT]
 
-    // Invalidate after the commit, never before (caching.md section Scale Hazards).
-    private Task InvalidateAsync(Guid id, CancellationToken ct) => cache.RemoveByTagAsync($"{entity}:{id}", ct);
+    // After the commit, never before; tenant-scoped like the key (caching.md sections Cache Key Rules, Scale Hazards).
+    private Task InvalidateAsync(Guid tenantId, Guid id, CancellationToken ct) => cache.RemoveByTagAsync($"{entity}:{tenantId}:{id}", ct);
 
     #region Helpers
 
@@ -155,7 +155,7 @@ internal class {Entity}Service(
             return Result<DefaultResponse<{Entity}Dto>>.Failure(updateResult.ErrorMessage);
 
         await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
-        await InvalidateAsync(entity.Id.Value, ct);
+        await InvalidateAsync(entity.TenantId.Value, entity.Id.Value, ct);
 
         return Result<DefaultResponse<{Entity}Dto>>.Success(BuildResponse(entity.ToDto()));
     }
@@ -177,7 +177,7 @@ internal class {Entity}Service(
         repoTrxn.Delete(entity);
 
         await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
-        await InvalidateAsync(entity.Id.Value, ct);
+        await InvalidateAsync(entity.TenantId.Value, entity.Id.Value, ct);
 
         return Result.Success();
     }
@@ -222,7 +222,7 @@ public interface I{Entity}Service
 13. **Version check after the load, not the save alone** - `ConcurrencyGuard.Require(expectedVersion, entity.Version, ...)` runs right after the boundary check, so a stale `If-Match` answers 412 with the current ETag before any change; `SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct)` still catches a lost update between load and save.
 9. **Missing BuildResponse** - All success paths should use the private static `BuildResponse` helper, not inline `new() { Item = ... }`.
 10. **[Multi-tenant] Missing PreventTenantChange in Update** - After boundary check, before domain update, compare the existing entity tenant with the stamped authoritative tenant as a defense-in-depth invariant.
-11. **Invented repository members (GR-14)** - Call only members that exist on the injected contract. Read the interface (or the first green service/handler in the codebase) before writing call sites. `IRepositoryQuery<TEntity, TId>` exposes `GetAsync(id)` / `ListAsync(predicate)`; paged search lives on the bespoke `I{Entity}RepositoryQuery.Search{Entity}Async`. There is no `QueryPageAsync` on the consumer-facing contracts - `QueryPageAsync` / `QueryPageProjectionAsync` are protected `RepositoryBase` helpers, callable only inside repository implementations.
+11. **Invented repository members (GR-14)** - Call only members that exist on the injected contract. Read the interface (or the first green service/handler) before writing call sites. `IRepositoryQuery<TEntity, TId>` exposes `GetAsync(id)` / `ListAsync(predicate)`; paged search lives on the bespoke `I{Entity}RepositoryQuery.Search{Entity}Async`. `QueryPageAsync` / `QueryPageProjectionAsync` are protected `RepositoryBase` helpers for repository implementations only.
 12. **Provider error text in a result** - Save exceptions propagate to the exception handler, which maps concurrency to 412 and everything else to a generic 500. Never return `ex.Message` or `GetBaseException().Message`: it leaks SQL, schema, and connection details to the caller. Catch only an app-mapped constraint exception (for example a unique-name violation) and return a fixed `ErrorConstants` message.
 
 ## Policy Notes

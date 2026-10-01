@@ -255,7 +255,7 @@ Required multi-tenant ownership cases:
 
 ### File: `tests/Test.Unit/MessageHandlers/{EventName}HandlerTests.cs`
 
-**Generate one class per handler whenever [message-handler-template](message-handler-template.md) is generated.** `IMessageHandler<T>` implementations run off the background bus, so a broken handler never fails a request - the save succeeds and the side effect silently does not happen. The three cases below pin exactly the behaviours the handler template calls non-negotiable: the side effect fires, redelivery is idempotent, and a missing aggregate is a no-op rather than a throw that poisons the queue.
+**Generate one class per handler whenever [message-handler-template](message-handler-template.md) is generated.** Handlers run off the background bus, so a broken one never fails a request: the save succeeds and the side effect silently does not happen. The three cases pin the handler template's non-negotiables: the side effect fires, redelivery is idempotent, and a missing aggregate is a no-op, not a throw that poisons the queue.
 
 Handlers are plain classes with constructor dependencies - same flat shape as the service tests above: `Mock<T>` fields inline, one `CreateHandler` helper, no shared base.
 
@@ -344,7 +344,7 @@ public class {EventName}HandlerTests
 Notes:
 
 - A **log-only** handler (audit, telemetry) drops the repository mock and asserts against a capturing `ILogger` instead; keep the redelivery case - an audit written twice is still a defect.
-- Handlers need no special test setup: the bus resolves each one from a new DI scope at runtime, which does not affect construction in a unit test.
+- A handler that wraps its work in `RetryOnConcurrencyAsync` has the mock run it: `.Setup(r => r.RetryOnConcurrencyAsync(It.IsAny<Func<CancellationToken, Task<bool>>>(), It.IsAny<int>(), It.IsAny<CancellationToken>())).Returns((Func<CancellationToken, Task<bool>> work, int _, CancellationToken t) => work(t))`.
 - Bus wiring (`AutoRegisterHandlers` reaching this handler) is host behaviour, not handler behaviour - cover it once in the mesh/integration tier rather than per handler.
 
 ---
@@ -443,7 +443,7 @@ public class {Entity}MapperTests
 
 ## Consolidated Mapper Parity Class
 
-Per-entity `{Entity}MapperTests` classes cover `ToDto`, `ToEntity`, and child-inline parity per entity. **In addition**, scaffold a single consolidated `MapperProjectionParityTests` class that pins the compile-projection / `ToDto` agreement for every mapper in one place. This is a small file but it's the cheapest catch for drift across the whole mapper layer.
+Per-entity `{Entity}MapperTests` classes cover `ToDto`, `ToEntity`, and child-inline parity per entity. **In addition**, scaffold a single consolidated `MapperProjectionParityTests` class that pins the compile-projection / `ToDto` agreement for every mapper in one place. It is the cheapest catch for mapper drift.
 
 ### File: `tests/Test.Unit/Mappers/MapperProjectionParityTests.cs`
 
