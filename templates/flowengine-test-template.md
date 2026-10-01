@@ -14,7 +14,7 @@ Workflow JSONs are the production wiring of FlowEngine. They are loaded from dis
 | Definition round-trips through `IWorkflowRegistry` | Registry write/read mismatch -> workflow appears in dev tests but the registry returns stale data in prod. |
 | `WorkflowDefinitionBuilder.FromJson(json).Build()` hydrates | A builder that fails to hydrate -> silent zero-node workflow. The assertion guards against it. |
 
-The five-tier test below covers every stage. Generate one class per workflow JSON declared in `Workflows/`.
+The six-tier test below covers every stage, plus the integration-node retry rule ([../skills/flowengine.md](../skills/flowengine.md) Non-Negotiable 6). Generate one class per workflow JSON declared in `Workflows/`.
 
 ## Template
 
@@ -104,6 +104,20 @@ public class {WorkflowPascalName}WorkflowTests
             built.Nodes.Count > 0,
             "WorkflowDefinitionBuilder.FromJson(json).Build() produced zero nodes.");
     }
+
+    // Tier 6 - every integration node owns its retries and never resends a 412.
+    [TestMethod]
+    public void Integration_Nodes_Declare_RetryPolicy_Without_412()
+    {
+        var def = JsonSerializer.Deserialize<WorkflowDefinition>(
+            File.ReadAllText(WorkflowPath), WorkflowDefinitionJsonOptions.Default)!;
+
+        foreach (var node in def.Nodes.Values.Where(n => n.Type == "integration"))
+        {
+            Assert.IsNotNull(node.RetryPolicy, $"{node.Id} must declare a retryPolicy");
+            Assert.DoesNotContain(412, node.RetryPolicy.RetryOnHttpStatus, $"{node.Id} retries 412");
+        }
+    }
 }
 ```
 
@@ -162,5 +176,6 @@ The exact `Include` path depends on the solution layout; adjust the `..\..` segm
 | 3 - Validate | Bad edges, missing required fields | One validator pass |
 | 4 - Registry round-trip | Registry serialization mismatch | One in-memory write/read |
 | 5 - Builder hydration | Silent empty-builder hydration | One builder run |
+| 6 - Retry policy | Integration node without `retryPolicy`, 412 in a retry list | One node scan |
 
-All five run in the unit-test tier - no SQL, no Aspire, no real registry. Add to `Test.Integration.{Project}.FlowEngine` for the project naming convention; the tier semantics are pure unit-test.
+All six run in the unit-test tier - no SQL, no Aspire, no real registry. Add to `Test.Integration.{Project}.FlowEngine` for the project naming convention; the tier semantics are pure unit-test.

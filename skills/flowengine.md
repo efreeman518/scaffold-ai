@@ -19,6 +19,7 @@ Package version: track `EF.FlowEngine` latest stable. The surface assumed below:
 3. Workflow JSON files are **content-copied** by the API csproj and seeded by `AddWorkflowJsonSeeding()`. The test project must include a file-presence guard.
 4. FE migrations live in their own history table (do not share `__EFMigrationsHistory` with the app DbContext) and are applied by a dedicated startup task.
 5. Admin endpoints are mapped with an **explicit prefix** - `MapFlowEngineAdmin(prefix: "/api/flowengine")`. The default-prefix drift documented upstream is worked around by always passing it.
+6. **Every `integration` node sets an explicit `retryPolicy`** (`{ "maxAttempts": 3, "backoff": "Exponential" }`): the HTTP client adapter sends once per node attempt, so the node owns retries. An unsafe method (POST, PUT, PATCH, DELETE) retries only 409, 429 and 503 unless the node sets `idempotencyKeyHeader` and the API deduplicates by that header ([data-persistence.md](data-persistence.md) section Idempotent Create). 412 never appears in a retry list: a stale precondition fails again when resent. A PATCH with `If-Match: *` in its `headers` gets node retries on 409. A loop-body node sends no `idempotencyKeyHeader`: the engine generates one key for every iteration, so the API would replay the first iteration's row.
 
 ---
 
@@ -196,7 +197,7 @@ FlowEngine workflows must be invoked by something. The three canonical patterns 
 | **5a** | Generate `{Project}FlowEngineDbContext`, `FlowEngineSqlOptions`, and the FE migration. Do **not** add FE tables to the app's `OnModelCreating`. |
 | **5b** | Generate `RegisterServices.FlowEngine.cs` partial, register the FE context as a migrator target in `{Project}.DatabaseMigrator`, and add the `MapFlowEngineAdmin` call in the API host. Place a single placeholder workflow JSON in `Workflows/` and emit the seeding hosted service. |
 | **5c** | Emit the chosen trigger template(s) when `includeFunctionApp` or `includeScheduler` is enabled. |
-| **5d** | Generate `Test.Integration.{Project}.FlowEngine` with the four-validity-tier guards (deserialize, validate, registry round-trip, builder, file-presence). |
+| **5d** | Generate `Test.Integration.{Project}.FlowEngine` with the validity-tier guards (file-presence, deserialize, validate, registry round-trip, builder, retry policy). |
 | **5e** | When AI in scope, FE `agent` nodes use `AddAzureOpenAIAgentClient` factory overload - wire `AzureOpenAIClient` from the app's existing AI bootstrap. |
 
 ## Anti-patterns
