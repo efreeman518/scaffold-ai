@@ -3,21 +3,20 @@
 How to decide which graphify LAYER to build per repository, and how to wire it in.
 graphify is the single knowledge-graph tool: it reduces orientation token cost by
 letting an agent query relationships instead of grepping/reading raw files. It sits
-upstream of the compression tools (headroom, rtk) and does not overlap with them.
+upstream of CLI output compression (rtk) and does not overlap with it.
 
 ## Optional-tool contract
 
-The scaffold never installs, enables, or requires RTK, Headroom, graphify, or another context optimizer. An operator/global instruction may require one and wins when present, but generated-project build, test, GitHub, and delivery commands must also work when every optional tool is absent. Setup helpers must preserve the primary command's exit code and diagnostics; never swallow a build/test/GitHub failure because optional setup failed.
+The scaffold never installs, enables, or requires RTK, graphify, or another context optimizer. An operator/global instruction may require one and wins when present, but generated-project build, test, GitHub, and delivery commands must also work when every optional tool is absent. Setup helpers must preserve the primary command's exit code and diagnostics; never swallow a build/test/GitHub failure because optional setup failed.
 
 ## Tool stack roles (no overlap)
 
 - rtk - optionally compresses CLI command output unless operator policy requires it.
-- headroom - optionally compresses prompt inputs (tool outputs, history) before the API call.
 - Output compression (caveman style) - enforced via instruction rules, not a tool.
 - Knowledge graph (graphify) - reduces what gets loaded by enabling relationship
   queries. This file governs which graphify layer to build, per repo.
 
-Pipeline: graph (what to load) -> headroom (compress inputs) -> rtk + output rules.
+Pipeline: graph (what to load) -> rtk + output rules.
 
 When an operator chooses graphify, install/update it globally. Global installation does
 not enable any repo harness and does not create a graph database. Per-harness enablement

@@ -388,7 +388,6 @@ For copy-paste phase prompts, see [support/prompt-catalog.md](support/prompt-cat
 ## Context Tooling
 
 This scaffold can use optional context-optimization tools ([rtk](https://github.com/rtk-ai/rtk),
-[headroom](https://github.com/chopratejas/headroom),
 [graphify](https://github.com/safishamsi/graphify)) to cut token cost in AI sessions. They are a separate concern from the scaffold itself - machine and
 operator setup, not part of any app's payload, and not required to scaffold or run an app.
 
