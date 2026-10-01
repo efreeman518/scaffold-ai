@@ -148,6 +148,22 @@ An `If-Match` edit stays a bare `Throw` save with no retry: the client's stale v
 ### Set-Based Writes and Query Shape
 
 - `ExecuteUpdateAsync`/`ExecuteDeleteAsync` execute immediately in SQL and bypass the change tracker, `SaveChanges` interceptors (audit, outbox staging), domain methods, and the `Version` concurrency check. Use them for set-based work where no invariant, audit record, or integration event is required: work and projection tables, retention purges, and system-owned columns on an aggregate table (a notification marker, a scheduler cursor). On an aggregate table the statement re-asserts its full candidate predicate in the `WHERE` so it acts as a compare-and-set against concurrent edits, and any side effect (deferred blob delete, outbox row) is staged in the same transaction. User-driven aggregate changes go through the root and `SaveChangesAsync`. Proof: TaskFlow `TaskItemSystemRepository`. When one must join a unit of work, open an explicit transaction and stage outbox rows explicitly ([messaging.md](messaging.md) section Transactional Producer: Outbox). Tenant query filters still apply because the statement is a LINQ query; prove it with a cross-tenant test per provider.
+- A multi-statement job step (read, guard, stage) runs under `ResilientTransaction`, whose execution strategy re-runs the whole step, so each attempt starts from a clean change tracker and re-runs its reads, guards and staging against the rolled-back rows. Saves inside keep `acceptAllChangesOnSuccess: true` (deferring it leaves the first attempt's rows tracked as Added, and re-staged rows collide with them). The step returns the committed attempt's result; the job adds counts and runs side effects only after the call returns. A retry after a commit that landed is a no-op through the same guards. Stage a deterministic outbox or work id only for a row the step's own guarded write affected: one guarded `ExecuteUpdate`, insert-if-absent or `ExecuteDelete` per row, never staging every row of a set after a count-only guard (a row another replica affected first is staged twice and fails on the primary key).
+
+  ```csharp
+  public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> work, CancellationToken ct)
+  {
+      DB.ChangeTracker.DetectChanges();
+      if (DB.ChangeTracker.HasChanges()) throw new InvalidOperationException("Save or discard pending changes first.");
+      T result = default!;
+      await ResilientTransaction.New(DB).ExecuteAsync(async token =>
+      {
+          DB.ChangeTracker.Clear();   // every attempt re-reads, re-guards and re-stages
+          result = await work(token).ConfigureAwait(ConfigureAwaitOptions.None);
+      }, ct).ConfigureAwait(ConfigureAwaitOptions.None);
+      return result;                  // the committed attempt's result; the caller counts it
+  }
+  ```
 - `AsSplitQuery()` is a per-query choice for multiple collection includes with measured cartesian growth, never a global default. Each split is a separate round trip with no shared snapshot outside a snapshot-isolation transaction, and paged split queries need a deterministic order with a unique tie-breaker.
 - Hot-path reads may use `EF.CompileAsyncQuery` or raw SQL after a benchmark. Raw SQL is parameterized through `FromSql`/`SqlQuery` interpolation; never concatenate values into `FromSqlRaw`.
 - `ReadIsolation.ReadUncommitted` (`READ UNCOMMITTED` on one held session; `ReadUncommittedInterceptor` / `WithReadUncommittedAsync` from EF.Data.SqlServer) is a dirty read that can skip or duplicate rows while pages split. Limit it to approximate reads such as dashboard tiles. Search, cursor-paged feeds, and any read feeding a decision pass `ReadIsolation.Default`; on SQL Server prefer `READ_COMMITTED_SNAPSHOT` (the Azure SQL default) to avoid reader blocking.
