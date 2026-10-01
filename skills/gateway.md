@@ -136,13 +136,14 @@ private static void AddAuthentication(IServiceCollection services, IConfiguratio
         options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
     })
     .AddMicrosoftIdentityWebApi(config.GetSection("Gateway_EntraExt"));
-    services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o => o.MapInboundClaims = false);
+    services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
+        { o.MapInboundClaims = false; o.TokenValidationParameters.RoleClaimType = "roles"; o.TokenValidationParameters.NameClaimType = "name"; });
 
     services.AddSingleton<IAuthorizationHandler, TenantMatchHandler>();
 }
 ```
 
-Claim types on both hosts must agree with `ForwardedClaims:ClaimTypes` ([identity-management.md](identity-management.md) section Claim-type contract). Scaffold mode registers the EF.Auth fixed principal instead (same file, section Pre-Auth Stub Pattern (Phases 5a-5d)).
+Both hosts' claim types match `ForwardedClaims:ClaimTypes` ([identity-management.md](identity-management.md) section Claim-type contract); scaffold mode registers the fixed principal instead (same file, Pre-Auth Stub Pattern).
 
 ---
 
@@ -161,7 +162,7 @@ app.MapDefaultEndpoints();  // MapEfHealthEndpoints
 app.MapReverseProxy().RequireAuthorization();
 ```
 
-**Why:** Proxy execution must follow authentication so transforms serialize a verified user principal, not attacker-supplied headers or an anonymous identity. Therefore claim-relaying routes require authorization and map only after authentication/authorization middleware.
+**Why:** transforms must serialize a verified user principal, not attacker-supplied headers or an anonymous identity, so claim-relaying routes require authorization and map after the authentication/authorization middleware.
 
 ---
 

@@ -148,8 +148,13 @@ public static class AuthConfiguration
             ?? throw new InvalidOperationException("AzureAd:ClientId is required");
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddMicrosoftIdentityWebApi(section);
-        services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme,
-            o => o.MapInboundClaims = false);   // section Claim-type contract
+        services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
+        {
+            o.MapInboundClaims = false;   // section Claim-type contract
+            o.TokenValidationParameters.RoleClaimType = "roles";   // Entra app roles stay short
+            o.TokenValidationParameters.NameClaimType = "name";
+        });
+        services.Configure<HttpRequestContextOptions>(o => o.RoleClaimType = "roles");
         return services;
     }
 }
@@ -189,7 +194,7 @@ The fixed principal, JwtBearer, the rate limiter and the `AddHttpRequestContext`
 | Concern | Principal carries | Request context reads (`HttpRequestContextOptions`) |
 |---|---|---|
 | Audit id (owner) | `oid` / `ClaimTypes.NameIdentifier` = seeded dev-user GUID | `UserIdClaimTypes`: `oid` > name identifier > `sub` |
-| Roles | `ClaimTypes.Role` | `RoleClaimType` (`ClaimTypes.Role`) |
+| Roles | `ClaimTypes.Role`; an Entra token carries short `roles` | `RoleClaimType`: `ClaimTypes.Role`, set to `roles` in Entra mode beside `MapInboundClaims = false`, with the JwtBearer `RoleClaimType`/`NameClaimType` on both hosts |
 | Tenant | `tenant_id` = seeded dev tenant GUID | `TenantClaimType` (`tenant_id`); also `RateLimiting:Tenants:TenantClaimType` and `ForwardedClaims:ClaimTypes` |
 
 A mismatch (e.g. `("roles", ...)`) yields empty roles -> the cross-tenant check never passes; a missing `tenant_id` yields a null tenant -> the fail-closed tenant filter returns zero rows for every list.
@@ -239,8 +244,12 @@ public static void AddAuthentication(this IServiceCollection services, IConfigur
     var entraSection = config.GetRequiredSection("Gateway_EntraExt");
     services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddMicrosoftIdentityWebApi(entraSection);
-    services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme,
-        o => o.MapInboundClaims = false);   // section Claim-type contract
+    services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
+    {
+        o.MapInboundClaims = false;   // section Claim-type contract; same role/name types as the API
+        o.TokenValidationParameters.RoleClaimType = "roles";
+        o.TokenValidationParameters.NameClaimType = "name";
+    });
 }
 ```
 
@@ -280,7 +289,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuer = true,
             ValidIssuer = $"https://{tenantName}.ciamlogin.com/{tenantId}/v2.0",
             ValidateAudience = true,
-            ValidateLifetime = true
+            ValidateLifetime = true,
+            RoleClaimType = "roles",
+            NameClaimType = "name"
         };
     });
 ```
@@ -300,7 +311,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidIssuer = $"https://login.microsoftonline.com/{tenantId}/v2.0",
             ValidateAudience = true,
             ValidateLifetime = true,
-            RoleClaimType = "roles"
+            RoleClaimType = "roles",
+            NameClaimType = "name"
         };
     });
 ```

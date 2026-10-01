@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Files** | `src/UI/{Project}.Uno.Core/Client/{Project}ApiClient.cs`, `Business/Models/{Entity}.cs`, `Business/Models/IEntityBase.cs`, `Business/Messages/EntityMessage.cs`, `Business/Services/{Feature}/I{Entity}Service.cs`, `Business/Services/{Feature}/{Entity}Service.cs` |
+| **Files** | `src/UI/{Project}.Uno.Core/Client/{Project}ApiClient.cs`, `Business/Models/{Entity}Model.cs`, `Business/Models/IEntityBase.cs`, `Business/Messages/EntityMessage.cs`, `Business/Services/{Feature}/I{Entity}ApiService.cs`, `Business/Services/{Feature}/{Entity}ApiService.cs` |
 | **Depends on** | [data-mapping-template](data-mapping-template.md) (API DTO structure) |
 | **Referenced by** | [uno-mvux-model-template](uno-mvux-model-template.md), [ui-uno.md](../skills/ui-uno.md) |
 
@@ -22,23 +22,23 @@ namespace {Project}.Uno.Core.Business.Models;
 /// Client-side immutable record for {Entity}.
 /// Wraps the Kiota-generated wire DTO ({Entity}Data).
 /// </summary>
-public partial record {Entity} : IEntityBase
+public partial record {Entity}Model : IEntityBase
 {
     /// <summary>
     /// Create from Kiota wire DTO.
     /// </summary>
-    internal {Entity}({Entity}Data data)
+    internal {Entity}Model({Entity}Data data)
     {
-        Id = data.Id ?? Guid.Empty;
+        Id = data.Id;
         Name = data.Name;
         Version = data.Version ?? 0;   // the ETag source for If-Match on PUT/DELETE
         // Map all properties from data -> record
     }
 
-    // Default constructor for create scenarios
-    public {Entity}() { }
+    // Default constructor for create scenarios (Id null until the API assigns it)
+    public {Entity}Model() { }
 
-    public Guid Id { get; init; }
+    public Guid? Id { get; init; }
     public string? Name { get; init; }
     public bool IsFavorite { get; init; }
     public long Version { get; init; }
@@ -62,6 +62,7 @@ public partial record {Entity} : IEntityBase
 ### Model Rules
 
 - Use `partial record` with `init` properties - immutable by default
+- Name it `{Entity}Model`, the type the MVUX models bind ([uno-mvux-model-template.md](uno-mvux-model-template.md))
 - Provide an `internal` constructor that accepts the Kiota wire DTO (`{Entity}Data`)
 - Provide a `ToData()` method to convert back to the wire DTO
 - Keep computed/display properties as expression-bodied getters
@@ -73,34 +74,31 @@ public partial record {Entity} : IEntityBase
 
 ### Service Interface
 
+The MVUX models ([uno-mvux-model-template.md](uno-mvux-model-template.md)) and the presentation tests call exactly this surface.
+
 ```csharp
 namespace {Project}.Uno.Core.Business.Services.{Feature};
 
 /// <summary>
 /// Client-side service for {Entity} operations via the Gateway API.
 /// </summary>
-public interface I{Entity}Service
+public interface I{Entity}ApiService
 {
-    /// <summary>Get all {entities}.</summary>
-    ValueTask<IImmutableList<{Entity}>> GetAll(CancellationToken ct);
+    ValueTask<IImmutableList<{Entity}Model>> SearchAsync(CancellationToken ct = default);
+    ValueTask<{Entity}Model?> GetAsync(Guid id, CancellationToken ct = default);
+    ValueTask<{Entity}Model> CreateAsync({Entity}Model model, CancellationToken ct = default);
 
-    /// <summary>Get a single {entity} by ID.</summary>
-    ValueTask<{Entity}> GetById(Guid id, CancellationToken ct);
+    /// <summary>Sends If-Match from <c>model.Version</c>; returns the saved record with its new Version.</summary>
+    ValueTask<{Entity}Model> UpdateAsync({Entity}Model model, CancellationToken ct = default);
 
-    /// <summary>Create a new {entity}.</summary>
-    ValueTask Create({Entity} entity, CancellationToken ct);
+    /// <summary>Sends If-Match from <paramref name="version"/>.</summary>
+    ValueTask DeleteAsync(Guid id, long version, CancellationToken ct = default);
 
-    /// <summary>Update an existing {entity}.</summary>
-    ValueTask<{Entity}> Update({Entity} entity, CancellationToken ct);
+    ValueTask FavoriteAsync({Entity}Model model, CancellationToken ct = default);
 
-    /// <summary>Delete a {entity} by ID.</summary>
-    ValueTask Delete(Guid id, long version, CancellationToken ct);
-
-    /// <summary>Toggle favorite status.</summary>
-    ValueTask Favorite({Entity} entity, CancellationToken ct);
-
-    // Add child collection methods as needed:
-    // ValueTask<IImmutableList<{ChildEntity}>> Get{ChildEntities}(Guid {entity}Id, CancellationToken ct);
+    // Aggregate children go through the root (GR-15); a removal sends the root's current Version as If-Match:
+    // ValueTask<{ChildEntity}Model> Add{ChildEntity}Async(Guid {entity}Id, string body, CancellationToken ct = default);
+    // ValueTask Remove{ChildEntity}Async(Guid {entity}Id, Guid {childEntity}Id, long rootVersion, CancellationToken ct = default);
 }
 ```
 
@@ -118,53 +116,55 @@ namespace {Project}.Uno.Core.Business.Services.{Feature};
 /// Maps wire DTOs to client-side records.
 /// Sends EntityMessage on mutations for MVUX auto-refresh.
 /// </summary>
-public class {Entity}Service(
+public class {Entity}ApiService(
     {Project}ApiClient api,
-    IMessenger messenger) : I{Entity}Service
+    IMessenger messenger) : I{Entity}ApiService
 {
-    public async ValueTask<IImmutableList<{Entity}>> GetAll(CancellationToken ct)
+    public async ValueTask<IImmutableList<{Entity}Model>> SearchAsync(CancellationToken ct = default)
     {
         var data = await api.Api.{Entity}.GetAsync(cancellationToken: ct);
-        return data?.Select(d => new {Entity}(d)).ToImmutableList()
-            ?? ImmutableList<{Entity}>.Empty;
+        return data?.Select(d => new {Entity}Model(d)).ToImmutableList()
+            ?? ImmutableList<{Entity}Model>.Empty;
     }
 
-    public async ValueTask<{Entity}> GetById(Guid id, CancellationToken ct)
+    public async ValueTask<{Entity}Model?> GetAsync(Guid id, CancellationToken ct = default)
     {
-        var data = await api.Api.{Entity}[id].GetAsync(cancellationToken: ct);
-        return new {Entity}(data!);
+        var response = await api.Api.{Entity}[id].GetAsync(cancellationToken: ct);
+        return response?.Item is { } item ? new {Entity}Model(item) : null;
     }
 
-    public async ValueTask Create({Entity} entity, CancellationToken ct)
+    public async ValueTask<{Entity}Model> CreateAsync({Entity}Model model, CancellationToken ct = default)
     {
-        await api.Api.{Entity}.PostAsync(entity.ToData(), cancellationToken: ct);
-        messenger.Send(new EntityMessage<{Entity}>(EntityChange.Created, entity));
+        var response = await api.Api.{Entity}.PostAsync(model.ToData(), cancellationToken: ct);
+        var created = new {Entity}Model(response!.Item!);   // server-assigned Id and Version
+        messenger.Send(new EntityMessage<{Entity}Model>(EntityChange.Created, created));
+        return created;
     }
 
-    public async ValueTask<{Entity}> Update({Entity} entity, CancellationToken ct)
+    public async ValueTask<{Entity}Model> UpdateAsync({Entity}Model model, CancellationToken ct = default)
     {
-        var response = await api.Api.{Entity}[entity.Id].PutAsync(entity.ToData(),
-            rc => rc.Headers.Add("If-Match", EntityTags.ForVersion(entity.Version).ToString()), ct);
-        var updated = new {Entity}(response!.Item!);   // the saved Version, so the next PUT is not a 412
-        messenger.Send(new EntityMessage<{Entity}>(EntityChange.Updated, updated));
+        var response = await api.Api.{Entity}[model.Id!.Value].PutAsync(model.ToData(),
+            rc => rc.Headers.Add("If-Match", EntityTags.ForVersion(model.Version).ToString()), ct);
+        var updated = new {Entity}Model(response!.Item!);   // the saved Version, so the next PUT is not a 412
+        messenger.Send(new EntityMessage<{Entity}Model>(EntityChange.Updated, updated));
         return updated;
     }
 
-    public async ValueTask Delete(Guid id, long version, CancellationToken ct)
+    public async ValueTask DeleteAsync(Guid id, long version, CancellationToken ct = default)
     {
         await api.Api.{Entity}[id].DeleteAsync(
             rc => rc.Headers.Add("If-Match", EntityTags.ForVersion(version).ToString()), ct);
-        messenger.Send(new EntityMessage<{Entity}>(EntityChange.Deleted, new {Entity} { Id = id }));
+        messenger.Send(new EntityMessage<{Entity}Model>(EntityChange.Deleted, new {Entity}Model { Id = id }));
     }
 
-    public async ValueTask Favorite({Entity} entity, CancellationToken ct)
+    public async ValueTask FavoriteAsync({Entity}Model model, CancellationToken ct = default)
     {
-        var updated = entity with { IsFavorite = !entity.IsFavorite };
+        var updated = model with { IsFavorite = !model.IsFavorite };
         await api.Api.{Entity}.Favorited.PostAsync(q =>
         {
             q.QueryParameters.{Entity}Id = updated.Id;
         }, cancellationToken: ct);
-        messenger.Send(new EntityMessage<{Entity}>(EntityChange.Updated, updated));
+        messenger.Send(new EntityMessage<{Entity}Model>(EntityChange.Updated, updated));
     }
 }
 ```
@@ -175,8 +175,8 @@ public class {Entity}Service(
 - All methods return `ValueTask` or `ValueTask<T>`
 - Always accept `CancellationToken ct` as the last parameter
 - Return `IImmutableList<T>` (never `List<T>` or `IEnumerable<T>`)
-- Map Kiota wire DTOs -> client records via constructor: `new {Entity}(data)`
-- Map client records -> wire DTOs via `entity.ToData()` for POST/PUT
+- Map Kiota wire DTOs -> client records via constructor: `new {Entity}Model(data)`
+- Map client records -> wire DTOs via `model.ToData()` for POST/PUT
 - Send `EntityMessage<T>` via `IMessenger` after every mutation (create, update, delete)
 - PUT and DELETE send `If-Match` from the record's `Version` (`EntityTags.ForVersion`, EF.UI.Client); the API answers 428 without it and 412 on a stale one. The client record carries `Version` from the DTO
 - Register as singleton in `App.xaml.host.cs` -> `ConfigureServices`
@@ -241,12 +241,12 @@ services.AddSingleton<IUiDispatcher>(new DispatcherQueueUiDispatcher(dispatcherQ
 namespace {Project}.Uno.Core.Business.Models;
 
 /// <summary>
-/// Marker interface for entities with a Guid Id.
+/// Marker interface for entities with a Guid Id (null before the API assigns it).
 /// Used by EntityMessage<T> and messenger-based refresh.
 /// </summary>
 public interface IEntityBase
 {
-    Guid Id { get; }
+    Guid? Id { get; }
 }
 ```
 
@@ -268,14 +268,14 @@ public record EntityMessage<T>(EntityChange Change, T Entity);
 
 The complete flow for a mutation (e.g., Create) through the client layer:
 
-1. **Model** -- The caller builds an `{Entity}` record (immutable, `init` properties)
-2. **Service** -- `{Entity}Service.Create()` converts the record to a wire DTO via `entity.ToData()`
+1. **Model** -- The caller builds an `{Entity}Model` record (immutable, `init` properties)
+2. **Service** -- `{Entity}ApiService.CreateAsync()` converts the record to a wire DTO via `model.ToData()`
 3. **API call** -- The Kiota-generated client sends the DTO to the Gateway API
-4. **Messaging** -- On success, the service sends `EntityMessage<{Entity}>(EntityChange.Created, entity)` via `IMessenger`
+4. **Messaging** -- On success, the service sends `EntityMessage<{Entity}Model>(EntityChange.Created, created)` via `IMessenger`
 5. **Refresh** -- MVUX models subscribed via `.Observe()` receive the message and auto-refresh their state
 
 For reads, the flow is reversed at the mapping step:
 
 1. **API call** -- Kiota client returns `{Entity}Data` (wire DTO)
-2. **Model** -- Service wraps data via `new {Entity}(data)` constructor
-3. **Return** -- `IImmutableList<{Entity}>` returned to the presentation layer
+2. **Model** -- Service wraps data via `new {Entity}Model(data)` constructor
+3. **Return** -- `IImmutableList<{Entity}Model>` returned to the presentation layer

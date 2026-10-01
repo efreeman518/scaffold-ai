@@ -15,7 +15,7 @@ Application -> ITypedCache -> FusionCache (L1 memory) -> Redis (L2 distributed)
                                          \-> Redis backplane (invalidation sync)
 ```
 
-For local Redis inspection under Aspire, use the **Aspire-managed RedisInsight browser UI** (`WithRedisInsight`) over the Windows desktop app - it ships with the resource and avoids manual config. See [aspire.md](aspire.md) -> *Local Explorer Tooling* for the canonical pinned-port pattern and `isTesting` gate.
+For local Redis inspection under Aspire, use `WithRedisInsight` over the desktop app ([aspire.md](aspire.md) -> *Local Explorer Tooling*: pinned port, `isTesting` gate).
 
 ## Non-Negotiables
 
@@ -83,10 +83,10 @@ Tags are a parameter on `GetOrSetAsync` / `SetAsync`. Invalidate by tag with `Re
 
 ```csharp
 // Setting tags when caching
-await cache.SetAsync(new CacheKey("todoitem", id.ToString()), dto, profile: null, tags: [$"todoitem:{id}"], ct);
+await cache.SetAsync(new CacheKey("todoitem", $"{tenantId}:{id}"), dto, profile: null, tags: [$"todoitem:{tenantId}:{id}"], ct);
 
 // Invalidating by tag
-await cache.RemoveByTagAsync($"todoitem:{id}", ct);
+await cache.RemoveByTagAsync($"todoitem:{tenantId}:{id}", ct);
 ```
 
 ---
@@ -96,12 +96,13 @@ await cache.RemoveByTagAsync($"todoitem:{id}", ct);
 ### Cache-aside read
 
 ```csharp
-public Task<TodoItemDto?> GetCachedAsync(Guid id, CancellationToken ct) =>
+// tenantId = requestContext.TenantId, never request input: tenants can share an id
+public Task<TodoItemDto?> GetCachedAsync(Guid tenantId, Guid id, CancellationToken ct) =>
     cache.GetOrSetAsync(
-        new CacheKey("todoitem", id.ToString()),
+        new CacheKey("todoitem", $"{tenantId}:{id}"),
         token => repoQuery.GetTodoItemDtoAsync(id, token),
         profile: "Short",
-        tags: [$"todoitem:{id}"],
+        tags: [$"todoitem:{tenantId}:{id}"],
         ct);
 ```
 
@@ -109,7 +110,7 @@ public Task<TodoItemDto?> GetCachedAsync(Guid id, CancellationToken ct) =>
 
 ```csharp
 await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
-await cache.RemoveByTagAsync($"todoitem:{id}", ct);   // after the commit
+await cache.RemoveByTagAsync($"todoitem:{tenantId}:{id}", ct);   // after the commit, same tenant scope
 ```
 
 Subscribe to `ITypedCache.Degraded` (or alert on `ef.cache.degraded`) to see fail-safe activation and circuit-breaker trips, which are otherwise silent.
@@ -120,7 +121,7 @@ Subscribe to `ITypedCache.Degraded` (or alert on `ef.cache.degraded`) to see fai
 
 - item keys: `new CacheKey("{entity}", id)`
 - list/query keys: `new CacheKey("{entity}", "list", filterHash)`
-- tenant-aware keys include the tenant in the id or discriminator; tags follow the same tenant scope
+- tenant-owned keys and their tags carry the authoritative tenant (`$"{tenantId}:{id}"`)
 
 `ITypedCache` renders `[{keyNamespace}:]{schemaVersion}:{category}:{id}[:{discriminator}]`, so keys stay deterministic and versionable without app code.
 

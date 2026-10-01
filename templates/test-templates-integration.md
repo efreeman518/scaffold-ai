@@ -71,6 +71,7 @@ public sealed class TestDatabaseContainer({App}DbProvider provider) : IAsyncDisp
 
     /// <summary>Why the one start attempt failed, or null; recorded by the package fixture, never thrown.</summary>
     public Exception? StartupError => _sql is not null ? _sql.StartupError : _postgres!.StartupError;
+    public bool IsStarted => _sql?.IsStarted ?? _postgres!.IsStarted;
 
     public Task StartAsync(CancellationToken ct = default) => _sql?.StartAsync(ct) ?? _postgres!.StartAsync(ct);
     public ValueTask DisposeAsync() => _sql?.DisposeAsync() ?? _postgres!.DisposeAsync();

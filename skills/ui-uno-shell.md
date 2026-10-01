@@ -353,7 +353,7 @@ builder
             // and get GC'd under WeakReferenceMessenger. Cross-model refresh then stops
             // firing with no error.
             services.AddSingleton<IMessenger, StrongReferenceMessenger>();
-            services.AddSingleton<I{Entity}Service, {Entity}Service>();
+            services.AddSingleton<I{Entity}ApiService, {Entity}ApiService>();
         })
         .UseNavigation(ReactiveViewModelMappings.ViewModelMappings, RegisterRoutes));
 ```
