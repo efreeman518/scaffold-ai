@@ -354,9 +354,9 @@ JSON-defined, durable workflow orchestration engine with pluggable backends (sta
 | `IWorkflowRegistry` | EF.FlowEngine | Workflow definition CRUD and status transitions |
 | `IFlowClient` | EF.FlowEngine | Base contract for all execution clients |
 | `IRequestResponseClient` | EF.FlowEngine | Synchronous HTTP/gRPC call nodes |
-| `IQueryClient` | EF.FlowEngine | Data query nodes (EF Core via `EF.FlowEngine.Clients.Sql`) |
+| `IQueryClient` | EF.FlowEngine | Data query nodes (EF Core via `EF.FlowEngine.Clients.Sql`; ad hoc SQL Server via `EF.FlowEngine.Clients.SqlServer`) |
 | `IMessageClient` | EF.FlowEngine | Async messaging nodes (Service Bus via `EF.FlowEngine.Clients.ServiceBus`) |
-| `IAgentClient` | EF.FlowEngine | AI/LLM agent invocation nodes (OpenAI via `EF.FlowEngine.Clients.OpenAI`) |
+| `IAgentClient` | EF.FlowEngine | AI/LLM agent invocation nodes (any `IChatClient` via `EF.FlowEngine.Clients.AI`) |
 | `IFlowEngineClient` | EF.FlowEngine | Cross-engine orchestration nodes |
 | `IDistributedLockProvider` | EF.FlowEngine | Distributed locking (pluggable: SQL, Redis, Cosmos, Blob, InMemory) |
 | `IExecutionStateStore` | EF.FlowEngine | Execution state persistence (pluggable: SQL, Redis, Cosmos, File) |
@@ -398,9 +398,10 @@ JSON-defined, durable workflow orchestration engine with pluggable backends (sta
 | `EF.FlowEngine.Outbox.Sql` | SQL transactional outbox |
 | `EF.FlowEngine.CircuitBreaker.Sql` | SQL circuit breaker state |
 | `EF.FlowEngine.Clients.Http` | HTTP/REST client for `IRequestResponseClient` |
-| `EF.FlowEngine.Clients.Sql` | EF Core client for `IQueryClient` |
+| `EF.FlowEngine.Clients.Sql` | EF Core client for `IQueryClient` (any EF Core provider) |
+| `EF.FlowEngine.Clients.SqlServer` | Parameterized ad hoc SQL Server client for `IQueryClient` (connection string) |
 | `EF.FlowEngine.Clients.ServiceBus` | Azure Service Bus client for `IMessageClient` |
-| `EF.FlowEngine.Clients.OpenAI` | Azure OpenAI client for `IAgentClient` |
+| `EF.FlowEngine.Clients.AI` | Microsoft.Extensions.AI `IChatClient` binding for `IAgentClient` (OpenAI-compatible endpoints, Azure OpenAI helper) |
 | `EF.FlowEngine.AdminApi` | REST management endpoints for workflow monitoring |
 | `EF.FlowEngine.Testing` | Test helpers and fixtures |
 
