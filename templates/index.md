@@ -107,7 +107,7 @@ Generated when `includeFlowEngine: true` in `.scaffold/resource-implementation.y
 | Artifact | Template | Required Skill |
 |---|---|---|
 | Workflow trigger (Service Bus / inline / TickerQ) | `flowengine-trigger-template.md` | `skills/flowengine.md` |
-| Workflow JSON guard tests (five-tier) | `flowengine-test-template.md` | `skills/flowengine.md` |
+| Workflow JSON guard tests (seven-tier) | `flowengine-test-template.md` | `skills/flowengine.md` |
 
 ## Infrastructure
 

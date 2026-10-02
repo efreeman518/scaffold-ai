@@ -12,19 +12,18 @@ Workflow JSONs are the production wiring of FlowEngine. They are loaded from dis
 | JSON deserializes to `WorkflowDefinition` | Missing `JsonStringEnumConverter` -> `NodeKind` deserializes as default -> workflow runs but nodes are wrong. `WorkflowDefinitionJsonOptions.Default` supplies the required converters. |
 | Definition passes FE validation | Invalid edges or missing required fields -> registry rejects on first start, not at deploy. |
 | Definition round-trips through `IWorkflowRegistry` | Registry write/read mismatch -> workflow appears in dev tests but the registry returns stale data in prod. |
+| Every `clientRef` resolves against the app's registrations | A node naming an unregistered client (untaken branches included) -> host start fails in `AddWorkflowJsonSeeding`, Admin API saves return 400. |
 | `WorkflowDefinitionBuilder.FromJson(json).Build()` hydrates | A builder that fails to hydrate -> silent zero-node workflow. The assertion guards against it. |
 
-The six-tier test below covers every stage, plus the integration-node retry rule ([../skills/flowengine.md](../skills/flowengine.md) Non-Negotiable 6). Generate one class per workflow JSON declared in `Workflows/`.
+The tiers below cover every stage, plus the integration-node retry rule ([../skills/flowengine.md](../skills/flowengine.md) Non-Negotiable 6). Generate one class per workflow JSON declared in `Workflows/`.
 
 ## Template
 
 ```csharp
 using System.Text.Json;
-using EF.FlowEngine;
-using EF.FlowEngine.Models;
-using EF.FlowEngine.Persistence;
-using EF.FlowEngine.Validation;
-using Microsoft.Extensions.DependencyInjection;
+using EF.FlowEngine.Definition;
+using EF.FlowEngine.Impl;
+using EF.FlowEngine.Model;
 
 namespace Test.Integration.{Project}.FlowEngine;
 
@@ -56,7 +55,7 @@ public class {WorkflowPascalName}WorkflowTests
             json, WorkflowDefinitionJsonOptions.Default);
 
         Assert.IsNotNull(def, "Deserialization returned null.");
-        Assert.IsFalse(string.IsNullOrWhiteSpace(def.WorkflowId), "WorkflowId is empty.");
+        Assert.IsFalse(string.IsNullOrWhiteSpace(def.Id), "Id is empty.");
         Assert.IsTrue(def.Nodes.Count > 0, "Definition has zero nodes.");
     }
 
@@ -68,11 +67,7 @@ public class {WorkflowPascalName}WorkflowTests
         var def = JsonSerializer.Deserialize<WorkflowDefinition>(
             json, WorkflowDefinitionJsonOptions.Default)!;
 
-        var result = WorkflowDefinitionValidator.Validate(def);
-
-        Assert.IsTrue(
-            result.IsValid,
-            $"Validation failed:\n{string.Join("\n", result.Errors)}");
+        WorkflowDefinitionValidator.ValidateAndThrow(def);
     }
 
     // Tier 4 - round-trip through an in-memory registry.
@@ -84,12 +79,12 @@ public class {WorkflowPascalName}WorkflowTests
             json, WorkflowDefinitionJsonOptions.Default)!;
 
         var registry = new InMemoryWorkflowRegistry();
-        await registry.UpsertAsync(def, CancellationToken.None);
+        await registry.SaveAsync(def, CancellationToken.None);
 
-        var hydrated = await registry.GetActiveAsync(def.WorkflowId, CancellationToken.None);
+        var hydrated = await registry.GetAsync(def.Id, def.Version, CancellationToken.None);
 
         Assert.IsNotNull(hydrated);
-        Assert.AreEqual(def.WorkflowId, hydrated.WorkflowId);
+        Assert.AreEqual(DefinitionStatus.Active, hydrated.Status);
         Assert.AreEqual(def.Nodes.Count, hydrated.Nodes.Count);
     }
 
@@ -118,8 +113,63 @@ public class {WorkflowPascalName}WorkflowTests
             Assert.DoesNotContain(412, node.RetryPolicy.RetryOnHttpStatus, $"{node.Id} retries 412");
         }
     }
+
+    // Tier 7 - no advisory warnings. Assert on the structured warning, never on log text.
+    [TestMethod]
+    public void Workflow_Has_No_Warnings()
+    {
+        var def = JsonSerializer.Deserialize<WorkflowDefinition>(
+            File.ReadAllText(WorkflowPath), WorkflowDefinitionJsonOptions.Default)!;
+
+        var warnings = WorkflowDefinitionValidator.GetWarnings(def);
+
+        Assert.IsEmpty(warnings, string.Join(" | ", warnings.Select(w => $"{w.Code} {w.NodeId}: {w.Message}")));
+    }
 }
 ```
+
+## Client Registration, Negative Cases, Loop-Body Keys
+
+`ValidateClients` needs the app's real `IClientRegistry`, so this class lives in the unit tier and builds the provider from the app's own registrations (`RegisterServices.AddFlowEngineServices` path). Run the first test once per messaging lane (`[DataRow]`); each lane registers a different message client. `WorkflowDefinitionWarning` codes: `MESSAGE_`/`AGENT_`/`INTEGRATION_IDEMPOTENCY_KEY_MISSING`, `UNSAFE_RETRY_WITHOUT_IDEMPOTENCY_HEADER`.
+
+```csharp
+private static readonly string[] ShippedWorkflowIds = ["{workflow-id}" /* every shipped workflow, child workflows included */];
+
+[TestMethod]
+[DataRow("{lane}")]
+public async Task Shipped_Workflows_Resolve_Every_ClientRef(string lane)
+{
+    await using var provider = BuildProvider(lane);
+    var clients = provider.GetRequiredService<IClientRegistry>();
+    var definitions = new JsonFileWorkflowRegistry("Workflows");
+
+    foreach (var id in ShippedWorkflowIds)
+    {
+        var def = await definitions.GetAsync(id, version: null, ct);
+        Assert.IsNotNull(def, id);
+        Assert.IsEmpty(WorkflowDefinitionValidator.ValidateClients(def, clients), $"{lane} {id}");
+    }
+}
+
+// Negative: the check has teeth. Mutate a shipped definition's JSON, then deserialize it.
+[TestMethod]
+public void Unregistered_ClientRef_Is_Reported()
+{
+    // json["nodes"]["{node-id}"]["config"]["clientRef"] = "not-registered";
+    var error = WorkflowDefinitionValidator.ValidateClients(def, clients).Single();
+    Assert.AreEqual(WorkflowDefinitionError.ClientNotRegistered, error.Code);
+    Assert.AreEqual("{node-id}", error.NodeId);
+}
+
+[TestMethod]
+public void Unknown_Config_Key_Fails_Validation()
+{
+    // json["nodes"]["{integration-node-id}"]["config"]["over"] = "$.context.items";
+    Assert.IsNotEmpty(WorkflowDefinitionValidator.Validate(def));
+}
+```
+
+Loop-body keys: when a workflow has a loop whose body POSTs, run it on the in-memory engine (`AddFlowEngine().UseAllInMemoryProviders()`) with a fake `IRequestResponseClient` that answers each iteration's first send 502 and then 201. Assert the loop ends `Completed`, every send carries a non-empty `Idempotency-Key`, a resend repeats its iteration's key, and N iterations send N distinct keys.
 
 ## Cross-Workflow File-Presence Guard
 
@@ -177,5 +227,6 @@ The exact `Include` path depends on the solution layout; adjust the `..\..` segm
 | 4 - Registry round-trip | Registry serialization mismatch | One in-memory write/read |
 | 5 - Builder hydration | Silent empty-builder hydration | One builder run |
 | 6 - Retry policy | Integration node without `retryPolicy`, 412 in a retry list | One node scan |
+| 7 - Warnings | Unkeyed unsafe retry, missing idempotency key | One validator pass |
 
-All six run in the unit-test tier - no SQL, no Aspire, no real registry. Add to `Test.Integration.{Project}.FlowEngine` for the project naming convention; the tier semantics are pure unit-test.
+Tiers 1-7 run in the unit-test tier - no SQL, no Aspire, no real registry. Add to `Test.Integration.{Project}.FlowEngine` for the project naming convention; the tier semantics are pure unit-test.
