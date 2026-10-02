@@ -4,22 +4,23 @@ Durable, JSON-defined workflow orchestration. Load when `includeFlowEngine: true
 
 ## Prerequisites
 
-- [solution-structure.md](solution-structure.md)
-- [bootstrapper.md](bootstrapper.md)
-- [data-persistence.md](data-persistence.md)
-- [aspire.md](aspire.md)
+- [solution-structure.md](solution-structure.md), [bootstrapper.md](bootstrapper.md), [data-persistence.md](data-persistence.md), [aspire.md](aspire.md)
 - [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Workflow Engine and section FlowEngine Data-Layout Variants
 
-Package version: track `EF.FlowEngine` latest stable. The surface assumed below: interface-composition DbContext, `WorkflowDefinitionJsonOptions.Default`, `AddWorkflowJsonSeeding`, `AddAzureOpenAIAgentClient` factory overload.
+Surface assumed: interface-composition DbContext, `WorkflowDefinitionJsonOptions.Default`, `AddWorkflowJsonSeeding`, `AddAzureOpenAIAgentClient` factory overload.
 
 ## Non-Negotiables
 
 1. FlowEngine is a **separate DbContext** from the app's primary `{Project}DbContextTrxn`. Do not subclass `DbContextBase<TUser,TKey>` - use interface composition.
-2. Default data layout is **Variant A** (same database, separate schema). This is the only layout that preserves FE's atomic outbox guarantee. Choosing `separate-db` degrades `message`/`integration`/`agent` delivery to best-effort - flag in `HANDOFF.md` and wire FE message nodes to the app's existing at-least-once publisher.
-3. Workflow JSON files are **content-copied** by the API csproj and seeded by `AddWorkflowJsonSeeding()`. The test project must include a file-presence guard.
-4. FE migrations live in their own history table (do not share `__EFMigrationsHistory` with the app DbContext) and are applied by a dedicated startup task.
-5. Admin endpoints are mapped with an **explicit prefix** - `MapFlowEngineAdmin(prefix: "/api/flowengine")`. The default-prefix drift documented upstream is worked around by always passing it.
-6. **Every `integration` node sets an explicit `retryPolicy`** (`{ "maxAttempts": 3, "backoff": "Exponential" }`): the HTTP client adapter sends once per node attempt, so the node owns retries. An unsafe method (POST, PUT, PATCH, DELETE) retries only 409, 429 and 503 unless the node sets `idempotencyKeyHeader` and the API deduplicates by that header ([data-persistence.md](data-persistence.md) section Idempotent Create). 412 never appears in a retry list: a stale precondition fails again when resent. A PATCH with `If-Match: *` in its `headers` gets node retries on 409. A loop-body node sends no `idempotencyKeyHeader`: the engine generates one key for every iteration, so the API would replay the first iteration's row.
+2. Default data layout is **Variant A** (same database, separate schema), the only layout that preserves FE's atomic outbox. `separate-db` degrades `message`/`integration`/`agent` delivery to best-effort - flag in `HANDOFF.md` and wire FE message nodes to the app's at-least-once publisher.
+3. Workflow JSON is **content-copied** by the API csproj and seeded by `AddWorkflowJsonSeeding()`; the test project guards file presence.
+4. FE migrations use their own history table (never the app's `__EFMigrationsHistory`) and a dedicated startup task.
+5. Admin endpoints use an **explicit prefix**: `MapFlowEngineAdmin(prefix: "/api/flowengine")`; the default drifts.
+6. **The node `retryPolicy` is the sole retry owner.** Every `integration` node sets one (`{ "maxAttempts": 3, "backoff": "Exponential" }`); the client sends once per attempt. An unsafe method (POST, PUT, PATCH, DELETE) retries only 409, 429 and 503 unless the node sets `idempotencyKeyHeader` and the API deduplicates by that header ([data-persistence.md](data-persistence.md) section Idempotent Create). 412 never appears in a retry list. A PATCH with `If-Match: *` in `headers` gets node retries on 409. A loop-body node resolves its policy from the node, else the nearest enclosing loop, else the workflow default; attempts never multiply. A loop-body POST sets `"idempotencyKeyHeader": "Idempotency-Key"` and a `retryPolicy` exactly like a top-level POST: the engine generates one key per iteration, stable across retries and lease recovery (no per-iteration key expression to wire). `idempotencyKey` in config is metadata only.
+7. **HTTP and self-call clients use a dedicated named client:** `services.AddHttpClient(name, c => c.BaseAddress = ...)` plus `fe.AddResilientHttpClient(clientRef, name)`. The package removes the inherited ServiceDefaults handler from that name and adds a no-retry pipeline that keeps the timeout and circuit breaker. Created per request, so a workflow can call its own host. Never hand-build a `ResilientHttpFlowClient` or suppress `RemoveAllResilienceHandlers` for it.
+8. **Definition validation is strict.** An unknown config key is an error; the canonical keys are loop `items`, integration `path` and `body`, decision `target` (not `over`, `request`, `valuePath`, integration-as-URL, `_loopItem`, or an undefined `storeAs`). Every `clientRef` on every node, untaken branches included, must be registered before definitions are saved or seeded; otherwise host start fails with `WorkflowDefinitionValidationException.Details` (`CLIENT_NOT_REGISTERED`, `CLIENT_TYPE_MISMATCH`, `DEFINITION_INVALID`); Admin API saves return 400. A `query` node needs a registered `IQueryClient`; a `document` node has no `clientRef`, needs `UseDocumentStore`.
+9. **Loops.** An inline body (`bodyEntryNodeId`) runs only its entry node per iteration and writes into the shared parent context; the item key defaults to `currentItem`. A multi-node per-item flow uses a child workflow (`subWorkflowId`) reading its item from `$.params.<itemAs>` (default `currentItem`). Each child has its own context, so `mode: parallel` is safe only with child workflows.
+10. An `integration` node that searches through the app's API carries the tenant id in its filter (`"tenantId": "$.params.tenantId"`).
 
 ---
 
@@ -29,25 +30,23 @@ Package version: track `EF.FlowEngine` latest stable. The surface assumed below:
 src/
   Infrastructure/
     {Project}.Data/
-      {Project}DbContextTrxn.cs          # primary app context - inherits DbContextBase<string, Guid?>
-      {Project}FlowEngineDbContext.cs    # FE context - interface composition (this file)
-      ConfigureFlowEngineSqlOptions.cs   # FE-specific sqlServerOptionsAction
+      {Project}DbContextTrxn.cs          # primary app context
+      {Project}FlowEngineDbContext.cs    # FE context - interface composition
+      FlowEngineSqlOptions.cs            # FE-specific SQL options
     {Project}.Bootstrapper/
-      RegisterServices.FlowEngine.cs     # partial: AddFlowEngine fluent chain
+      RegisterServices.FlowEngine.cs     # partial: AddFlowEngine chain
   Host/
     {Project}.Api/
-      Workflows/                         # workflow JSON files, copied to output
-        approval-loop.json
-        notify-on-completion.json
+      Workflows/                         # workflow JSON, copied to output
 tests/
-  Test.Integration.{Project}.FlowEngine/ # workflow-tier guard tests (see flowengine-test-template.md)
+  Test.Integration.{Project}.FlowEngine/ # guard tests (flowengine-test-template.md)
 ```
 
 ---
 
 ## DbContext (interface composition)
 
-`{Project}DbContextTrxn` already inherits `DbContextBase<string, Guid?>` for the audit interceptor. A single DbContext **cannot** inherit both that base and FE's `FlowEngineOutboxDbContext` / `FlowEngineCircuitBreakerDbContext`. Use a fresh DbContext that declares all three FE roles via interfaces.
+`{Project}DbContextTrxn` inherits `DbContextBase<string, Guid?>` for the audit interceptor, so it cannot also inherit FE's `FlowEngineOutboxDbContext` / `FlowEngineCircuitBreakerDbContext`. Use a fresh DbContext declaring all three roles via interfaces.
 
 ```csharp
 using EF.FlowEngine.Persistence;
@@ -55,8 +54,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace {Project}.Data;
 
-// Separate FE DbContext, NOT a subclass of {Project}DbContextBase.
-// Declares all three FE roles via interface composition.
 public sealed class {Project}FlowEngineDbContext(DbContextOptions<{Project}FlowEngineDbContext> options)
     : DbContext(options),
       IFlowEngineStateDbContext,
@@ -80,7 +77,7 @@ public sealed class {Project}FlowEngineDbContext(DbContextOptions<{Project}FlowE
 }
 ```
 
-Migration-history isolation in the SQL options:
+History-table isolation:
 
 ```csharp
 public static class FlowEngineSqlOptions
@@ -112,6 +109,8 @@ public static partial class RegisterServices
         services.AddDbContext<{Project}FlowEngineDbContext>(opts =>
             opts.UseSqlServer(connectionString, FlowEngineSqlOptions.Configure));
 
+        services.AddHttpClient("{project}-api", c => c.BaseAddress = new Uri(cfg["FlowEngine:ApiBaseUrl"]!));
+
         services
             .AddFlowEngineCore()
             .AddFlowEngineStateStore<{Project}FlowEngineDbContext>()
@@ -120,7 +119,7 @@ public static partial class RegisterServices
             .AddSqlWorkflowRegistry<{Project}FlowEngineDbContext>()
             .AddSqlDistributedLockProvider(connectionString)
             .AddSqlHumanTaskStore<{Project}FlowEngineDbContext>()
-            .AddHttpClient()
+            .AddResilientHttpClient("{project}-api", "{project}-api")
             .AddSqlQueryClient()
             .AddServiceBusMessageClient(cfg.GetSection("ServiceBus"))
             .AddAzureOpenAIAgentClient(
@@ -139,18 +138,17 @@ public static partial class RegisterServices
 }
 ```
 
-Call from `RegisterServices.AddInfrastructure` (or the matching aggregate) inside the existing bootstrapper.
+Call it from `RegisterServices.AddInfrastructure`.
 
 ## Migration target
 
-The FE context is an ordered target in the dedicated migrator host - no runtime host migrates it (see [../support/data-persistence-advanced.md](../support/data-persistence-advanced.md) section Migration Ownership: Dedicated Migrator Host):
+The FE context is an ordered target in the dedicated migrator host; no runtime host migrates it (see [../support/data-persistence-advanced.md](../support/data-persistence-advanced.md) section Migration Ownership: Dedicated Migrator Host):
 
 ```csharp
-// {Project}.DatabaseMigrator - app schema first, FlowEngine second
 .AddEfCoreMigrationTarget<{Project}FlowEngineDbContext>("{Project}FlowEngineDbContext", 20)
 ```
 
-The migrator's FE context registration applies `FlowEngineSqlOptions.Configure` (history table + schema + migrations assembly, above) so the `flowengine` schema keeps its own history table; the FE design-time factory uses the same configuration. `{Project}FlowEngineDbContext` keeps its own logical connection name even when local Aspire points it at the app database. Runtime hosts assume the schema exists; `AddWorkflowJsonSeeding` seeds workflow definitions only, never schema.
+The migrator's FE context registration and the FE design-time factory apply `FlowEngineSqlOptions.Configure` so the `flowengine` schema keeps its own history table. `AddWorkflowJsonSeeding` seeds definitions, never schema.
 
 ## Workflow JSON content copy
 
@@ -164,27 +162,25 @@ In the API csproj:
 </ItemGroup>
 ```
 
-The file-presence guard test ([../templates/flowengine-test-template.md](../templates/flowengine-test-template.md)) protects against silent regression if this glob breaks.
+The file-presence guard ([../templates/flowengine-test-template.md](../templates/flowengine-test-template.md)) catches a broken glob.
 
 ## Admin API mapping
 
-In `WebApplicationBuilderExtensions` (or wherever `MapXxx` calls live):
+In `WebApplicationBuilderExtensions`:
 
 ```csharp
 app.MapFlowEngineAdmin(prefix: "/api/flowengine");
 ```
 
-Always pass the prefix explicitly. The default-prefix value is unstable across FE releases; the explicit string is the contract.
-
 ## Trigger model
 
-FlowEngine workflows must be invoked by something. The three canonical patterns live in [../templates/flowengine-trigger-template.md](../templates/flowengine-trigger-template.md):
+Something must invoke each workflow. Canonical patterns in [../templates/flowengine-trigger-template.md](../templates/flowengine-trigger-template.md):
 
-- **Service Bus subscriber in `{Project}.Functions`** - when `includeFunctionApp: true` and an integration event should start a workflow.
-- **Inline call from a service** - when the trigger is an in-process command (e.g., from an API endpoint).
-- **TickerQ recurring job in `{Project}.Scheduler`** - when `includeScheduler: true` and the workflow runs on a cron.
+- **Service Bus subscriber in `{Project}.Functions`** - `includeFunctionApp: true`, an integration event starts a workflow.
+- **Inline call from a service** - an in-process command.
+- **TickerQ recurring job in `{Project}.Scheduler`** - `includeScheduler: true`, a cron starts it.
 
-`IWorkflowTrigger` is **not** an FE-shipped interface; it is an app-level facade over `IFlowEngine` used to keep the trigger sites thin. Generate it in `{Project}.Application.Services`.
+`IWorkflowTrigger` is an app-level facade over `IFlowEngine`, not an FE interface. Generate it in `{Project}.Application.Services`.
 
 ---
 
@@ -192,19 +188,16 @@ FlowEngine workflows must be invoked by something. The three canonical patterns 
 
 | Phase | What FlowEngine adds |
 |---|---|
-| **2** | `includeFlowEngine: true`, `flowEngineDbStrategy: same-db-separate-schema` (Variant A default). When choosing `separate-db`, record the outbox trade-off in `.scaffold/DESIGN-DECISIONS.md`. |
-| **3** | Add FE NuGet packages to the package matrix; verify feed access (`EF.FlowEngine`, `EF.FlowEngine.StateStore.Sql`, `EF.FlowEngine.Locks.Sql`, `EF.FlowEngine.WorkflowRegistry.Sql`, `EF.FlowEngine.HumanTaskStore.Sql`, `EF.FlowEngine.Outbox.Sql`, `EF.FlowEngine.CircuitBreaker.Sql`, `EF.FlowEngine.Clients.Http`, `EF.FlowEngine.Clients.Sql`, `EF.FlowEngine.Clients.ServiceBus` if Service Bus enabled, `EF.FlowEngine.Clients.AI` if AI in scope, `EF.FlowEngine.AdminApi`, `EF.FlowEngine.Testing`). |
-| **5a** | Generate `{Project}FlowEngineDbContext`, `FlowEngineSqlOptions`, and the FE migration. Do **not** add FE tables to the app's `OnModelCreating`. |
-| **5b** | Generate `RegisterServices.FlowEngine.cs` partial, register the FE context as a migrator target in `{Project}.DatabaseMigrator`, and add the `MapFlowEngineAdmin` call in the API host. Place a single placeholder workflow JSON in `Workflows/` and emit the seeding hosted service. |
-| **5c** | Emit the chosen trigger template(s) when `includeFunctionApp` or `includeScheduler` is enabled. |
-| **5d** | Generate `Test.Integration.{Project}.FlowEngine` with the validity-tier guards (file-presence, deserialize, validate, registry round-trip, builder, retry policy). |
-| **5e** | When AI in scope, FE `agent` nodes use `AddAzureOpenAIAgentClient` factory overload - wire `AzureOpenAIClient` from the app's existing AI bootstrap. |
+| **2** | `includeFlowEngine: true`, `flowEngineDbStrategy: same-db-separate-schema` (Variant A default). For `separate-db`, record the outbox trade-off in `.scaffold/DESIGN-DECISIONS.md`. |
+| **3** | Add FE NuGet packages to the package matrix and verify feed access: `EF.FlowEngine`, `.StateStore.Sql`, `.Locks.Sql`, `.WorkflowRegistry.Sql`, `.HumanTaskStore.Sql`, `.Outbox.Sql`, `.CircuitBreaker.Sql`, `.Clients.Http`, `.Clients.Sql`, `.Clients.ServiceBus` (if Service Bus), `.Clients.AI` (if AI), `.AdminApi`, `.Testing`. |
+| **5a** | Generate `{Project}FlowEngineDbContext`, `FlowEngineSqlOptions`, and the FE migration; no FE tables in the app's `OnModelCreating`. |
+| **5b** | Generate `RegisterServices.FlowEngine.cs` partial, register the FE context as a migrator target in `{Project}.DatabaseMigrator`, and add the `MapFlowEngineAdmin` call in the API host. Add one placeholder workflow JSON to `Workflows/` and the seeding hosted service. |
+| **5c** | Emit the chosen trigger template(s) when `includeFunctionApp` or `includeScheduler` is on. |
+| **5d** | Generate `Test.Integration.{Project}.FlowEngine` with the guards (file-presence, deserialize, validate, registry round-trip, builder, retry policy, client registration, structured warnings, loop-body keys). |
+| **5e** | When AI is in scope, FE `agent` nodes use the `AddAzureOpenAIAgentClient` factory overload over the app's existing `AzureOpenAIClient`. |
 
 ## Anti-patterns
 
-- Subclassing the FE outbox/circuit-breaker abstract bases. Use interface composition instead.
-- Adding FE `DbSet`s to the app's primary DbContext. Use a separate FE context.
-- Sharing `__EFMigrationsHistory`. Use the dedicated history table constant on the FE context.
-- Omitting the workflow-JSON file-presence test. The failure mode is "instance start returns workflow not found at runtime" - silent until exercised.
-- Calling `MapFlowEngineAdmin()` without a prefix. Always pass `/api/flowengine` explicitly.
-- Wiring FE `message` nodes when `flowEngineDbStrategy: separate-db` without an at-least-once relay. Atomic outbox is gone in Variant B/C.
+- Subclassing the FE outbox/circuit-breaker abstract bases, adding FE `DbSet`s to the app's primary DbContext, or sharing `__EFMigrationsHistory` (Non-Negotiables 1 and 4).
+- Omitting the file-presence test (silent "workflow not found" at start).
+- FE `message` nodes under `separate-db` without an at-least-once relay.
