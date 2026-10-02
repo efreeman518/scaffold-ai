@@ -7,8 +7,6 @@ Durable, JSON-defined workflow orchestration. Load when `includeFlowEngine: true
 - [solution-structure.md](solution-structure.md), [bootstrapper.md](bootstrapper.md), [data-persistence.md](data-persistence.md), [aspire.md](aspire.md)
 - [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Workflow Engine and section FlowEngine Data-Layout Variants
 
-Surface assumed: interface-composition DbContext, `WorkflowDefinitionJsonOptions.Default`, `AddWorkflowJsonSeeding`, `AddAzureOpenAIAgentClient` factory overload.
-
 ## Non-Negotiables
 
 1. FlowEngine is a **separate DbContext** from the app's primary `{Project}DbContextTrxn`. Do not subclass `DbContextBase<TUser,TKey>` - use interface composition.
@@ -109,28 +107,27 @@ public static partial class RegisterServices
         services.AddDbContext<{Project}FlowEngineDbContext>(opts =>
             opts.UseSqlServer(connectionString, FlowEngineSqlOptions.Configure));
 
+        var fe = services.AddFlowEngine()
+            .UseStateStoreSql<{Project}FlowEngineDbContext>()
+            .UseLockProviderSql<{Project}FlowEngineDbContext>()
+            .UseWorkflowRegistrySql<{Project}FlowEngineDbContext>()
+            .UseHumanTaskStoreSql<{Project}FlowEngineDbContext>()
+            .UseOutboxSql<{Project}FlowEngineDbContext>()
+            .UseCircuitBreakerSql<{Project}FlowEngineDbContext>();
+
+        // Self-call: dedicated named client, node retryPolicy owns retries (Non-Negotiable 7)
         services.AddHttpClient("{project}-api", c => c.BaseAddress = new Uri(cfg["FlowEngine:ApiBaseUrl"]!));
+        fe.AddResilientHttpClient("{project}-api", "{project}-api");
+        fe.AddServiceBusClient("integration-events",
+            sp => sp.GetRequiredService<IAzureClientFactory<ServiceBusClient>>().CreateClient("{Project}SBClient"),
+            cfg["FlowEngine:ServiceBusTopic"]!);
+        fe.AddChatClientAgentClient(clientRef: "ai-agent", chatClientFactory: sp => sp.GetRequiredService<IChatClient>());
 
-        services
-            .AddFlowEngineCore()
-            .AddFlowEngineStateStore<{Project}FlowEngineDbContext>()
-            .AddFlowEngineOutbox<{Project}FlowEngineDbContext>()
-            .AddFlowEngineCircuitBreaker<{Project}FlowEngineDbContext>()
-            .AddSqlWorkflowRegistry<{Project}FlowEngineDbContext>()
-            .AddSqlDistributedLockProvider(connectionString)
-            .AddSqlHumanTaskStore<{Project}FlowEngineDbContext>()
-            .AddResilientHttpClient("{project}-api", "{project}-api")
-            .AddSqlQueryClient()
-            .AddServiceBusMessageClient(cfg.GetSection("ServiceBus"))
-            .AddAzureOpenAIAgentClient(
-                sp => sp.GetRequiredService<AzureOpenAIClient>(),
-                deploymentName: cfg["AzureOpenAI:DeploymentName"]!,
-                modelName: cfg["AzureOpenAI:ModelName"]!);
-
-        services.AddWorkflowJsonSeeding(opts =>
+        fe.AddWorkflowJsonSeeding(opts =>
         {
-            opts.WorkflowDirectory = "Workflows";
+            opts.Directory = "Workflows";
             opts.SearchPattern = "*.json";
+            opts.ActivateOnSeed = true;
         });
 
         return services;
@@ -194,7 +191,7 @@ Something must invoke each workflow. Canonical patterns in [../templates/floweng
 | **5b** | Generate `RegisterServices.FlowEngine.cs` partial, register the FE context as a migrator target in `{Project}.DatabaseMigrator`, and add the `MapFlowEngineAdmin` call in the API host. Add one placeholder workflow JSON to `Workflows/` and the seeding hosted service. |
 | **5c** | Emit the chosen trigger template(s) when `includeFunctionApp` or `includeScheduler` is on. |
 | **5d** | Generate `Test.Integration.{Project}.FlowEngine` with the guards (file-presence, deserialize, validate, registry round-trip, builder, retry policy, client registration, structured warnings, loop-body keys). |
-| **5e** | When AI is in scope, FE `agent` nodes use the `AddAzureOpenAIAgentClient` factory overload over the app's existing `AzureOpenAIClient`. |
+| **5e** | When AI is in scope, FE `agent` nodes use `AddChatClientAgentClient` over the app's existing `IChatClient` ([ai-integration.md](ai-integration.md)). |
 
 ## Anti-patterns
 

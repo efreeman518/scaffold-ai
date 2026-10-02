@@ -21,11 +21,9 @@ The tiers below cover every stage, plus the integration-node retry rule ([../ski
 
 ```csharp
 using System.Text.Json;
-using EF.FlowEngine;
-using EF.FlowEngine.Models;
-using EF.FlowEngine.Persistence;
-using EF.FlowEngine.Validation;
-using Microsoft.Extensions.DependencyInjection;
+using EF.FlowEngine.Definition;
+using EF.FlowEngine.Impl;
+using EF.FlowEngine.Model;
 
 namespace Test.Integration.{Project}.FlowEngine;
 
@@ -57,7 +55,7 @@ public class {WorkflowPascalName}WorkflowTests
             json, WorkflowDefinitionJsonOptions.Default);
 
         Assert.IsNotNull(def, "Deserialization returned null.");
-        Assert.IsFalse(string.IsNullOrWhiteSpace(def.WorkflowId), "WorkflowId is empty.");
+        Assert.IsFalse(string.IsNullOrWhiteSpace(def.Id), "Id is empty.");
         Assert.IsTrue(def.Nodes.Count > 0, "Definition has zero nodes.");
     }
 
@@ -69,11 +67,7 @@ public class {WorkflowPascalName}WorkflowTests
         var def = JsonSerializer.Deserialize<WorkflowDefinition>(
             json, WorkflowDefinitionJsonOptions.Default)!;
 
-        var result = WorkflowDefinitionValidator.Validate(def);
-
-        Assert.IsTrue(
-            result.IsValid,
-            $"Validation failed:\n{string.Join("\n", result.Errors)}");
+        WorkflowDefinitionValidator.ValidateAndThrow(def);
     }
 
     // Tier 4 - round-trip through an in-memory registry.
@@ -85,12 +79,12 @@ public class {WorkflowPascalName}WorkflowTests
             json, WorkflowDefinitionJsonOptions.Default)!;
 
         var registry = new InMemoryWorkflowRegistry();
-        await registry.UpsertAsync(def, CancellationToken.None);
+        await registry.SaveAsync(def, CancellationToken.None);
 
-        var hydrated = await registry.GetActiveAsync(def.WorkflowId, CancellationToken.None);
+        var hydrated = await registry.GetAsync(def.Id, def.Version, CancellationToken.None);
 
         Assert.IsNotNull(hydrated);
-        Assert.AreEqual(def.WorkflowId, hydrated.WorkflowId);
+        Assert.AreEqual(DefinitionStatus.Active, hydrated.Status);
         Assert.AreEqual(def.Nodes.Count, hydrated.Nodes.Count);
     }
 
