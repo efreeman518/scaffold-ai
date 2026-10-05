@@ -200,7 +200,7 @@ domainRules:
   - { name: TenantQuotaNotExceeded, appliesTo: [TodoItem], dependsOn: [TenantQuotaPolicy], errorMessage: "Tenant quota exceeded." }
 ```
 
-Rules use business language here. Exact C# conditions are Phase 3/4 concerns.
+Rules use business language here. Exact C# conditions are Phase 3/4 concerns. If an app numbers its own rules, use the `AR-NN` prefix; `GR-NN` is reserved for [../GROUND-RULES.md](../GROUND-RULES.md).
 
 ### Policy Matrix (Optional)
 

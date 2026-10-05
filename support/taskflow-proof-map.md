@@ -23,7 +23,7 @@ Load this file on demand. Keep it out of the default phase context.
 
 | Phase / Concern | TaskFlow area to inspect | What it proves |
 |---|---|---|
-| Phase 1 shared language | `.scaffold/UBIQUITOUS-LANGUAGE.md`, `.scaffold/DESIGN-DECISIONS.md`, `.scaffold/domain-specification.yaml`, `.scaffold/implementation-plan.md` | Shared terminology, rejected synonyms, decision dependencies, and vertical slice order are explicit before code generation. |
+| Phase 1 shared language | `.scaffold/UBIQUITOUS-LANGUAGE.md`, `.scaffold/DESIGN-DECISIONS.md`, `.scaffold/domain-specification.yaml` | Shared terminology, rejected synonyms, and decision dependencies are explicit before code generation. |
 | Phase 4 contract scaffolding | `src/Domain/TaskFlow.Domain.Model`, `src/Application/TaskFlow.Application.Contracts`, `src/Application/TaskFlow.Application.Models`, `tests/Test.Support` | Entity shells, contracts, DTOs, builders, and test infrastructure exist before TDD starts. |
 | Phase 5a domain model | `src/Domain/TaskFlow.Domain.Model`, `src/Domain/TaskFlow.Domain.Model/TaskItem/TaskItem.cs`, `tests/Test.Unit/Domain/TaskItemStatusTransitionTests.cs` | `Create()` / `Update()` patterns, value objects, aggregate shape, and invariants owned by the root (`TaskItem.TransitionStatus` returns a `DomainResult` failure for an invalid transition; there is no separate rules folder). |
 | Phase 5a domain shared | `src/Domain/TaskFlow.Domain.Shared` | Shared enums, typed IDs, constants, and domain-event contracts; value objects live in `Domain.Model/ValueObjects`. |
@@ -120,6 +120,7 @@ Use these links first. If a branch or path has moved, search inside the same rep
 - **Middleware proof:** `src/Host/TaskFlow.Api/WebApplicationBuilderExtensions.cs` orders the API pipeline as forwarded headers -> security headers -> correlation ID -> exception handling -> CORS -> authentication (gateway claims relay runs as `IClaimsTransformation`) -> authorization -> rate limiting -> request timeouts -> endpoints.
 - **Gateway proof:** The gateway calls the API with its own app-only token and relays the original user claims in an encoded header; the API honors the header only for that token.
 - **Scheduler proof:** TickerQ cron jobs are declared on `[TickerFunction]` methods in one jobs class, not hidden inside hosted services or seeded by hand.
+- **Deliberate CI divergence:** TaskFlow's CI runs no `dotnet format analyzers` step. The build step is the analyzer gate: `TreatWarningsAsErrors` fails it on any warning-severity diagnostic. The generation-time info-severity pass ([execution-gates.md](execution-gates.md) section Analyzer-Cleanliness Gate) is the only reason for a separate format pass, so a consuming repo's CI does not add one.
 - **Scaffold-auth proof:** Local/dev completion does not require live cloud auth; scaffold auth supplies trusted claims until Phase 5e finalizes identity.
 
 ## Scalability and Hosting Proof

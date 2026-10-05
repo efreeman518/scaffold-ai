@@ -21,17 +21,17 @@
 
 > **Component vs mesh:** mesh tests live in `Test.Aspire` ([test-templates-aspire.md](test-templates-aspire.md)); placement rule in [../skills/testing.md](../skills/testing.md) section Component vs Mesh split. `Test.Integration` must **not** reference `AppHost` or `Aspire.Hosting.Testing`.
 
-**Naming:** both canonical forms appear here - `Given_{Entity}Created_When_ProjectionRuns_Then_{Entity}ViewProduced` for a behavioral scenario, `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` for a structural fact (owner: [../skills/testing.md](../skills/testing.md) section Test Naming Convention). The coverage matrix and gate checks reference method names exactly, so a rename is deliberate.
+**Naming:** both canonical forms appear here - `Given_{Entity}Created_When_ProjectionRuns_Then_{Entity}ViewProduced` for a behavioral scenario, `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` for a structural fact (owner: [../skills/testing.md](../skills/testing.md) section Test Naming Convention). The coverage matrix and gate checks reference method names exactly.
 
 ## Lane switch
 
-One assembly serves every declared lane: tests resolve the lane with the hosts' `HostingLaneResolver` (`NonAzure` unless `{APP}_LANE=Azure`), start only that lane's stores, and CI runs the assembly once per declared lane. Generate the `Azure` arm (SQL Server, Azurite, Service Bus) only when `hostingLanes` includes `Azure`; it differs only where an **Azure arm** note says. A single-lane test calls `IntegrationTestSetup.RequireLane(lane)`, `Inconclusive` on the other lane. `Test.E2E` and `Test.Aspire` read the same `TestHostingLane`.
+One assembly serves every declared lane: tests resolve the lane with the hosts' `HostingLaneResolver` (`NonAzure` unless `{APP}_LANE=Azure`), start only that lane's stores, and CI runs the assembly once per declared lane. Generate the `Azure` arm (SQL Server, Azurite, Service Bus) only when `hostingLanes` includes `Azure`; it differs only where an **Azure arm** note says. A single-lane test calls `IntegrationTestSetup.RequireLane(lane)` (`Inconclusive` on the other lane). `Test.E2E` and `Test.Aspire` read the same `TestHostingLane`.
 
 ## Fixture model
 
 Each store the app uses gets a **standalone Testcontainer fixture** under `tests/Test.Integration/Infrastructure/`. A single `IntegrationTestSetup` runs `DockerRuntimePreflight.GetUnavailableReasonAsync` (EF.Testing), starts the lane's fixtures in parallel from `[AssemblyInitialize]`, and disposes them in `[AssemblyCleanup]`. Every fixture is a package `ContainerFixture<TContainer>` (or the PostgreSQL / SQL Server fixture built on it): one gated start that records a failure in `StartupError` instead of throwing, so discovery continues and each dependent test fails with the full exception. Only the preflight-confirmed unavailable runtime is `Inconclusive`. Generate only the fixtures the app needs, each named for its store and independent of the Aspire host: `DbContainerFixture` always; `RedisContainerFixture` when a distributed cache, limiter, or Redis Data Protection is in scope; `RabbitMqBrokerFixture` when `messagingProvider: RabbitMq`; `SeaweedFsContainerFixture` when `storageProvider: S3`.
 
-> **Cleanup is owned by `DisposeAsync` + the Testcontainers reaper - never hand-sweep Docker.** Each fixture's `StopAsync` -> `DisposeAsync` removes its own container; the Resource Reaper (Ryuk) removes only containers carrying this run's `org.testcontainers.session-id` label when a crashed process exits. A `docker rm`/`docker container prune` sweep by image name or generic label also deletes other projects', other sessions', and intentional persistent containers.
+> **Cleanup is owned by `DisposeAsync` + the Testcontainers reaper - never hand-sweep Docker.** Each fixture's `DisposeAsync` removes its own container; the Resource Reaper (Ryuk) removes only containers with this run's `org.testcontainers.session-id` label after a crash. A `docker rm`/`docker container prune` sweep also deletes other projects', sessions', and intentional persistent containers.
 
 ---
 
@@ -91,7 +91,7 @@ public sealed class TestDatabaseContainer({App}DbProvider provider) : IAsyncDisp
 }
 ```
 
-`Use{App}Provider` is the central provider-options helper ([../patterns/data-layer-wiring.md](../patterns/data-layer-wiring.md) section Registration), exposed from `Infrastructure.Data` so hosts, migrator, design-time factory, and tests share one schema/history-table rule. `TestOutbox.Interceptor()` (in `Test.Support`) builds the EF.Data.Outbox `OutboxStagingInterceptor` over the app's `IOutboxEventMapper` and `OutboxOptions` exactly as the hosts register them, so container tests exercise the real staging path. Generate only the provider fixture fields for the lanes in `hostingLanes`.
+`Use{App}Provider` is the central provider-options helper ([../patterns/data-layer-wiring.md](../patterns/data-layer-wiring.md) section Registration), exposed from `Infrastructure.Data` so hosts, migrator, design-time factory, and tests share one schema/history-table rule. `TestOutbox.Interceptor()` (in `Test.Support`) builds the EF.Data.Outbox `OutboxStagingInterceptor` over the app's `IOutboxEventMapper` and `OutboxOptions` exactly as the hosts register them, so container tests exercise the real staging path. Generate provider fixture fields only for the lanes in `hostingLanes`.
 
 ### File: `tests/Test.Integration/Infrastructure/DbContainerFixture.cs`
 
@@ -220,7 +220,7 @@ public static class IntegrationTestSetup
 
 Cover **migration apply** + **CRUD against the real database** + **child includes** + **updater navigation-add round-trip** (for entities with an `{Entity}Updater`) + **M:N junction navigation** + **tenant query filter** + **polymorphic indexes** when applicable + **paged search projection per searchable aggregate**. Build contexts via `DbContainerFixture` and gate on `StartupError` in `[TestInitialize]`. Every SQL statement stays standard (`INFORMATION_SCHEMA`, quoted identifiers) and every scalar goes through `Convert.ToInt32` - PostgreSQL returns `bigint` for `COUNT(*)` - so one test body runs on both providers.
 
-> **Paged search projection is required at `balanced`+ for every searchable aggregate.** Call the repo's search method (which wraps `QueryPageProjectionAsync`) for a normal `PageIndex=1, PageSize=n` request and assert **both** the page contents **and** `Total`. Only this tier catches a positional call - swapped `pageSize`/`pageIndex` (near-empty page) or `includeTotal:false` (`Total = -1`) - because fast-tier fakes translate it into correct-looking results. See the "Call it with named arguments" note in [repository-template.md](repository-template.md).
+> **Paged search projection is required at `balanced`+ for every searchable aggregate.** Call the repo's search method (which wraps `QueryPageProjectionAsync`) for a normal `PageIndex=1, PageSize=n` request and assert **both** the page contents **and** `Total`. Only this tier catches swapped `pageSize`/`pageIndex` (near-empty page) or `includeTotal:false` (`Total = -1`); fast-tier fakes return correct-looking results. See the "Call it with named arguments" note in [repository-template.md](repository-template.md).
 
 > **Typed IDs:** entity `Id` is a typed value struct (`{Entity}Id`), so compare it with a raw `Guid` through `.Value` (`Assert.AreEqual(categoryId, result.CategoryId.Value)`, `result.CategoryId?.Value` when nullable) - a direct comparison does not compile. Construct the generic repository pair with the typed ID parameter (`new {App}RepositoryTrxn<Tag, TagId>(db)`); bespoke `{Entity}RepositoryTrxn` repos take none.
 
@@ -528,7 +528,7 @@ public class {Entity}RepositoryIntegrationTests
 | `Search_WithDuplicateSortKeys_HasStablePageMembership` | Every repository with paging. Seed more than one page with the same business sort key and assert exact IDs, no omissions, and no duplicates. |
 | `{Entity}_CrudOperations_WorkAgainstRealSql` | Every entity with mutations. |
 | `{Entity}_WithChildren_PersistsCorrectly` | Entity has owned/dependent child collections (1:N). Persistence + includes only - seeds children via `db.{ChildEntities}.Add(...)`, so it does NOT exercise the updater/navigation-add path (see next row). |
-| `{Entity}_UpdateFromDto_AddsChildToReloadedParent_AgainstRealSql` | Entity has owned/dependent child collections (1:N) **and** an `{Entity}Updater`. Required regression guard for the `ValueGeneratedNever` key baseline (GR-16) - the only test that adds a NEW child through `repo.UpdateFromDto` against the real database. A green `{Entity}_WithChildren_PersistsCorrectly` does not substitute for it. |
+| `{Entity}_UpdateFromDto_AddsChildToReloadedParent_AgainstRealSql` | Entity has owned/dependent child collections (1:N) **and** an `{Entity}Updater`. Required regression guard for the `ValueGeneratedNever` key baseline (GR-16) - the only test that adds a NEW child through `repo.UpdateFromDto` against the real database. `{Entity}_WithChildren_PersistsCorrectly` does not substitute. |
 | `{Entity}Tag_ManyToMany_WorksCorrectly` | Entity participates in M:N via a junction. |
 | `TenantQueryFilter_PinsTheTenant_AndFailsClosedWithoutOne` | `enableMultiTenant: true`. |
 | `Polymorphic_Index_Exists` | Entity uses a polymorphic ownership pattern (e.g., `Attachment.OwnerType` + `OwnerId`). |
@@ -627,7 +627,7 @@ The **API audit pipeline over HTTP** is a mesh test - see [test-templates-aspire
 
 ## RabbitMQ Transport Test
 
-Generate when `messagingProvider: RabbitMq`. Proves the app's half of the provider - its topology and its registration of the package `IOutboxTransport` (`AddRabbitMqOutboxTransport`); the package's own tests cover confirms, prefetch, and dead-lettering. Duplicate-delivery proof is the inbox test owned by [../skills/messaging.md](../skills/messaging.md) section At-Least-Once Consumer: Inbox. Staging and topology member names follow the reference app - read the generated members before binding (GR-18).
+Generate when `messagingProvider: RabbitMq`. Proves the app's half of the provider - its topology and its `AddRabbitMqOutboxTransport` registration; the package's tests cover confirms, prefetch, and dead-lettering. Duplicate-delivery proof is the inbox test owned by [../skills/messaging.md](../skills/messaging.md) section At-Least-Once Consumer: Inbox. Staging and topology member names follow the reference app - read the generated members before binding (GR-18).
 
 ### File: `tests/Test.Integration/RabbitMqTransportTests.cs`
 
@@ -722,23 +722,23 @@ public sealed class RabbitMqTransportTests
         return provider;
     }
 
-    /// <summary>Polls briefly: a publisher confirm means the broker has the message, not that it is routed yet.</summary>
-    private static async Task<BasicGetResult?> GetAsync(string queue, CancellationToken ct)
+    /// <summary>Polls briefly. After a confirmed publish an absence check needs one read (attempts: 1): the broker confirms a routable message only after every queue it routes to has accepted it.</summary>
+    private static async Task<BasicGetResult?> GetAsync(string queue, CancellationToken ct, int attempts = 40)
     {
         var factory = new ConnectionFactory { Uri = new Uri(RabbitMqBrokerFixture.ConnectionString) };
         await using var connection = await factory.CreateConnectionAsync(ct);
         await using var channel = await connection.CreateChannelAsync(cancellationToken: ct);
-        for (var attempt = 0; attempt < 40; attempt++)
+        for (var attempt = 0; attempt < attempts; attempt++)
         {
             if (await channel.BasicGetAsync(queue, autoAck: true, ct) is { } result) return result;
-            await Task.Delay(100, ct);
+            if (attempt + 1 < attempts) await Task.Delay(100, ct);
         }
         return null;
     }
 }
 ```
 
-Add, in the same class: `MalformedBody_FailsEnvelopeParsing_BeforeAnyConsumerRuns` (purge the queue, publish a non-envelope body through `IRabbitMqPublisher` with a bound routing key, assert the delivery fails `IntegrationEnvelopeReader.TryRead(body, readerOptions, out _, out var failure)` with its malformed reason); one routing assertion per consumer filter (an event bound to one queue reaches no other); one test per optional binding published through the same exchange.
+Add, in the same class: `MalformedBody_FailsEnvelopeParsing_BeforeAnyConsumerRuns` (purge the queue, publish a non-envelope body through `IRabbitMqPublisher` with a bound routing key, assert the delivery fails `IntegrationEnvelopeReader.TryRead(body, readerOptions, out _, out var failure)` with its malformed reason); one routing assertion per consumer filter (an event bound to one queue reaches no other: after `Assert.IsEmpty(sent.Failures, ...)`, assert `GetAsync(otherQueue, ct, attempts: 1)` is null); one test per optional binding published through the same exchange.
 
 > **Azure arm:** Service Bus has no component-tier broker test; its transport is proven in the mesh (`OutboxMeshTests`, [test-templates-aspire.md](test-templates-aspire.md)).
 

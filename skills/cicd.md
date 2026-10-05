@@ -248,7 +248,7 @@ Fast tiers run automatically on PRs; everything else is a default-off `workflow_
 toggle (only emitted for tiers this scaffold generated). The trigger column maps each
 category to its `inputs.*` switch.
 
-Treat Aspire, Playwright, and WasmUI projects as resource-heavy. Keep their workflow steps/jobs non-overlapping, and use `-m:1` for every solution-wide or heavy-project `dotnet test` command. The scheduled/manual acceptance lane must also run the unfiltered solution command `dotnet test {SolutionName}.slnx --no-build -m:1`; filtered fast tiers do not prove scaffold acceptance.
+Treat Aspire, Playwright, and WasmUI projects as resource-heavy. Keep their workflow steps/jobs non-overlapping, and use `-m:1` for every solution-wide or heavy-project `dotnet test` command. Keep `-m:1` on the solution `dotnet build` too: it guards the static-web-assets race (one web project built twice with different global properties; AppHost `GlobalPropertiesToRemove` plus test projects' `AdditionalProperties` yield one instance per project), and parallelizing is worth it only if measured faster on the hosted runner (TaskFlow measured no gain). The scheduled/manual acceptance lane must also run the unfiltered solution command `dotnet test {SolutionName}.slnx --no-build -m:1`; filtered fast tiers do not prove scaffold acceptance.
 
 | Category | Trigger | Prerequisite / notes |
 |---|---|---|

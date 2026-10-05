@@ -198,7 +198,7 @@ Failure mode is **invisible locally** (files on disk, build green) and surfaces 
 dotnet_diagnostic.MSTEST0049.severity = warning
 ```
 
-Pair `warning` with `TreatWarningsAsErrors` (opt in via `Directory.Build.props` once the codebase is warning-clean). The acknowledge-and-silence alternative (`severity = none` with a comment saying why) is only for a reference app that deliberately does not want token flow. The anti-pattern is leaving a default-`info` analyzer unaddressed. Both the `TreatWarningsAsErrors` policy and the generation-time gate that verifies no residual analyzer debt are owned by [../support/execution-gates.md](../support/execution-gates.md) (sections Compiler-Warning Policy and Analyzer-Cleanliness Gate).
+Pair `warning` with `TreatWarningsAsErrors` (opt in via `Directory.Build.props` once the codebase is warning-clean). The acknowledge-and-silence alternative (`severity = none` with a comment saying why) is only for a reference app that deliberately does not want token flow. The anti-pattern is leaving a default-`info` analyzer unaddressed. Both the `TreatWarningsAsErrors` policy and the generation-time gate that verifies no residual analyzer debt are owned by [../support/execution-gates.md](../support/execution-gates.md) (sections Compiler-Warning Policy and Analyzer-Cleanliness Gate). Under `TreatWarningsAsErrors` the build already fails on warning-severity analyzer diagnostics, so CI adds no separate warn-level format step.
 
 **Shell redirects:** scaffolded shell-agnostic scripts use `> /dev/null`, never `> NUL`. From git-bash, `> NUL` creates a real on-disk file named `NUL` that Win32 then can't open, breaking `git add -A`. Reserve `> nul` (lowercase) for files that only run under `cmd.exe`.
 

@@ -50,6 +50,14 @@ Assert:
 - Scripts that run a subset (mobile, browser, live-provider) write under `tests/TestResults/<suite>/`, not a per-project `TestResults` folder.
 - Caveat: a raw `dotnet vstest <dll>` call bypasses MSBuild and honors only its own `--ResultsDirectory` flag.
 
+## Test Speed
+
+- Measure before optimizing: break a `.trx` down by test class (summed durations against wall clock). Per-test host boot is rarely the cost when hosts are shared per class; tests waiting out default timeouts are.
+- Registration tests over OpenTelemetry: `Meter.CreateCounter(...).Enabled` and `ActivitySource.HasListeners()` report any subscriber in the process, so mark such classes `[DoNotParallelize]`. Disposing a `MeterProvider` flushes once, so set `OTEL_EXPORTER_OTLP_TIMEOUT=100` in the host configuration (the environment variable is ignored when `HostApplicationBuilderSettings.DisableDefaults = true`). Add `APPLICATIONINSIGHTS_CONNECTION_STRING` only to Azure Monitor distro tests: its exporter adds about 2 s at dispose.
+- Poll every 200 ms rather than 1 s when the test host raises the tenant rate-limit budget.
+- Do not repeat an in-process test in the container tier when it uses no container.
+- Not worth the complexity: lazy Testcontainers startup, and a NuGet cache for restore.
+
 ## Optional Extras
 
 - Coverage settings via `coverlet.runsettings` for stable CI behavior.
