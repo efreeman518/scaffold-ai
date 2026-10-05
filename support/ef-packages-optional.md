@@ -34,7 +34,7 @@ Pipeline placement and budget policy: [../skills/security.md](../skills/security
 |---|---|---|
 | `AddTenantRateLimiting(config)`, `TenantRateLimitSettings` (section `RateLimiting:Tenants`), `RequireTenantBudget(name)`, `TenantBudgetMetadata` | EF.RateLimiting | Per-tenant partitions with tiers and named budgets, 429 with `Retry-After`; throws when `UseRateLimiter` runs before `UseAuthentication` |
 | `UseEdgeLimiter(settings)`, `EdgeRateLimitSettings` (section `RateLimiting:Edge`), `AddPerClientIpFixedWindowPolicy`, `AddRetryAfter`, `ClientPartitionKey` | EF.RateLimiting | Gateway edge limiter: per-client token bucket plus a process concurrency cap |
-| `FailOpenRateLimiter`, `RateLimitingTelemetry` (meter `EF.RateLimiting`: `ratelimit.rejected`, `ratelimit.backend_failure`) | EF.RateLimiting | Admits requests when a distributed backend fails, and counts it |
+| `FailOpenRateLimiter`, `FailOpenCircuit`, `FailOpenOptions` (`BackendTimeout`, `BreakDuration`), `RateLimitingTelemetry` (meter `EF.RateLimiting`: `ratelimit.rejected`, `ratelimit.backend_failure`) | EF.RateLimiting | Admits requests while a distributed backend fails or is slower than `BackendTimeout`, counts it, and probes with one request after `BreakDuration`; `AddRedisRateLimiting` wires it, app code does not construct it |
 | `AddRedisRateLimiting(serviceKey)`, `RedisSlidingWindowRateLimiter` | EF.RateLimiting.Redis | One shared sliding window per budget in Redis over the EF.Cache `IConnectionMultiplexer` from DI |
 
 ### Messaging Contracts (EF.Messaging.Contracts)

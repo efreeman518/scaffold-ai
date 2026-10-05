@@ -8,7 +8,7 @@ Hardening checklist for API, Gateway, and optional hosts. Complements [identity-
 
 ## Rate Limiting
 
-Rate limiting is EF.RateLimiting over ASP.NET Core's `RateLimiterMiddleware`; generate no partitioner, limiter factory, fail-open wrapper or rejection writer. Types and settings: [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Rate Limiting (EF.RateLimiting, EF.RateLimiting.Redis).
+Rate limiting is EF.RateLimiting over `RateLimiterMiddleware`; generate no partitioner, limiter factory, fail-open wrapper or rejection writer. Types and settings: [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Rate Limiting (EF.RateLimiting, EF.RateLimiting.Redis).
 
 ### Patterns
 
@@ -30,7 +30,7 @@ var edge = config.GetSection(EdgeRateLimitSettings.ConfigSectionName).Get<EdgeRa
 services.AddRateLimiter(options => options.UseEdgeLimiter(edge));
 ```
 
-`HasSharedRedis()` is the app's one-line check for the unkeyed `IConnectionMultiplexer` `AddTypedCache` registered (`services.Any(d => d.ServiceType == typeof(IConnectionMultiplexer) && !d.IsKeyedService)`), shared with the Redis health check.
+`HasSharedRedis()` is the app's one-line check (`services.Any(d => d.ServiceType == typeof(IConnectionMultiplexer) && !d.IsKeyedService)`) for the unkeyed multiplexer `AddTypedCache` registered, shared with the Redis health check.
 
 ### Pipeline Registration
 
@@ -47,7 +47,7 @@ Run the rate limiter after `UseAuthentication()` and `UseAuthorization()` whenev
 
 - A request is counted by exactly one limiter per budget: the global tenant limiter skips endpoints carrying `TenantBudgetMetadata`, so `RequireTenantBudget` never double counts, and a route-group policy over the same budget is never added.
 - **The Redis rate limiter shares the EF.Cache connection.** `AddRedisRateLimiting()` resolves the `IConnectionMultiplexer` that `AddTypedCache` registered (the unkeyed default instance, or `AddRedisRateLimiting(cacheInstanceName)` for a named one); register `AddTypedCache` first and never open a second Redis connection for the limiter. A Redis outage at boot does not fail startup ([caching.md](caching.md)).
-- When Redis is unavailable the package fails open and increments `ratelimit.backend_failure`; alert on it, because limits are not enforced while it moves ([../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits). Export meter `EF.RateLimiting` from ServiceDefaults.
+- When Redis is unavailable the package fails open and increments `ratelimit.backend_failure`; alert on it, because limits are not enforced while it moves. A failure or a call slower than `FailOpenOptions.BackendTimeout` opens a `FailOpenCircuit` shared by every partition for `BreakDuration` (must exceed `BackendTimeout`, or construction throws); requests are admitted without calling Redis meanwhile, then one probes. Tune with `services.Configure<FailOpenOptions>(...)`; no short `asyncTimeout` is needed ([../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits). Export meter `EF.RateLimiting` from ServiceDefaults.
 - Health endpoints mapped by `MapEfHealthEndpoints` carry `DisableRateLimiting()` and skip every limiter.
 
 ### Testing
@@ -64,7 +64,7 @@ Run the rate limiter after `UseAuthentication()` and `UseAuthorization()` whenev
 
 ### DTO Structure Validation
 
-Use [structure-validator-template](../templates/structure-validator-template.md) for DTO shape validation before domain operations. Validates required fields, string lengths, enum ranges.
+Use [structure-validator-template](../templates/structure-validator-template.md) for DTO shape validation (required fields, string lengths, enum ranges) before domain operations.
 
 ### String Safety
 
@@ -78,7 +78,7 @@ Use [structure-validator-template](../templates/structure-validator-template.md)
 
 `app.UseBasicSecurityHeaders()` (EF.AspNetCore, `EF.AspNetCore.Security`) sets the baseline response headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`); generate no security-headers middleware. Register it early in the pipeline, after `UseProxyForwarding` and before routing. HSTS stays a config-toggled `UseHsts()`.
 
-For UI hosts (Gateway serving Uno WASM), add `Content-Security-Policy` with appropriate directives. Use config-driven toggle to adjust between dev/prod.
+For UI hosts (Gateway serving Uno WASM), add a config-toggled `Content-Security-Policy`.
 
 ---
 
@@ -110,11 +110,11 @@ services.AddCorsPolicyFromConfiguration("{Project}UI", config.GetSection("CorsSe
 
 ## Data Protection
 
-ASP.NET Core Data Protection handles encryption of cookies, anti-forgery tokens, and other sensitive payloads. In multi-instance deployments, keys must be shared and persisted externally. **Why:** Without one persisted key ring, another replica or a restarted host cannot decrypt existing payloads, causing intermittent authentication failures and mass session invalidation. Therefore every replica uses the same durable key ring and application name.
+ASP.NET Core Data Protection encrypts cookies, anti-forgery tokens, and other sensitive payloads. **Why:** Without one persisted key ring, another replica or a restarted host cannot decrypt existing payloads, causing intermittent authentication failures and mass session invalidation. Therefore every replica uses the same durable key ring and application name.
 
 ### Provider-aware persistence contract
 
-Phase 2 maps `hostingLaneDefaults.<active>.dataProtectionPersistence` to runtime `DataProtection:Persistence`. `TASKFLOW_DATAPROTECTION_PERSISTENCE` is the environment override; otherwise the strict lane default applies. The shared hosting resolver returns the validated arm before host startup and names an unknown or cross-lane value in the exception.
+Phase 2 maps `hostingLaneDefaults.<active>.dataProtectionPersistence` to runtime `DataProtection:Persistence`. `TASKFLOW_DATAPROTECTION_PERSISTENCE` overrides it; otherwise the strict lane default applies. The shared hosting resolver returns the validated arm before host startup and names an unknown or cross-lane value in the exception.
 
 | Arm | Required input | Provisioning rule |
 |---|---|---|
@@ -122,9 +122,9 @@ Phase 2 maps `hostingLaneDefaults.<active>.dataProtectionPersistence` to runtime
 | `AzureBlob` (`Azure` lane default) | Either an absolute `DataProtectionKeysFileUrl`, or the named `BlobStorage1` endpoint/connection string injected by Aspire or deployment configuration | Infrastructure creates the production container. Only the storage emulator gets its container created at registration. Endpoint authentication uses the one `TokenCredential`; connection-string authentication uses the connection string. |
 | `None` | None | Development and isolated tests only. Log that keys do not survive restart or work across replicas. Do not use as a scaled deployment default. |
 
-Key persistence and key encryption are independent. `DataProtectionEncryptionKeyUrl`, when supplied, adds Azure Key Vault protection after persistence is selected. It is required only when the deployment policy requires at-rest key encryption, and it is rejected by a strict zero-Azure NonAzure lane. Do not require a Key Vault URL merely because Azure Blob persistence was selected.
+Key persistence and key encryption are independent. `DataProtectionEncryptionKeyUrl`, when supplied, adds Azure Key Vault protection after persistence is selected. It is required only when deployment policy requires at-rest key encryption, and a strict zero-Azure NonAzure lane rejects it. Azure Blob persistence alone does not require a Key Vault URL.
 
-Keep these rules in the shared Bootstrapper path used by every cookie/token-producing host. A test factory that selects `AzureBlob` must also inject `DataProtectionKeysFileUrl` or `BlobStorage1`; otherwise the resulting startup error is configuration failure, not an unavailable AI, browser, or container runtime.
+Keep these rules in the shared Bootstrapper path used by every cookie/token-producing host. A test factory that selects `AzureBlob` must also inject `DataProtectionKeysFileUrl` or `BlobStorage1`; otherwise the startup error is a configuration failure, not an unavailable runtime.
 
 ### Registration skeleton
 
@@ -165,10 +165,10 @@ public static IServiceCollection AddAppDataProtection(this IHostApplicationBuild
 
 ### Rules
 
-- Leave `DataProtection:ApplicationName` unset on an app that is already deployed: the framework's implicit discriminator is kept, and setting one for the first time invalidates every payload protected before. Unrelated apps sharing a store set distinct names from their first deployment.
-- Treat the application discriminator, key-store location, encryption key, and purpose strings as persisted wire-contract inputs. Before changing one, protect a payload with the previous release and prove the candidate can unprotect it.
+- Leave `DataProtection:ApplicationName` unset on a deployed app: setting one for the first time invalidates every payload protected under the implicit discriminator. Unrelated apps sharing a store set distinct names from their first deployment.
+- Treat the application discriminator, key-store location, encryption key, and purpose strings as persisted wire-contract inputs. Before changing one, prove the candidate unprotects a payload protected by the prior release.
 - Fail before host startup on an unknown persistence value or missing selected-arm input. Never catch this error and reclassify it as another optional provider's failure.
-- Pre-provision production Blob containers and Key Vault keys. Configure a Key Vault rotation policy when Key Vault encryption is selected.
+- Pre-provision production Blob containers and Key Vault keys; set a Key Vault rotation policy when Key Vault encryption is selected.
 
 
 ---
@@ -177,18 +177,18 @@ public static IServiceCollection AddAppDataProtection(this IHostApplicationBuild
 
 ### CI Pipeline
 
-Run the vulnerability audit after restore. Severity policy is owned by [../support/execution-gates.md](../support/execution-gates.md) section Vulnerability Audit. The generated workflow step shape lives in [cicd.md](cicd.md).
+Run the vulnerability audit after restore; severity policy is owned by [../support/execution-gates.md](../support/execution-gates.md) section Vulnerability Audit. The generated workflow step shape lives in [cicd.md](cicd.md).
 
 ```yaml
 - run: dotnet restore {SolutionName}.slnx --locked-mode
 - run: dotnet list {SolutionName}.slnx package --vulnerable --include-transitive
 ```
 
-There is no `dotnet nuget audit` verb - do not emit one. `dotnet list package --vulnerable` also exits `0` even when it reports findings, so the step must inspect its output to warn or fail; the `<NuGetAudit>` build property below is the complementary mechanism that fails the build itself.
+There is no `dotnet nuget audit` verb - do not emit one. `dotnet list package --vulnerable` exits `0` even when it reports findings, so the step must inspect its output to warn or fail; the `<NuGetAudit>` build property below is the complementary mechanism that fails the build itself.
 
 ### GitHub Dependabot
 
-Optional, not a default. The baseline freshness path is refresh-on-touch plus the vulnerability audit gate ([../support/execution-gates.md](../support/execution-gates.md) section Vulnerability Audit): dependencies and action refs are re-resolved to latest stable during normal maintenance, and the audit blocks known-vulnerable resolutions. Enable Dependabot only when the team owns the resulting PR churn, and account for two CI-breaking caveats:
+Optional, not a default. The baseline freshness path is refresh-on-touch (dependencies and action refs re-resolved to latest stable during maintenance) plus the vulnerability audit gate ([../support/execution-gates.md](../support/execution-gates.md) section Vulnerability Audit), which blocks known-vulnerable resolutions. Enable Dependabot only when the team owns the PR churn, and account for two CI-breaking caveats:
 
 - Dependabot-triggered workflow runs read the separate Dependabot secrets store, never repository Actions secrets. Register every restore credential the CI workflow requires (e.g. `NUGET_PAT`) as a Dependabot secret too, or every Dependabot PR fails CI.
 - Each `npm`/`nuget` ecosystem `directory:` must contain its manifest (`package.json`, or a project/props file), and a `nuget` ecosystem restoring from a private feed needs a `registries:` entry with a Dependabot-secret token.
