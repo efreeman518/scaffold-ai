@@ -236,7 +236,7 @@ dotnet build src/UI/{Project}.Uno/{Project}.Uno.csproj -p:TargetFrameworkOverrid
 dotnet build src/Host/{Project}.Uno.WasmHost/{Project}.Uno.WasmHost.csproj
 ```
 
-Run only the targets selected in `.scaffold/resource-implementation.yaml`. Keep platform builds serial (`-m:1`) to avoid shared `obj/` asset races. The `BuildAllUnoTargets=true` restore is required when the project defaults to browserwasm; it prevents mobile builds from packaging a browser-only NuGet asset graph.
+Run only the targets selected in `.scaffold/resource-implementation.yaml`. Keep platform builds serial (`-m:1`) to avoid shared `obj/` asset races: the static-web-assets race comes from building one web project twice with different global properties, and AppHost `GlobalPropertiesToRemove` plus the test projects' `AdditionalProperties` yield one instance per project. Measure on the hosted runner before parallelizing (TaskFlow measured no gain). The `BuildAllUnoTargets=true` restore is required when the project defaults to browserwasm; it prevents mobile builds from packaging a browser-only NuGet asset graph.
 
 For Uno WASM, clean both target `bin` and target `obj` before a validation rebuild. If `WasmUI` tests are generated, run one smoke test before marking the UI validated:
 
@@ -505,6 +505,8 @@ dotnet format analyzers --severity info --verify-no-changes
 ```
 
 Nonzero exit means the generated code is not actually clean; it just has not been opened in the IDE yet. Fix the code at the source (flow the `TestContext` token per [../skills/testing.md](../skills/testing.md) Cancellation-Token discipline; set the deliberate severity per [../skills/solution-structure.md](../skills/solution-structure.md) `.editorconfig`) - do not lower the severity to make the gate pass. Run this as part of the Phase 5d quality regression and any payload change that touches generated test code, so residual info/suggestion-level analyzer debt is a deliberate, verified decision rather than invisible default-info debt.
+
+The info pass is the only reason for a separate format pass. Under `TreatWarningsAsErrors`, warning-severity analyzer diagnostics already fail the build, so a warn-level `dotnet format` step in CI is redundant: do not add one.
 
 ---
 

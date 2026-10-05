@@ -171,6 +171,8 @@ public void Unknown_Config_Key_Fails_Validation()
 
 Loop-body keys: when a workflow has a loop whose body POSTs, run it on the in-memory engine (`AddFlowEngine().UseAllInMemoryProviders()`) with a fake `IRequestResponseClient` that answers each iteration's first send 502 and then 201. Assert the loop ends `Completed`, every send carries a non-empty `Idempotency-Key`, a resend repeats its iteration's key, and N iterations send N distinct keys.
 
+Optional tripwire when a loop body creates entities: `LoopNodeExecutor.IterationId` (internal) documents a deterministic UUIDv5. Call it by reflection (`BindingFlags.NonPublic | BindingFlags.Static`, parameters `ExecutionInstance, NodeDefinition, int, string`), assert the method is found and `Guid.Parse(value.Value.GetString()!).Version == 5`, so a package move to UUIDv7 (which would allow the iteration id as a create id) fails CI and prompts a re-evaluation.
+
 ## Cross-Workflow File-Presence Guard
 
 When the API declares **multiple** workflow JSONs, add a single guard test that asserts every expected file is present. This catches an accidental rename or removal that the per-workflow class wouldn't see (the per-workflow test only runs if the class compiles; a missing file may also delete the test).
