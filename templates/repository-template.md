@@ -154,8 +154,8 @@ public class {Entity}RepositoryQuery({Project}DbContextQuery dbContext)
         {
             return sort.PropertyName.ToLowerInvariant() switch
             {
-                "name" => q => q.OrderByDescending(e => e.Name).ThenBy(e => e.Id),
-                _ => q => q.OrderByDescending(e => e.Name).ThenBy(e => e.Id)
+                "name" => q => q.OrderByDescending(e => e.Name).ThenByDescending(e => e.Id),
+                _ => q => q.OrderByDescending(e => e.Name).ThenByDescending(e => e.Id)
             };
         }
 
@@ -361,7 +361,7 @@ Every query repo search method must follow this pattern. Use `{Entity}Mapper.Pro
 
 ### Paged queries require a deterministic total order
 
-Every order passed to `QueryPageProjectionAsync`, `Skip`, or `Take` must end in a unique tie-breaker. A business column such as `Name`, `Title`, `CreatedAt`, or `Status` is not unique and cannot define stable page boundaries alone. Append `ThenBy(e => e.Id)` (or another immutable unique key) after the requested business sort, including every default and descending branch. The business sort controls presentation; the tie-breaker exists only for deterministic membership. Do not turn this into a universal newest-first or UUID-version policy.
+Every order passed to `QueryPageProjectionAsync`, `Skip`, or `Take` must end in a unique tie-breaker. A business column such as `Name`, `Title`, `CreatedAt`, or `Status` is not unique and cannot define stable page boundaries alone. Append `ThenBy(e => e.Id)` (or another immutable unique key) after the requested business sort, including every default and descending branch; the tie-breaker follows the direction of the last sort (`ThenByDescending(e => e.Id)` after a descending sort), so a descending sort is a descending total order. The business sort controls presentation; the tie-breaker exists only for deterministic membership. Do not turn this into a universal newest-first or UUID-version policy.
 
 Real-SQL coverage must create more than one page of rows with the same business sort value, read all pages, and assert exact IDs: no duplicate, no omission, stable repeat result, and correct `Total`. In smoke/UI tests, locate the created row by its returned ID or an exact normalized cell value. Substring matches can select another user's row once shared data grows.
 

@@ -177,6 +177,16 @@ Blob naming patterns:
 - `{guid}/{filename}`
 - `{yyyy}/{MM}/{dd}/{filename}`
 
+### Attachment Rules
+
+Apply when blob content backs an entity row (attachments, evidence). Proof: TaskFlow `AttachmentRepositoryTrxn`, `AttachmentBlobDeleteWork`, `AttachmentService`.
+
+- The object key is server-made, includes a fresh UUIDv7 and is immutable; a rename changes only the display name.
+- After an upload, the server-owned fields (content type, size, storage URI, owner) are immutable: a request that changes them is a 400. A metadata-only row (no blob) keeps full replace.
+- Never delete a blob inline, and never catch-and-log a blob delete failure. A delete stages a leased work row (`LeasedWorkItem`) in the same save that removes the entity row ([data-persistence.md](data-persistence.md) section Set-Based Writes and Query Shape); a worker deletes the blob and treats an already-missing blob as success. The work row id is a UUIDv5 of tenant id, entity id and storage key, so a re-sent commit maps to the same row while a caller id reused after a delete gets a distinct row. One builder creates these ids for every path that stages them.
+- An upload reserves its own deferred delete before it writes the blob: save a work row for the new key that is not claimable before now plus a grace longer than the request timeout (startup validation enforces it); write the blob; then insert the entity row and remove the reservation in one transaction under the execution strategy. The removal is guarded on the row being unleased and not dead-lettered, so it fails when the worker holds the lease: roll back and fail the upload, and the reservation removes the orphan. Use a UUIDv7 reservation id so it never collides with a UUIDv5 delete id.
+- An upload with a caller id replays a stored duplicate before it writes anything, and again after it loses an insert race ([data-persistence.md](data-persistence.md) section Idempotent Create). A caller id that belongs to a metadata-only row is a 409. An upload POST carries no precondition and never answers 412.
+
 ## Verification
 
 - [ ] Repository derives from `BlobRepositoryBase`
