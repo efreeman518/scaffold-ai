@@ -157,14 +157,21 @@ public sealed class {Workflow}Handler(
     public async Task HandleAsync(CancellationToken ct)
     {
         var failures = new List<Exception>();
+        var skipped = 0;
         await foreach (var tenantId in systemRepository.Stream{Qualifying}TenantsAsync(pageSize: 200, ct))   // filters off, keyset over TenantId
         {
-            if (tenantId != SelfCallTenantId) { logger.LogInformation("Skipped tenant {TenantId}", tenantId); continue; }
+            if (tenantId != SelfCallTenantId)   // the self-call identity acts for one tenant
+            {
+                skipped++;
+                logger.LogWarning("{WorkflowId} not started for tenant {TenantId}: the self-call identity cannot act for it", WorkflowId, tenantId);
+                continue;
+            }
             var day = clock.GetUtcNow().UtcDateTime;
             var key = $"{WorkflowId}:{tenantId}:{day:yyyy-MM-dd}";   // also the correlation id; at most the column width
             try { await engine.StartBackgroundAsync(new StartRequest { WorkflowId = WorkflowId, TenantId = tenantId.ToString(), CorrelationId = key, IdempotencyKey = key }, ct); }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { failures.Add(ex); }
         }
+        logger.LogInformation("{WorkflowId}: {Skipped} tenants not started", WorkflowId, skipped);
         if (failures.Count > 0) throw new AggregateException($"{WorkflowId} failed to start for {failures.Count} tenants.", failures);
     }
 }
