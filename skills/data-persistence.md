@@ -131,7 +131,7 @@ See [troubleshooting.md](../support/troubleshooting.md) for the canonical paging
 
 Aggregate counts (dashboard tiles, badge numbers) come from a count query over mapped columns, never from counting a fetched page - a 100-row page silently undercounts. When the natural filter property is `[NotMapped]`/computed and will not translate, filter on the underlying mapped columns instead of pulling rows into memory.
 
-Clamp every caller-supplied page size on the server. Offset paging is acceptable for small/admin lists. High-cardinality or mutation-heavy feeds use keyset/cursor paging with a deterministic total order, including a unique ID tie-breaker, and fetch `limit + 1` rows to derive `HasMore` without a mandatory count query. Cursor payloads bind tenant, sort mode, sort key, and last ID; malformed, cross-tenant, or mismatched-sort cursors fail with 400 instead of silently restarting. Run the same page-through test against every configured database provider.
+Clamp every caller-supplied page size on the server. Offset paging is acceptable for small/admin lists; its sort ends in the unique Id tie-breaker in the direction of the LAST sort (`ThenByDescending` after a descending sort), so a descending sort is a descending total order. High-cardinality or mutation-heavy feeds use keyset/cursor paging with a deterministic total order, including a unique ID tie-breaker, and fetch `limit + 1` rows to derive `HasMore` without a mandatory count query. Cursor payloads bind tenant, sort mode, sort key, and last ID; malformed, cross-tenant, or mismatched-sort cursors fail with 400 instead of silently restarting. Keyset paging through EF.Data `KeysetPageAsync`/`KeysetPageProjectionAsync` keeps its tie-break key ascending in both directions (package behavior; do not reverse it). Run the same page-through test against every configured database provider.
 
 ### Provider Branch and Concurrency Discipline
 
@@ -259,7 +259,7 @@ await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 - [ ] `OnModelCreating` ends with `ApplyTenantQueryFilters<TenantId>` and `RegisterVersionConcurrencyTokens()`; `ConfigureConventions` calls `RegisterUtcTemporalConversions()`
 - [ ] Repositories are split for write and read concerns
 - [ ] Multi-provider apps have one provider-options branch, one migration assembly per provider, and the same real-database suite per arm
-- [ ] Caller page size is clamped; high-cardinality cursor sorts include a unique tie-breaker
+- [ ] Caller page size is clamped; every sort ends in a unique tie-breaker that follows the last sort's direction (offset) or stays ascending (EF.Data keyset)
 - [ ] `ExecuteUpdateAsync`/`ExecuteDeleteAsync` on an aggregate table touch only system-owned columns or retention, re-assert the predicate, and stage side effects in the same transaction; cursor feeds use `ReadIsolation.Default`
 - [ ] Externally mutable aggregates surface concurrency conflicts instead of silently applying `ClientWins`
 - [ ] Read queries use projector expressions
