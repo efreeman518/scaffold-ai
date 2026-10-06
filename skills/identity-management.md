@@ -451,6 +451,7 @@ Rule: secrets come from Key Vault/User Secrets only.
 7. Optional Entra/Graph admin integrations use a no-op stub when their capability is not selected. A selected `AuthMode: Entra` with missing auth configuration is a startup error, never a no-op fallback.
 8. Internal execution routes must use service-scoped policies, not admin role policies. See the Internal vs Admin Routes section.
 9. Mutable application membership is the server-side authorization source of truth; client claims and route visibility never replace API authorization.
+10. Workflow self-calls act for the instance tenant through the same trusted relay, off by default: see [../templates/flowengine-trigger-template.md](../templates/flowengine-trigger-template.md) section Per-tenant scheduled start.
 
 ## Verification
 
