@@ -145,6 +145,37 @@ Notes:
 - Register the handler scoped (`services.AddScoped<NightlyReconciliationHandler>()`); the runner resolves it in TickerQ's execution scope with one span, `scheduler.job.*` metrics and TickerQ's cancellation contract. More than one scheduler replica needs the Redis-backed `IDistributedLock` for cron seeding - see [../skills/background-services.md](../skills/background-services.md).
 - Do **not** put the workflow's business logic in the job. The job is a thin trigger; the work belongs in the workflow's nodes.
 
+### Per-tenant scheduled start
+
+Use when the workflow acts on each tenant's data. Proof: TaskFlow `ComplianceCheckHandler`, `ComplianceCheckSchedulerSmokeTests`.
+
+```csharp
+public sealed class {Workflow}Handler(
+    I{Entity}SystemRepository systemRepository, IFlowEngine engine, ILogger<{Workflow}Handler> logger, TimeProvider clock)
+    : IScheduledJobHandler
+{
+    public async Task HandleAsync(CancellationToken ct)
+    {
+        var failures = new List<Exception>();
+        await foreach (var tenantId in systemRepository.Stream{Qualifying}TenantsAsync(pageSize: 200, ct))   // filters off, keyset over TenantId
+        {
+            if (tenantId != SelfCallTenantId) { logger.LogInformation("Skipped tenant {TenantId}", tenantId); continue; }
+            var day = clock.GetUtcNow().UtcDateTime;
+            var key = $"{WorkflowId}:{tenantId}:{day:yyyy-MM-dd}";   // also the correlation id; at most the column width
+            try { await engine.StartBackgroundAsync(new StartRequest { WorkflowId = WorkflowId, TenantId = tenantId.ToString(), CorrelationId = key, IdempotencyKey = key }, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { failures.Add(ex); }
+        }
+        if (failures.Count > 0) throw new AggregateException($"{WorkflowId} failed to start for {failures.Count} tenants.", failures);
+    }
+}
+```
+
+- Stream the qualifying tenants through the system repository (query filters off, keyset paging over `TenantId`) and start each with `StartRequest.TenantId` set and a date-scoped `IdempotencyKey` `{workflow}:{tenant}:{yyyy-MM-dd}` that fits the correlation-id column width.
+- Prove same-day dedupe with an integration test that runs the job twice after newer instances exist. If the state store does not return the existing instance for a repeated key, look up the day's instance by workflow id and correlation id before starting, at that one site, with a comment naming the removal condition (the state store returns the existing instance for a repeated key regardless of newer instances).
+- Start only tenants the workflow's API self-call identity can act for. A fan-out beyond that identity's tenant produces a false-clean result (its searches return the caller's tenant data or nothing). Log and count each skipped tenant.
+- Collect per-tenant start failures and throw them together after the stream ends; the job's own cancellation stops the run immediately.
+- Every host that executes workflow nodes needs the API self-call base URL (`FlowEngine:ApiBaseUrl`) wired: the Scheduler for scheduled starts, the API for human-task resumes and dashboard starts, Functions if it starts workflows. Wire it in each topology (Aspire, compose, Bicep) and pin it with contract tests.
+
 ---
 
 ## Selecting a Trigger
