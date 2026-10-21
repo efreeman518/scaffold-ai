@@ -52,11 +52,25 @@ Assert:
 
 ## Test Speed
 
-- Measure before optimizing: break a `.trx` down by test class (summed durations against wall clock). Per-test host boot is rarely the cost when hosts are shared per class; tests waiting out default timeouts are.
+- Measure before optimizing: break a `.trx` down by test class (summed durations against wall clock) and count host boots (`WebApplicationFactory` starts). With hosts shared per class, boot is rarely the cost; tests waiting out default timeouts are. When hundreds of private boots dominate, apply section Host Pooling.
 - Registration tests over OpenTelemetry: `Meter.CreateCounter(...).Enabled` and `ActivitySource.HasListeners()` report any subscriber in the process, so mark such classes `[DoNotParallelize]`. Disposing a `MeterProvider` flushes once, so set `OTEL_EXPORTER_OTLP_TIMEOUT=100` in the host configuration (the environment variable is ignored when `HostApplicationBuilderSettings.DisableDefaults = true`). Add `APPLICATIONINSIGHTS_CONNECTION_STRING` only to Azure Monitor distro tests: its exporter adds about 2 s at dispose.
 - Poll every 200 ms rather than 1 s when the test host raises the tenant rate-limit budget.
 - Do not repeat an in-process test in the container tier when it uses no container.
 - Not worth the complexity: lazy Testcontainers startup, and a NuGet cache for restore.
+- Boot floor: the Request Delegate Generator ([solution-structure.md](solution-structure.md) section `.csproj` Conventions) removes per-start expression compilation of minimal-API delegates from every host boot.
+
+### Host Pooling
+
+Scale-gated: only when measured private boots dominate an endpoint suite that runs for minutes. Below that a per-class shared host is enough and the pool is pure complexity.
+
+- Pool booted hosts keyed by effective configuration (host-setting overrides plus configure delegates). A test rents a host with a matching key and returns it; only a genuinely unique setup boots privately.
+- Data isolation stays per test: a fresh database, tenant, or schema per rental. The pool shares the process, never data state.
+- Compare delegates by their closure values. A delegate must not capture a variable the test writes later, or the key lies; a delegate the pool cannot describe (multicast, unreadable closure) boots privately.
+- Per-test fakes, recorders, and keys are not host configuration. Register each once as a typed slot (an interface proxy), fill it per rental, and clear every slot on return. An empty slot throws naming the unbound interface, so leakage fails loudly. Only interfaces can be slots (guard at registration); two bound objects of one type in one configuration throw rather than letting the last win.
+- Pooled hosts raise every rate limit out of reach unless the test sets one ([security.md](security.md) section Testing). A test that asserts 429 sets its limit explicitly, which puts it on a private host; never weaken it to share one. Before pooling, grep the 429 assertions and give each its own limit. Watch a bucket that persists across rentals (a partner key's allowance) and retire the host at half its allowance; test that retirement through the HTTP pipeline, not by calling the watcher.
+- Clear process-wide caches on return through a production API (the `Invalidate` that key rotation also needs) with its own production-path test, never by reflection.
+- Hosted services are stripped in the test host; a test that needs one invokes its handler directly.
+- Proof: the full suite green on two consecutive runs, with wall time and private-boot count recorded before and after, plus one mutation check per rule (remove slot clearing, half-allowance retirement, or rental release and confirm a test fails).
 
 ## Optional Extras
 

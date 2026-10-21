@@ -278,6 +278,7 @@ Resolve `<latest-installed-stable-sdk>` from `dotnet --list-sdks` at scaffold ti
 - Target the latest stable TFM supported by the pinned SDK.
 - Enable `ImplicitUsings` and `Nullable`.
 - API/Gateway use `Microsoft.NET.Sdk.Web`; library projects use `Microsoft.NET.Sdk`.
+- A host that maps minimal-API endpoints sets `<EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>`: request delegates are generated at build time instead of compiled on every start, which cuts production cold start and every test host boot. Turning it on in an existing host is a production change: require zero generator diagnostics, an endpoint-metadata dump identical before and after apart from generated-code markers (such as `DisableCookieRedirectMetadata`, read only by cookie auth), and an unchanged OpenAPI snapshot.
 
 ---
 
