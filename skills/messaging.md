@@ -13,7 +13,7 @@ Rule: use `IInternalMessageBus` for in-process events; use this skill for cross-
 
 ### Event Boundary Rule
 
-Cross-process bus payloads are application/integration contracts, not domain artifacts.
+The bus carries the package envelope; its payloads are the closed domain-event records, versioned at the application boundary.
 
 - Aggregates raise domain events (`IDomainEvent`, buffered by `DomainEventContainer` behind `IHasDomainEvents`); the app's `IOutboxEventMapper` turns each into an `IntegrationEventEnvelope` at the application boundary. The envelope frame is the package's; the app owns the payload records, their versions, and the headers (tenant) it adds.
 - Event records derive from one `closed record {Project}DomainEvent : IDomainEvent` in `Domain.Shared`; its `public abstract Guid TenantId { get; init; }` is re-declared in each positional record's parameter list, so property order and wire bytes stay put. `VersionOf(evt)` switches over the closed type with no discard arm, so a new record fails the build until it has a payload version. The reader sees only wire names: it keeps a known-type name set, and an architecture test requires every record in the hierarchy on the messaging context and in that set.

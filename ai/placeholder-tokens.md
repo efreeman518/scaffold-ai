@@ -154,15 +154,15 @@ Canonical file name patterns for generated artifacts. Use these consistently acr
 
 Use these defaults when scaffolding event-driven flows:
 
-1. Cross-process event payloads are integration contracts.
-2. Place transport payload records in `Application.Contracts.Events`.
+1. Cross-process payloads are the closed `{Project}DomainEvent` records in `Domain.Shared/Events`.
+2. Keep the envelope helpers (`VersionOf`, known types) in `Application.Contracts.Messaging`.
 3. Publish through the EF.Data.Outbox outbox: the app's `IOutboxEventMapper` maps raised domain events to envelopes, `IOutboxStaging` stages events no aggregate raises, and the package `IOutboxTransport` (`AddRabbitMqOutboxTransport` / `AddServiceBusOutboxTransport`) sends them. Generate no publisher interface or publisher class.
-4. Reserve `Domain.*` events for aggregate-local invariants and in-process domain dispatch.
+4. Rules: [../skills/messaging.md](../skills/messaging.md) section Event Boundary Rule.
 
 Default naming patterns:
 
 | Artifact | Pattern |
 |---|---|
-| Integration event contract | `{Entity}{Action}Event` (in `Application.Contracts.Events`) |
+| Integration event payload | `{Entity}{Action}Event` : `{Project}DomainEvent` (in `Domain.Shared/Events`) |
 | Outbox event mapper | `{App}OutboxEventMapper` : `IOutboxEventMapper` |
 | Integration event consumer | `{Entity}{Purpose}Consumer` : `IntegrationEventConsumerBase` |

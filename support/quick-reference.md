@@ -45,13 +45,12 @@ High-signal lookup for structure, dependencies, DI patterns, and common routes/c
 
 | Event Type | Layer | Transport | Naming/Contract |
 |---|---|---|---|
-| Domain event | `Domain.*` | In-process only | Raised from aggregate invariants |
-| Integration event | `Application.Contracts.Events` | Cross-process bus (RabbitMQ/Service Bus) | Staged by the EF.Data.Outbox outbox, sent by `IOutboxTransport` |
+| Domain event (payload) | `Domain.Shared/Events`, closed `{Project}DomainEvent` | Raised by aggregates; cross-process inside the envelope | Mapped by `IOutboxEventMapper`, sent by `IOutboxTransport` |
+| In-process message | `Application.Contracts/Events` | `IInternalMessageBus` only | Handled by `IMessageHandler<T>` |
 
 Rules:
-- If a message crosses process boundaries, define it in `Application.Contracts.Events`.
-- Do not keep bus payload records under `Domain.*.Events`.
-- Keep event serializer payloads transport-stable (avoid domain-only navigation/value object coupling).
+- Payload records hold only fields safe to publish; keep them transport-stable (no navigation or value-object coupling).
+- Envelope rules: [../skills/messaging.md](../skills/messaging.md) section Event Boundary Rule.
 
 ---
 

@@ -132,14 +132,14 @@ public class {Entity}SearchFilter
 
 ### Integration Events
 
-When externally published. Externally published event records belong in `Application.Contracts.Events`, not `Domain`. Generate one record per event the entity will publish across process boundaries:
+When externally published. Generate one record per event the entity raises, deriving from the closed base, with only fields safe to publish; it is the envelope payload:
 
 ```csharp
-// Application.Contracts.Events/{Entity}CreatedIntegrationEvent.cs
-public record {Entity}CreatedIntegrationEvent(Guid Id, Guid TenantId, /* fields safe to publish */);
+// Domain.Shared/Events/{Entity}CreatedEvent.cs
+public record {Entity}CreatedEvent(Guid {Entity}Id, Guid TenantId /* fields safe to publish */) : {Project}DomainEvent;
 ```
 
-Domain-only events (raised inside aggregates, handled in-process before integration mapping) stay in `Domain`. Do not publish `Domain` namespace events directly over transport - see [../skills/messaging.md](../skills/messaging.md) section Event Boundary Rule.
+Give each record a `VersionOf` arm and a known-type entry in `Application.Contracts.Messaging` - see [../skills/messaging.md](../skills/messaging.md) section Event Boundary Rule.
 
 ### 3. Entity Shells
 

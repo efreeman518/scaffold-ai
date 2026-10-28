@@ -327,6 +327,7 @@ using System.Net.Http.Json;
 using Aspire.Hosting.Testing;
 using EF.Common.Contracts;
 using Microsoft.EntityFrameworkCore;
+using System.Diagnostics;
 using {Project}.Application.Models;
 using {Project}.Infrastructure.Data;
 using Test.Support.Hosting;
@@ -377,8 +378,8 @@ public class OutboxMeshTests
 
         string[] expected = [/* the name of every consumer bound to {Entity}CreatedEvent */];
         List<string> consumers = [];
-        var deadline = DateTimeOffset.UtcNow + MeshBudget;
-        while (consumers.Count < expected.Length && DateTimeOffset.UtcNow < deadline)
+        var elapsed = Stopwatch.StartNew();
+        while (consumers.Count < expected.Length && elapsed.Elapsed < MeshBudget)
         {
             await using var db = CreateContext();
             var rows = await db.ConsumerInbox.AsNoTracking().Select(i => new { i.MessageId, i.Consumer }).ToListAsync(ct);
