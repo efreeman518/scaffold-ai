@@ -44,13 +44,13 @@ internal static class {Entity}StructureValidator
 
         // Entity-specific field checks
         if (string.IsNullOrWhiteSpace(dto.Name))
-            errors.Add(new ValidationIssue("{Entity} name is required."));
+            errors.Add(new ValidationIssue("{Entity} name is required.", nameof({Entity}Dto.Name), "name.required"));
 
         if (dto.Name?.Length > DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX)
-            errors.Add(new ValidationIssue($"{Entity} name cannot exceed {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX} characters."));
+            errors.Add(new ValidationIssue($"{Entity} name cannot exceed {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX} characters.", nameof({Entity}Dto.Name), "name.max_length"));
 
         if (dto.Description?.Length > DomainConstants.RULE_DEFAULT_DESCRIPTION_LENGTH_MAX)
-            errors.Add(new ValidationIssue($"Description cannot exceed {DomainConstants.RULE_DEFAULT_DESCRIPTION_LENGTH_MAX} characters."));
+            errors.Add(new ValidationIssue($"Description cannot exceed {DomainConstants.RULE_DEFAULT_DESCRIPTION_LENGTH_MAX} characters.", nameof({Entity}Dto.Description), "description.max_length"));
 
         return errors.Count > 0 ? new ValidationError(errors) : dto;
     }
@@ -65,13 +65,13 @@ internal static class {Entity}StructureValidator
 
         // Reuse shared field checks
         if (string.IsNullOrWhiteSpace(dto.Name))
-            errors.Add(new ValidationIssue("{Entity} name is required."));
+            errors.Add(new ValidationIssue("{Entity} name is required.", nameof({Entity}Dto.Name), "name.required"));
 
         if (dto.Name?.Length > DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX)
-            errors.Add(new ValidationIssue($"{Entity} name cannot exceed {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX} characters."));
+            errors.Add(new ValidationIssue($"{Entity} name cannot exceed {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX} characters.", nameof({Entity}Dto.Name), "name.max_length"));
 
         if (dto.Description?.Length > DomainConstants.RULE_DEFAULT_DESCRIPTION_LENGTH_MAX)
-            errors.Add(new ValidationIssue($"Description cannot exceed {DomainConstants.RULE_DEFAULT_DESCRIPTION_LENGTH_MAX} characters."));
+            errors.Add(new ValidationIssue($"Description cannot exceed {DomainConstants.RULE_DEFAULT_DESCRIPTION_LENGTH_MAX} characters.", nameof({Entity}Dto.Description), "description.max_length"));
 
         return errors.Count > 0 ? new ValidationError(errors) : dto;
     }
@@ -86,6 +86,7 @@ internal static class {Entity}StructureValidator
 - **Use `DomainConstants`** for string length limits - single source of truth shared with EF configuration and domain `Valid()`. Do not use magic numbers or contextual tokens like `{NameMaxLength}`.
 - Provide separate `ValidateCreate` and `ValidateUpdate` methods - update requires `Id` (via `EntityDtoRules.ValidateUpdate`), create may have different required fields.
 - Return all errors at once (don't short-circuit on first failure) so the caller gets a complete validation report.
+- Every issue carries its field (`nameof` the DTO property) and a stable `{field}.{rule}` code, which the 400 body's `errors[]` exposes to clients.
 - Add or remove validated properties to match the entity's DTO - `dto.Description` is shown as an example; adjust to your entity's actual fields.
 
 ## Verification Checklist

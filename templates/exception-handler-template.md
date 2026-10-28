@@ -23,6 +23,19 @@ private static void AddExceptionHandling(IServiceCollection services)
 {
     services.AddEfProblemDetails();
     services.AddExceptionClassifier(MapExceptions);
+    // Runs after the package's customization: an escaped constraint violation answers like a caught one
+    // (data-persistence SaveFailure), never with the provider's text.
+    services.Configure<ProblemDetailsOptions>(o =>
+    {
+        var previous = o.CustomizeProblemDetails;
+        o.CustomizeProblemDetails = c =>
+        {
+            previous?.Invoke(c);
+            if (c.Exception is not DatabaseConstraintException) return;
+            c.ProblemDetails.Detail = ErrorConstants.ERROR_SAVE_FAILED;
+            c.ProblemDetails.Extensions["code"] = "save.constraint";
+        };
+    });
 }
 
 /// <summary>
@@ -32,6 +45,7 @@ private static void AddExceptionHandling(IServiceCollection services)
 internal static void MapExceptions(ExceptionClassifierOptions options) => options
     // A policy-free save's lost update: 412 without an ETag (the exception middleware clears it).
     .Map<DbUpdateConcurrencyException>(ExceptionCategory.PreconditionFailed)
+    .Map<DatabaseConstraintException>(ExceptionCategory.Conflict)
     // [AI] .Map<EF.AI.EFAIDisabledException>(ExceptionCategory.Unavailable)   // 503
     // Caller input the app rejects: its own request exception and the cursor codec's InvalidCursorException.
     .Map<InvalidRequestException>(ExceptionCategory.Validation)
@@ -57,6 +71,7 @@ app.UseExceptionHandler();
 | `UnauthorizedAccessException` | 403 Forbidden | package |
 | `NotFoundException`, `KeyNotFoundException` | 404 Not Found | package |
 | `ConflictException` | 409 Conflict | package |
+| `DatabaseConstraintException` (EF.Data.Contracts) | 409 Conflict, fixed detail, code `save.constraint` | app map |
 | `PreconditionFailedException` | 412 Precondition Failed | package |
 | `DbUpdateConcurrencyException` | 412 Precondition Failed (no ETag) | app map |
 | `PreconditionRequiredException` | 428 Precondition Required | package |
