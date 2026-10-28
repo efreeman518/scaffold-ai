@@ -53,7 +53,7 @@ public class {Entity}RepositoryTrxn({Project}DbContextTrxn dbContext)
     }
 
     // ===== UpdateFromDto - delegates to DbContext extension method =====
-    public DomainResult<{Entity}> UpdateFromDto({Entity} entity, {Entity}Dto dto,
+    public Result<{Entity}> UpdateFromDto({Entity} entity, {Entity}Dto dto,
         RelatedDeleteBehavior relatedDeleteBehavior = RelatedDeleteBehavior.None)
     {
         return DB.UpdateFromDto(entity, dto, relatedDeleteBehavior);
@@ -179,7 +179,7 @@ namespace Application.Contracts.Repositories;
 public interface I{Entity}RepositoryTrxn : IRepositoryBase
 {
     Task<{Entity}?> Get{Entity}Async(Guid id, bool includeChildren = false, CancellationToken ct = default);
-    DomainResult<{Entity}> UpdateFromDto({Entity} entity, {Entity}Dto dto,
+    Result<{Entity}> UpdateFromDto({Entity} entity, {Entity}Dto dto,
         RelatedDeleteBehavior relatedDeleteBehavior = RelatedDeleteBehavior.None);
 
     // Inherited from RepositoryBase:
@@ -403,10 +403,10 @@ The `Delete` method is inherited from `RepositoryBase`. It marks the entity for 
 ```csharp
 // In service layer (not repository):
 var entity = await repoTrxn.Get{Entity}Async(id, false, ct);
-if (entity == null) return Result.Success(); // idempotent - not-found returns success
+if (entity == null) return Result.Ok();     // idempotent - not-found returns success
 repoTrxn.Delete(entity);                     // marks for deletion
 await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
-return Result.Success();
+return Result.Ok();
 ```
 
 > **BUG PATTERN:** Omitting `repoTrxn.Delete(entity)` causes delete operations to silently no-op. This was found and fixed during reference app (TaskFlow) TestContainer testing.

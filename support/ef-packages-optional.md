@@ -113,17 +113,17 @@ Framework-free RabbitMQ transport.
 | `RabbitMqOptions`, `RabbitMqConsumerOptions` (section `Messaging:RabbitMq:Consumers:<queue>`: `RetryBaseDelay`, `RetryMaxDelay`, `AttemptTrackingWindow`) | EF.Messaging.RabbitMq | Connection and consumer options; a failed delivery waits its retry delay before the requeue |
 | `AddRabbitMqMessaging(config, "Messaging:RabbitMq")`, `AddRabbitMqConsumer<THandler>(...)`, `AddRabbitMqTopology(...)`, `AddRabbitMqHealthCheck(...)` | EF.Messaging.RabbitMq | Registration |
 
-### Scheduling (EF.BackgroundServices.TickerQ)
+### Scheduling (EF.Data.Scheduling)
 
-TickerQ over the scheduler's operational store. Cron declaration and health policy: [../skills/background-services.md](../skills/background-services.md).
+Job declaration, configuration, context shape and health policy: [../skills/background-services.md](../skills/background-services.md).
 
 | Type | Package | Used For |
 |---|---|---|
-| `AddEFTickerQ<TDbContext>(config, configureDbContext, schema, configure)` / `AddEFTickerQ(config, configure)`, `TickerQSchedulerSettings` (section `Scheduling`) | EF.BackgroundServices.TickerQ | Registration with UTC, `{MachineName}:{ProcessId}` node identity and a distributed lock around cron seeding; the in-memory overload suits one replica and tests |
-| `ScheduledJobRunner.RunAsync<THandler>(context, ct)` | EF.BackgroundServices.TickerQ | Runs an `IScheduledJobHandler` in TickerQ's execution scope with one span, `scheduler.job.*` metrics and TickerQ's cancellation contract |
-| `TickerQSchemaValidator.ValidateAsync<TDbContext>(services)` | EF.BackgroundServices.TickerQ | Names every missing TickerQ table; never creates schema |
-| `TickerQOccurrenceRetentionHandler<TDbContext>`, `TickerQRetentionSettings` (section `Scheduling:Retention`) | EF.BackgroundServices.TickerQ | Deletes finished occurrences past retention |
-| `AddSchedulerHealthCheck<TDbContext>(tags)`, `SchedulerHealthSettings` (section `Scheduling:Health`, `StallThreshold` required) | EF.BackgroundServices.TickerQ | Stall check on the latest cron execution |
+| `ApplySchedulingModel(schema)` | EF.Data.Scheduling | Scheduler tables in the scheduler context's `OnModelCreating` |
+| `AddEFScheduler<TContext>()` + `.AddJob<THandler>(name, o => ...)`, `AddEFSchedulerClient<TContext>()` | EF.Data.Scheduling | Executing host (planner and worker) / scheduling-only process |
+| `IJobScheduler`, `ISchedulerAdmin` | EF.Data.Scheduling | Scoped one-off scheduling; job, run and queue queries, trigger, retry parked |
+| `SchedulerSchemaValidator.ValidateAsync<TContext>(services)` | EF.Data.Scheduling | Names every missing table; never creates schema |
+| `SchedulerRetentionHandler<TContext>`, `AddSchedulerHealthCheck<TContext>(tags)` | EF.Data.Scheduling | Run-history retention job; stall check |
 
 ### Azure Storage (EF.Storage)
 
@@ -300,9 +300,8 @@ Add when `applicationStyle` is `cqrs` or `switch`. In local mode, generate this 
 | `IQuery<TResponse>` | EF.CQRS (`EF.CQRS.Abstractions`) | Read request marker |
 | `IRequestHandler<in TRequest,TResponse>` | EF.CQRS (`EF.CQRS.Abstractions`) | Single request handler contract |
 | `IRequestValidator<TRequest>` | EF.CQRS | Optional request validator contract |
-| `RequestValidationResult` | EF.CQRS | Validator result with one or more errors; `Failure` with no non-blank error throws `ArgumentException` |
-| `IValidationFailureResponseFactory<out TResponse>` | EF.CQRS | `CreateFailure(IReadOnlyCollection<DomainError>)` converts validation errors to the app response shape |
-| `StaticFailureValidationResponseFactory<TResponse>` | EF.CQRS | Reflection-based factory for common static `Failure(...)` result shapes |
+| `RequestValidationResult` | EF.CQRS | `Valid()`, `Failure(message)` or `Failure(IEnumerable<ValidationIssue>)`; a failure with no non-blank issue throws `ArgumentException` |
+| `IValidationFailureResponseFactory<out TResponse>`, `FailableValidationResponseFactory<T>` | EF.CQRS | `CreateFailure(ValidationError)` builds the failed response; automatic for every `Result<T>` response. A request with no `IRequestValidator` skips the validation decorator, so non-failable responses (search pages) register in the same `AddDecoratedRequestHandlers` call; a validated non-failable response needs its own factory |
 | `ValidationRequestHandlerDecorator<TRequest,TResponse>` / `LoggingRequestHandlerDecorator<TRequest,TResponse>` | EF.CQRS | Validation and logging decorators around handlers |
 | `AddDecoratedRequestHandler<TRequest,TResponse,THandler>(ServiceLifetime lifetime = Scoped, Action<DecoratedRequestHandlerOptions>? configure = null)` | EF.CQRS | Registers the concrete handler and the interface wrapped in validation and logging decorators (`DecoratedRequestHandlerOptions.EnableValidation` / `EnableLogging`, both default true). Also `AddDecoratedRequestHandlers`, `AddRequestHandler`, `AddRequestValidator` |
 
@@ -314,7 +313,7 @@ Add when the domain is multi-tenant. Policy (who may cross the boundary, the sys
 
 | Type | Package | Used For |
 |---|---|---|
-| `ITenantBoundaryValidator` / `TenantBoundaryValidator` | EF.Tenancy | Singleton: `EnsureTenantBoundary(callerTenantId, callerRoles, entityTenantId, operation, entityName, entityId)`, `EnsureCrossTenantRole(callerRoles, operation)`, `PreventTenantChange(existing, incoming, entityName, entityId)`, `EnforceTenantFilter(filter, callerTenantId, callerRoles, operation)`; each returns `Result` (or the forced filter) and logs security events 4100-4104 |
+| `ITenantBoundaryValidator` / `TenantBoundaryValidator` | EF.Tenancy | Singleton: `EnsureTenantBoundary(callerTenantId, callerRoles, entityTenantId, operation, entityName, entityId)`, `EnsureCrossTenantRole(callerRoles, operation)`, `PreventTenantChange(existing, incoming, entityName, entityId)`, `EnforceTenantFilter(filter, callerTenantId, callerRoles, operation)`; the checks return `Result<Unit>` (`ForbiddenError`, or a tenant-change `ValidationError`), `EnforceTenantFilter` the forced filter; logs security events 4100-4104 |
 | `ITenantScopedFilter` | EF.Tenancy | `Guid? TenantId` on the app's search filter, forced by `EnforceTenantFilter` |
 | `AddTenancy(o => o.CrossTenantRoles = [...])`, `TenancyOptions`, `TenantBoundaryErrorCodes` (`tenant.forbidden`, `tenant.change`) | EF.Tenancy | Registration; only a role in `CrossTenantRoles` (default `GlobalAdmin`) passes the boundary |
 

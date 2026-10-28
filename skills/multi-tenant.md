@@ -2,7 +2,7 @@
 
 Reference patterns: [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) (Request Context Resolution), [../patterns/data-layer-wiring.md](../patterns/data-layer-wiring.md) (Multi-tenant Query Filter).
 
-> **Applicability:** This skill applies only when the domain specification enables multi-tenancy. The TaskFlow reference app demonstrates full multi-tenant patterns. For single-tenant scaffolds, skip this entire file - omit `ITenantEntity<TenantId>`, `ITenantBoundaryValidator`, tenant query filters, tenant stamping, and tenant-scoped search enforcement. The service template marks optional sections with `// [MULTI-TENANT]`.
+> **Applicability:** This skill applies only when the domain specification enables multi-tenancy. For single-tenant scaffolds, skip this entire file - omit `ITenantEntity<TenantId>`, `ITenantBoundaryValidator`, tenant query filters, tenant stamping, and tenant-scoped search enforcement. The service template marks optional sections with `// [MULTI-TENANT]`.
 
 ## Purpose
 
@@ -108,11 +108,11 @@ The no-request context then carries `System`, `EnsureTenantBoundary` / `EnsureCr
 
 ## Tenant Boundary Validator
 
-`ITenantBoundaryValidator` / `TenantBoundaryValidator` is EF.Tenancy's stateless singleton (`AddTenancy`; [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Tenancy); generate no validator, helper or logging-extension class. Its checks, each returning `Result`:
+`ITenantBoundaryValidator` / `TenantBoundaryValidator` is EF.Tenancy's stateless singleton (`AddTenancy`; [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Tenancy); generate no validator, helper or logging-extension class. Checks 1-3 return `Result<Unit>`:
 
-1. `EnsureTenantBoundary(callerTenantId, callerRoles, entityTenantId, operation, entityName, entityId)`: a cross-tenant role passes; no roles, a global (null-tenant) entity or a tenant mismatch fail with `tenant.forbidden`.
+1. `EnsureTenantBoundary(callerTenantId, callerRoles, entityTenantId, operation, entityName, entityId)`: a cross-tenant role passes; no roles, a global (null-tenant) entity or a tenant mismatch fail with `ForbiddenError` `tenant.forbidden`.
 2. `EnsureCrossTenantRole(callerRoles, operation)`: `tenant.forbidden` unless the caller holds a role in `CrossTenantRoles`.
-3. `PreventTenantChange(existingTenantId, incomingTenantId, entityName, entityId)`: `tenant.change` when the ids differ.
+3. `PreventTenantChange(existingTenantId, incomingTenantId, entityName, entityId)`: a `ValidationError` with issue code `tenant.change` when the ids differ.
 4. `EnforceTenantFilter(filter, callerTenantId, callerRoles, operation)`: a cross-tenant caller gets the filter back untouched; any other caller gets a filter (created when null) forced to its tenant, and a non-cross-tenant caller with no tenant throws `UnauthorizedAccessException`. The app's `DefaultSearchFilter` implements `ITenantScopedFilter`.
 
 Violations are logged as source-generated security events 4100-4104 (no roles, global entity, mismatch, tenant change, filter manipulation).

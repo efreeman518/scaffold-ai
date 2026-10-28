@@ -32,7 +32,7 @@ You can only parallelize the **leaves** of the dependency graph at a given level
 
 The phase ordering already encodes the coarse barrier - the shared backend the UIs consume is built before the host layer:
 
-- shared base types (`EntityBase`, `DbContextBase`, `DomainResult`, `IRepositoryBase`) - from packages/feed, fixed before Phase 4;
+- shared base types (`EntityBase`, `DbContextBase`, `Result<T>`, `IRepositoryBase`) - from packages/feed, fixed before Phase 4;
 - contracts / DTOs / interfaces - Phase 4;
 - domain model + repositories - Phase 5a;
 - application services + the API endpoints UIs call - Phase 5b.

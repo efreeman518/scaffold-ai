@@ -5,7 +5,7 @@
 
 ## Generated Endpoint Shape
 
-Use [endpoint-template.md](../templates/endpoint-template.md) as the canonical service-style endpoint implementation. It owns generated CRUD/search routes, handler signatures, `Result.Match()` response mapping, OpenAPI metadata, and pipeline registration examples. This skill owns the surrounding API host, policy, binding-hazard, versioning, and service/CQRS route-switch rules.
+Use [endpoint-template.md](../templates/endpoint-template.md) as the canonical service-style endpoint implementation. It owns generated CRUD/search routes, handler signatures, `ToHttp` result mapping, OpenAPI metadata, and pipeline registration examples. This skill owns the surrounding API host, policy, binding-hazard, versioning, and service/CQRS route-switch rules.
 
 ## Overview
 
@@ -197,28 +197,15 @@ Map versioned groups and apply policy at the group level (adjust route pattern t
 
 ```csharp
 // Simple pattern for unversioned/internal routes when a versioned public contract is not needed.
-app.MapGroup("/api/categories")
-    .WithTags("Categories")
-    .RequireAuthorization()
-    .WithETag()
-    .MapCategoryEndpoints();
+app.MapGroup("/api").RequireAuthorization().MapCategoryEndpoints();
 
-// Versioned public contract pattern.
-var apiVersionSetBuilder = app.NewApiVersionSet()
-    .ReportApiVersions()
-foreach (var document in ApiContract.SupportedDocuments)
-    apiVersionSetBuilder.HasApiVersion(document.Version);
-
-var apiVersionSet = apiVersionSetBuilder.Build();
-
-var api = app.MapGroup(ApiContract.VersionedRoutePrefix)
-    .WithApiVersionSet(apiVersionSet)
-    .MapToApiVersion(ApiContract.DefaultVersion)
+// Versioned public contract pattern (EF.AspNetCore.Versioning).
+var versionSet = app.BuildApiVersionSet(
+    ApiContract.SupportedDocuments.Select(d => new ApiVersionDocument(d.Version, d.GroupName)));
+var api = app.MapVersionedApiGroup(ApiContract.VersionedRoutePrefix, versionSet, ApiContract.DefaultVersion)
     .RequireAuthorization("TenantMatch");
 
-api.MapGroup("/categories")
-    .WithETag()
-    .MapCategoryEndpoints();
+api.MapCategoryEndpoints();   // the mapper owns its "/categories" group, tags, ETag and 403
 ```
 
 ## Endpoint Contract
@@ -230,18 +217,17 @@ Required endpoint rules:
 
 1. Static class + static handlers.
 2. Use `TypedResults` for success responses.
-3. **Use `Result.Match()` - never `IsSuccess`/`else` guards.** Every handler must branch through `Result.Match<IResult>()`. Three branches for `Result<T>` (success, errors, none); two branches for non-generic `Result` (success, errors). The `none` branch is the only correct way to produce a `404` - omitting it silently returns `200 OK` for not-found cases.
+3. **Map results with `ToHttp` - never `IsSuccess`/`else` guards.** `result.ToHttp(ok)` maps success through `ok` and any `Error` to its category's problem ([ef-packages-reference.md](../support/ef-packages-reference.md) section Application Host). A missing target is the service's `NotFoundError`, answered as a 404 problem body; never return a raw id (`NotFound(id)`). An endpoint that declares typed `Results<Ok<T>, ProblemHttpResult>` for OpenAPI switches exhaustively with no discard arm (a missing case is CS8509, an error under warnings-as-errors).
    ```csharp
-   // Typed result (3 branches)
-   return result.Match<IResult>(
-       value  => TypedResults.Ok(new DefaultResponse<T>(value)),
-       errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)),
-       ()     => TypedResults.NotFound());
+   return result.ToHttp(response => TypedResults.Ok(response));
+   return result.ToHttp(_ => TypedResults.NoContent());   // Result<Unit>
 
-   // Non-generic Result (2 branches - fire-and-forget commands)
-   return result.Match<IResult>(
-       ()     => TypedResults.Ok(),
-       errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)));
+   // Typed results for OpenAPI
+   return result switch
+   {
+       DefaultResponse<{Entity}Dto> value => TypedResults.Ok(value),
+       Error error => error.ToProblemResult(),
+   };
    ```
 4. **Handler signature:** `HttpContext httpContext`, when needed for request data such as the created-resource path, is the first parameter. Correlation fields come from the centralized ProblemDetails customizer, not each handler. `CancellationToken` is the last parameter. **Every service-typed parameter MUST carry an explicit `[FromServices]` attribute.** This is non-negotiable.
    ```csharp
@@ -255,12 +241,12 @@ Required endpoint rules:
    This is especially fragile when a feature is gated per host (Cosmos-only services, Service Bus senders - see [bootstrapper.md](bootstrapper.md) section Conditional (Per-Host) Dependency Pattern). The endpoint still references the service interface; the host that opted out of registering it then refuses to start with a misleading body-inference error.
 
    **No exceptions:** add `[FromServices]` on the service parameter even for trivially-registered types. Treat any handler missing `[FromServices]` on a service parameter as a Phase 5b regression and fix it before the gate.
-5. Return `ProblemDetails` for errors (no raw strings). Always use `ProblemDetailsHelper.FromErrors(errors, status)` for a `Match` failure branch (it emits `extensions.errors` as ordered `{code, message}` pairs; status defaults to 400) or `ProblemDetailsHelper.Create(status, detail)` for a single message - never `TypedResults.BadRequest(string)`. Pass the status explicitly when the error type is not-found or conflict (404, 409).
+5. Return `ProblemDetails` for errors (no raw strings): `error.ToProblemResult()` for an `Error`, `ProblemDetailsHelper.Create(status, detail)` for a check the endpoint makes itself (route/body id mismatch) - never `TypedResults.BadRequest(string)`.
 6. **Concurrency:** PUT/DELETE (and any action that changes a versioned aggregate) bind `IfMatch ifMatch`, add `.RequireIfMatch()`, and pass `ifMatch.ExpectedVersion` to the service; the group carries `.WithETag()`. The package filter answers 428 without `If-Match`, 400 for a malformed or weak tag, and 412 with the current `ETag` when the service's `ConcurrencyGuard` throws `PreconditionFailedException` ([data-persistence.md](data-persistence.md) section Provider Branch and Concurrency Discipline). Generate no `If-Match` parsing or ETag filter.
 7. Validate route/body ID consistency on update.
-8. Add OpenAPI metadata (`Produces*`, summary/tags).
+8. Add OpenAPI metadata (`Produces*`, summary/tags) for every status a route can answer: `ProducesValidationProblem()` (`ValidationError` 400), `ProducesProblem` 404 on id routes, 409 where a `ConflictError` can occur, 422 where a `RuleError` can (proof: TaskItem update/patch), and 403 once on the entity group (`ForbiddenError`, tenant boundary). With both `ProducesValidationProblem` and a 400 `ProducesProblem`, the 400 response is `anyOf` both problem shapes.
 9. Use POST for complex search filters.
-10. Ensure `global using EF.AspNetCore;` and `global using EF.AspNetCore.Concurrency;` are present in `GlobalUsings.cs` for `ProblemDetailsHelper` and `IfMatch` to resolve.
+10. Ensure `global using EF.AspNetCore;` and `global using EF.AspNetCore.Concurrency;` are present in `GlobalUsings.cs` for `ToHttp`, `ProblemDetailsHelper` and `IfMatch` to resolve.
 
 ## Service/CQRS Route Switch
 
@@ -287,17 +273,18 @@ group.MapPost("/{id:guid}/reschedule", Reschedule)
     .Produces<DefaultResponse<{Entity}Dto>>(StatusCodes.Status200OK)
     .ProducesValidationProblem()
     .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
     .WithSummary("Reschedule a {Entity} to a new due date");
 ```
 
 **Request / response.** Each custom action gets its own DTO in `Application.Models`:
 
 - Request: `{ActionName}Request` containing exactly the parameters declared on the `customActions` entry (e.g. `RescheduleRequest { DateTimeOffset NewDueDate }`). Wrap in `DefaultRequest<T>` only when the action mutates and returns the full entity.
-- Response: same `Result<T>` -> `Result.Match()` -> `TypedResults` + `ProblemDetails` flow as CRUD; do not invent action-specific error envelopes.
+- Response: same `Result<T>` -> `ToHttp` -> `TypedResults` + `ProblemDetails` flow as CRUD; do not invent action-specific error envelopes.
 
 **Service contract.** Add a method to `I{Entity}Service` named after the action (`Task<Result<{Entity}Dto>> RescheduleAsync(Guid id, RescheduleRequest req, CancellationToken ct)`). The service orchestrates: load aggregate -> invoke domain method -> persist -> emit `afterAction({ActionName})` event per the existing event model in `domain-specification-schema.md`.
 
-**Domain method.** The action lives on the entity itself as a `DomainResult` method (e.g. `public DomainResult Reschedule(DateTimeOffset newDueDate)`), keeping invariants and state transitions inside the aggregate. The service does not contain the rule logic - only the orchestration around it.
+**Domain method.** The action lives on the entity itself as a `Result<Unit>` method (e.g. `public Result<Unit> Reschedule(DateTimeOffset newDueDate)`; a broken rule returns `RuleError`, 422), keeping invariants and state transitions inside the aggregate. The service does not contain the rule logic - only the orchestration around it.
 
 **Cross-entity queries.** When the operation reads across multiple entities and does not naturally belong to one of them (e.g. `POST /reports/search/sla-breaches` aggregating SLA, Order, and Customer), put it in a dedicated `{Domain}QueryEndpoints.cs` mapper. Apply the same Result-mapping rules; do not bypass `ProblemDetails` for these.
 
@@ -307,7 +294,7 @@ group.MapPost("/{id:guid}/reschedule", Reschedule)
 
 Two complementary layers - **Result pattern for expected outcomes, the EF.AspNetCore exception handler for unexpected exceptions**:
 
-1. **Result flow (primary path):** Services return `Result<T>` / `DomainResult<T>`. Endpoints use `Result.Match()` to map success/failure/not-found to `TypedResults` + `ProblemDetails`. No exceptions thrown for validation, business rules, or not-found cases. DomainResult mechanics (factory results, Bind/Map chaining, error surface): [domain-model.md](domain-model.md) section DomainResult Pattern.
+1. **Result flow (primary path):** Domain methods and services return `Result<T>` (`Result<Unit>` without a value); endpoints map it with `ToHttp` (Endpoint Contract rule 3). No exceptions thrown for validation, business rules, or not-found cases. Result idioms, `Error` categories and statuses, and caught infrastructure failures (never 400): [ef-packages-reference.md](../support/ef-packages-reference.md) section Domain Layer.
 2. **`ProblemDetailsExceptionHandler` (safety net):** The package `IExceptionHandler` registered by `AddEfProblemDetails()`, with status from the shared `ExceptionClassifier` and the app's `MapExceptions`. Catches only truly unexpected exceptions (null refs, timeouts, infra failures) and the few exception types the app maps, and writes `ProblemDetails`. This is a last-resort handler, not a control-flow mechanism. See [exception-handler-template](../templates/exception-handler-template.md) for the registration.
 
 Reference: See [exception-handler-template](../templates/exception-handler-template.md) for the implementation pattern. Outbound HTTP resilience defaults (retry, circuit breaker, timeout): [resilience.md](resilience.md).
@@ -315,31 +302,22 @@ Reference: See [exception-handler-template](../templates/exception-handler-templ
 ### Error Pipeline Overview
 
 ```
-[Domain]   DomainResult<T>.Success / .Failure     - business validation, rules, state transitions
+[Domain]   Result<T>: value or Error   - business validation, rules, state transitions
                down
-[Service]  Result<T>.Success / .Failure / .None    - orchestration, tenant boundary, structure validation
+[Service]  Result<T>: value or Error   - orchestration, tenant boundary, structure validation, not found
                down
-[Endpoint] result.Match(ok -> TypedResults, errors -> ProblemDetails, notFound -> NotFound)
+[Endpoint] result.ToHttp(ok) -> TypedResults, or the Error's ProblemDetails
                down
 [Global]   ProblemDetailsExceptionHandler (EF.AspNetCore) - unexpected exceptions only -> ProblemDetails
 ```
 
 ### Error Type Mapping
 
-| Source | Error | HTTP Status |
-|---|---|---|
-| Domain | `DomainError.Validation` | 400 Bad Request |
-| Domain | `DomainError.NotFound` | 404 Not Found |
-| Domain | `DomainError.Conflict` | 409 Conflict |
-| Domain | `DomainError.Unauthorized` | 403 Forbidden |
-| Service | `Result.Failure` (generic) | 400 Bad Request (`FromErrors` default) |
-| Service | `Result.None` | 404 Not Found |
-| Service | `StructureValidator` failure | 400 Bad Request |
-| Global | Unexpected exceptions, concurrency, cancellation | [exception-handler-template](../templates/exception-handler-template.md) section Exception-to-Status Mapping |
+The `Error` subtype sets the status: [ef-packages-reference.md](../support/ef-packages-reference.md) section Domain Layer (`Error` row). A `StructureValidator` failure is a `ValidationError` (400). Unexpected exceptions, concurrency, cancellation: [exception-handler-template](../templates/exception-handler-template.md) section Exception-to-Status Mapping.
 
 ### Anti-Patterns
 
-- **Throwing exceptions for business logic** - Use `DomainResult.Failure()` / `Result.Failure()` instead.
+- **Throwing exceptions for business logic** - Return the fitting `Error` (`ValidationError`, `RuleError`, `NotFoundError`) instead.
 - **Swallowing errors silently** - Every failure must propagate through the Result chain or be logged explicitly.
 - **Returning raw error strings** - Always wrap in `ProblemDetails` at the API boundary.
 - **Catching generic `Exception` in services** - Let the exception handler handle the rest.
@@ -356,60 +334,38 @@ Reference: See [exception-handler-template](../templates/exception-handler-templ
 
 ## OpenAPI / Scalar Configuration
 
-Gate OpenAPI and Scalar behind `OpenApiSettings:Enable` in appsettings:
+`AddEfVersionedOpenApi` (EF.AspNetCore.Versioning) registers API versioning and one OpenAPI document per version; `OpenApiSettings:Enable` gates the documents and Scalar:
 
 ```csharp
-if (config.GetValue<bool>("OpenApiSettings:Enable"))
+services.AddEfVersionedOpenApi(options =>
 {
-    foreach (var document in ApiContract.SupportedDocuments)
-    {
-        services.AddOpenApi(document.GroupName, options =>
-        {
-            options.ShouldInclude = apiDescription =>
-                string.Equals(apiDescription.GroupName, document.GroupName, StringComparison.OrdinalIgnoreCase);
-
-            options.AddDocumentTransformer((openApiDocument, context, ct) =>
-            {
-                openApiDocument.Info = new()
-                {
-                    Title = ApiContract.Title,
-                    Version = document.DisplayName,
-                    Description = ApiContract.Description
-                };
-                return Task.CompletedTask;
-            });
-        });
-    }
-}
+    options.Title = ApiContract.Title;
+    options.Description = ApiContract.Description;
+    options.ApiExplorerGroupNameFormat = ApiContract.ApiExplorerGroupNameFormat;
+    options.EnableOpenApi = config.GetValue<bool>("OpenApiSettings:Enable", true);
+    foreach (var d in ApiContract.SupportedDocuments)
+        options.Documents.Add(new ApiVersionDocument(d.Version, d.GroupName));
+});
+services.AddConcurrencyOpenApiContract();   // configures every named document
 ```
 
 In `ConfigurePipeline()`:
 
 ```csharp
-if (app.Configuration.GetValue<bool>("OpenApiSettings:Enable"))
+if (app.Configuration.GetValue<bool>("OpenApiSettings:Enable", true))
 {
-    app.MapOpenApi();           // serves /openapi/{documentName}.json
+    app.MapOpenApi().AllowAnonymous();   // /openapi/{GroupName}.json per version
     app.MapScalarApiReference(options =>
     {
         options.WithTitle(ApiContract.Title);
         options.WithTheme(ScalarTheme.Moon);
-    });
+    }).AllowAnonymous();
 }
 ```
 
-Each supported API version gets its own JSON document, for example `/openapi/v1.json` and `/openapi/v2.json`. The `ShouldInclude` filter keeps v1-only, v2-only, and shared endpoints in the correct document according to their API Explorer group.
+Each document holds only endpoints whose API Explorer group matches it (`/openapi/v1.json`, `/openapi/v2.json`); routes outside the version set (health, FlowEngine admin) are in none. Documents are OpenAPI 3.2. Only while a client generator (refitter, Kiota, NSwag) cannot read 3.2, set `options.OpenApiVersion = OpenApiSpecVersion.OpenApi3_1` (`OpenApiOptions.OpenApiVersion` for an unversioned document). `[Obsolete]` marks an operation or schema deprecated. Transformers use the Microsoft.OpenApi object model of the current major.
 
-Endpoint OpenAPI metadata - add to every endpoint:
-
-```csharp
-group.MapGet("/{id:guid}", GetById)
-    .WithName("Get{Entity}ById")
-    .WithSummary("Get a single {Entity} by ID")
-    .WithTags("{Entity}")
-    .Produces<{Entity}Dto>(200)
-    .ProducesProblem(404)
-    .ProducesProblem(401);
-```
+Endpoint metadata: Endpoint Contract rule 8 and [endpoint-template.md](../templates/endpoint-template.md).
 
 - Enable XML comments in the `.csproj`: `<GenerateDocumentationFile>true</GenerateDocumentationFile>`.
 - Add `/// <summary>` to handler methods for auto-generated descriptions.
@@ -424,13 +380,13 @@ group.MapGet("/{id:guid}", GetById)
 - [ ] Endpoints are static classes under `Endpoints/` with `Map{Entity}Endpoints(...)`
 - [ ] Route groups apply `.RequireAuthorization(...)` at the correct scope
 - [ ] Handlers that need `HttpContext` place it first; every handler places `CancellationToken` last
-- [ ] Every handler uses `Result.Match<IResult>()` - no `IsSuccess`/`else` guards anywhere
-- [ ] Typed `Result<T>` handlers have all three branches (success, errors, none); non-generic `Result` handlers have two (success, errors)
+- [ ] Every result maps through `ToHttp` or an exhaustive `switch` with no discard arm - no `IsSuccess`/`else` guards, no raw-id `NotFound(id)`
+- [ ] Routes declare every status they can answer; each entity group declares 403
 - [ ] `global using EF.AspNetCore;` present in `GlobalUsings.cs`
 - [ ] CRUD routes use the `DefaultRequest<T>` / `DefaultResponse<T>` envelope (app-level, `Application.Models`) and search uses `SearchRequest<TFilter>` / `PagedResponse<T>` from `EF.Common.Contracts` - no locally redefined envelope on either side of the wire
 - [ ] Validation and business errors return `ProblemDetails`/`ValidationProblem`
 - [ ] Typed and exception errors expose separate `requestId`, W3C `traceId`, and `spanId` through one customizer
-- [ ] Swagger/Scalar is gated by `OpenApiSettings:Enable`
+- [ ] `MapOpenApi()` and Scalar are gated by `OpenApiSettings:Enable`
 - [ ] `/healthz/live` and optional `/alive` run only `live` checks; `/healthz/ready` and optional `/health` run only `ready` checks; `/healthz` is the operator aggregate
 - [ ] Entra auth uses `AddMicrosoftIdentityWebApi` (service-to-service)
 - [ ] `X-Orig-Request` is parsed only after the caller token matches the allowlisted gateway identity; see [gateway.md](gateway.md#forwarded-claims-trust-boundary)

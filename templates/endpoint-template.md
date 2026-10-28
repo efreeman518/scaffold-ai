@@ -17,14 +17,14 @@ Endpoint templates map relative routes only. The API host owns the outer route g
 >
 > ```csharp
 > // In {Root}Endpoints - children are mutated only through the root (GR-15):
-> group.MapPost("/{id:guid}/{children}", Add{Child});                       // -> root.Add{Child}(...)
-> group.MapPut("/{id:guid}/{children}/{childId:guid}", Update{Child});       // -> child.Update(...)
-> group.MapDelete("/{id:guid}/{children}/{childId:guid}", Remove{Child});    // -> root.Remove{Child}(...)
-> group.MapPost("/{id:guid}/tags/{tagId:guid}", AssociateTag);              // -> root.AssociateTag(tagId)  (M:N)
-> group.MapDelete("/{id:guid}/tags/{tagId:guid}", RemoveTag);               // -> root.RemoveTag(tagId)
+> g.MapPost("/{id:guid}/{children}", Add{Child});                       // -> root.Add{Child}(...)
+> g.MapPut("/{id:guid}/{children}/{childId:guid}", Update{Child});       // -> child.Update(...)
+> g.MapDelete("/{id:guid}/{children}/{childId:guid}", Remove{Child});    // -> root.Remove{Child}(...)
+> g.MapPost("/{id:guid}/tags/{tagId:guid}", AssociateTag);              // -> root.AssociateTag(tagId)  (M:N)
+> g.MapDelete("/{id:guid}/tags/{tagId:guid}", RemoveTag);               // -> root.RemoveTag(tagId)
 > ```
 >
-> Each nested handler loads the root via its transactional repository, calls the matching `Add*`/`Update`/`Remove*` method, and saves the aggregate in one transaction (return `Success(Item=null)` for a missing root so the shared 2-arg `Match` maps to 404). A child read endpoint (`GetById`/`Search`) is still allowed because reads may cross aggregate boundaries. See [../skills/domain-model.md](../skills/domain-model.md) section Aggregate Roots vs Internal Children.
+> Each nested handler loads the root via its transactional repository, calls the matching `Add*`/`Update`/`Remove*` method, and saves the aggregate in one transaction (a missing root returns `NotFoundError`, 404). A child read endpoint (`GetById`/`Search`) is still allowed because reads may cross aggregate boundaries. See [../skills/domain-model.md](../skills/domain-model.md) section Aggregate Roots vs Internal Children.
 
 ```csharp
 using EF.AspNetCore;
@@ -37,35 +37,41 @@ public static class {Entity}Endpoints
 {
     public static IEndpointRouteBuilder Map{Entity}Endpoints(this IEndpointRouteBuilder group)
     {
-        group.MapPost("/search", Search)
+        var g = group.MapGroup("/{entities}").WithTags("{Entities}")
+            .WithETag()   // strong ETag from DefaultResponse.ETagVersion, 304 on If-None-Match
+            .ProducesProblem(StatusCodes.Status403Forbidden);   // tenant boundary: ForbiddenError
+
+        g.MapPost("/search", Search)
             .Produces<PagedResponse<{Entity}Dto>>(StatusCodes.Status200OK)
             .WithSummary("Search {Entities} with paging, filters, and sorts");
 
-        group.MapGet("/lookup", Lookup)
+        g.MapGet("/lookup", Lookup)
             .Produces<StaticList<StaticItem<Guid, Guid?>>>(StatusCodes.Status200OK)
             .WithSummary("Lookup list for autocomplete");
 
-        group.MapGet("/{id:guid}", GetById)
+        g.MapGet("/{id:guid}", GetById)
             .Produces<DefaultResponse<{Entity}Dto>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .WithSummary("Get a single {Entity}");
 
-        group.MapPost("/", Create)
+        g.MapPost("/", Create)
             // Idempotent create only: Idempotency-Key -> stored UUIDv7 body Id (data-persistence.md, Idempotent Create)
             .WithIdempotencyKey<{Entity}Dto>(_ => "{entity}.create")
             .Produces<DefaultResponse<{Entity}Dto>>(StatusCodes.Status201Created)
             .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .WithSummary("Create a new {Entity}");
 
         // RequireIfMatch: 428 without If-Match, 400 malformed, 412 + current ETag on PreconditionFailedException; `*` binds ExpectedVersion null.
-        group.MapPut("/{id:guid}", Update)
+        g.MapPut("/{id:guid}", Update)
             .RequireIfMatch()
             .Produces<DefaultResponse<{Entity}Dto>>()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)   // only when a domain rule can fail (RuleError)
             .WithSummary("Update an existing {Entity}");
 
-        group.MapDelete("/{id:guid}", Delete)
+        g.MapDelete("/{id:guid}", Delete)
             .RequireIfMatch()
             .Produces(StatusCodes.Status204NoContent)
             .ProducesValidationProblem()
@@ -98,10 +104,7 @@ public static class {Entity}Endpoints
         CancellationToken ct)
     {
         var result = await service.GetAsync(id, ct);
-        return result.Match<IResult>(
-            response => TypedResults.Ok(response),
-            errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)),
-            () => TypedResults.NotFound(id));
+        return result.ToHttp(response => TypedResults.Ok(response));
     }
 
     private static async Task<IResult> Create(
@@ -111,9 +114,7 @@ public static class {Entity}Endpoints
         CancellationToken ct)
     {
         var result = await service.CreateAsync(request, ct);
-        return result.Match<IResult>(
-            response => TypedResults.Created($"{httpContext.Request.Path}/{response.Item?.Id}", response),
-            errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)));
+        return result.ToHttp(response => TypedResults.Created($"{httpContext.Request.Path}/{response.Item?.Id}", response));
     }
 
     private static async Task<IResult> Update(
@@ -128,9 +129,7 @@ public static class {Entity}Endpoints
                 StatusCodes.Status400BadRequest, $"{ErrorConstants.ERROR_URL_BODY_ID_MISMATCH}: {id} <> {request.Item.Id}"));
 
         var result = await service.UpdateAsync(request, ifMatch.ExpectedVersion, ct);
-        return result.Match(
-            response => response.Item is null ? Results.NotFound(id) : TypedResults.Ok(response),
-            errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)));
+        return result.ToHttp(response => TypedResults.Ok(response));   // missing row: the service's NotFoundError
     }
 
     private static async Task<IResult> Delete(
@@ -138,14 +137,12 @@ public static class {Entity}Endpoints
         CancellationToken ct)
     {
         var result = await service.DeleteAsync(id, ifMatch.ExpectedVersion, ct);
-        return result.Match<IResult>(
-            () => TypedResults.NoContent(),
-            errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)));
+        return result.ToHttp(_ => TypedResults.NoContent());
     }
 }
 ```
 
-`IfMatch` and `RequireIfMatch()` come from EF.AspNetCore (`EF.AspNetCore.Concurrency`); do not generate `If-Match` parsing, an ETag filter, or an OpenAPI transformer - the host calls `AddConcurrencyOpenApiContract()` once. `ifMatch.ExpectedVersion` throws when no header was bound, so a route that binds `IfMatch` without `RequireIfMatch()` fails loudly instead of skipping the check. `ProblemDetailsHelper.FromErrors` emits the ordered `{code, message}` array under `extensions.errors` (status 400 by default); exception text on unexpected failures is the exception handler's job ([exception-handler-template.md](exception-handler-template.md)).
+`IfMatch` and `RequireIfMatch()` come from EF.AspNetCore (`EF.AspNetCore.Concurrency`); do not generate `If-Match` parsing, an ETag filter, or an OpenAPI transformer - the host calls `AddConcurrencyOpenApiContract()` once. `ifMatch.ExpectedVersion` throws when no header was bound, so a route that binds `IfMatch` without `RequireIfMatch()` fails loudly instead of skipping the check. `ToHttp` answers any `Error` with its category's problem body ([../skills/api.md](../skills/api.md) section Endpoint Contract); unexpected exceptions are the exception handler's job ([exception-handler-template.md](exception-handler-template.md)).
 
 ## Custom Action Routes (Optional)
 
@@ -153,10 +150,11 @@ Include only when `.scaffold/domain-specification.yaml` declares a `customAction
 
 ```csharp
 // Inside Map{Entity}Endpoints - add alongside the CRUD routes above:
-group.MapPost("/{id:guid}/{action-name}", {ActionName})
+g.MapPost("/{id:guid}/{action-name}", {ActionName})
     .Produces<DefaultResponse<{Entity}Dto>>(StatusCodes.Status200OK)
     .ProducesValidationProblem()
     .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
     .WithSummary("{ActionName} a {Entity}");
 
 private static async Task<IResult> {ActionName}(
@@ -167,14 +165,11 @@ private static async Task<IResult> {ActionName}(
     CancellationToken ct)
 {
     var result = await service.{ActionName}Async(id, request, ct);
-    return result.Match<IResult>(
-        response => TypedResults.Ok(response),
-        errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)),
-        () => TypedResults.NotFound(id));
+    return result.ToHttp(response => TypedResults.Ok(response));
 }
 ```
 
-The handler shape mirrors `GetById` / `Update` deliberately - same `Result.Match()` three-branch mapping, same `ProblemDetailsHelper.FromErrors` builder, same `CancellationToken` placement. An action that changes a versioned aggregate adds `.RequireIfMatch()` and passes `ifMatch.ExpectedVersion` like `Update`. The service method invokes the entity's domain method (e.g. `entity.{ActionName}(...)`) and emits `afterAction({ActionName})` per the event model.
+The handler shape mirrors `GetById` / `Update` deliberately - same `ToHttp` mapping, same `CancellationToken` placement. An action that changes a versioned aggregate adds `.RequireIfMatch()` and passes `ifMatch.ExpectedVersion` like `Update`. The service method invokes the entity's domain method (e.g. `entity.{ActionName}(...)`) and emits `afterAction({ActionName})` per the event model.
 
 ## Registration in Pipeline
 
@@ -182,18 +177,10 @@ In `WebApplicationBuilderExtensions.cs`, add to `SetupApiEndpoints`:
 
 ```csharp
 // Simple pattern (default)
-app.MapGroup("/api/{entities}")
-    .WithTags("{Entities}")
-    .RequireAuthorization()
-    .WithETag()          // EF.AspNetCore.Concurrency: strong ETag from DefaultResponse.ETagVersion, 304 on If-None-Match
-    .Map{Entity}Endpoints();
+app.MapGroup("/api").RequireAuthorization().Map{Entity}Endpoints();
 
-// Versioned + tenant-scoped pattern (when needed)
-app.MapGroup("v{apiVersion:apiVersion}/tenant/{tenantId}/{entity}")
-    .WithApiVersionSet(apiVersionSet)
-    .RequireAuthorization("TenantMatch")
-    .WithETag()
-    .Map{Entity}Endpoints();
+// Versioned pattern (api.md section Pipeline + Versioned Groups)
+api.Map{Entity}Endpoints();
 ```
 
 For kebab-case route segments, use `{entity-route}` in route definitions.

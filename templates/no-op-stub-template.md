@@ -15,7 +15,7 @@ Throwing is permitted **only** when no safe default exists for the return shape 
 
 | Return shape | Safe default |
 |---|---|
-| `Result<T>` / `DomainResult<T>` | `Result<T>.Success(default!)` or a constructed empty payload (`new DefaultResponse<T>()`) |
+| `Result<T>` | a constructed empty payload (`new DefaultResponse<T>()`; a null value throws); `Result.Ok()` for `Result<Unit>` |
 | `Task` | `Task.CompletedTask` |
 | `Task<T>` | `Task.FromResult(default(T)!)` or `Task.FromResult` of an empty payload |
 | `IEnumerable<T>` / `IList<T>` | `Array.Empty<T>()` / `new List<T>()` |
@@ -31,10 +31,10 @@ Throwing is permitted **only** when no safe default exists for the return shape 
 public class NoOp{ServiceName}Service : I{ServiceName}Service
 {
     public Task<Result<DefaultResponse<{Entity}Dto>>> GetAsync(Guid id, CancellationToken ct = default)
-        => Task.FromResult(Result<DefaultResponse<{Entity}Dto>>.Success(new DefaultResponse<{Entity}Dto>()));
+        => Task.FromResult<Result<DefaultResponse<{Entity}Dto>>>(new DefaultResponse<{Entity}Dto>());
 
-    public Task<Result<PagedResponse<{Entity}Dto>>> SearchAsync(SearchRequest request, CancellationToken ct = default)
-        => Task.FromResult(Result<PagedResponse<{Entity}Dto>>.Success(new PagedResponse<{Entity}Dto>()));
+    public Task<PagedResponse<{Entity}Dto>> SearchAsync(SearchRequest request, CancellationToken ct = default)
+        => Task.FromResult(new PagedResponse<{Entity}Dto>());
 }
 ```
 
@@ -48,8 +48,8 @@ public class NoOp{ExternalSystem}Publisher : I{ExternalSystem}Publisher
     public Task PublishAsync({Event} message, CancellationToken ct = default)
         => Task.CompletedTask; // accepted and discarded - no cloud call
 
-    public Task<Result> SendAsync({Request} request, CancellationToken ct = default)
-        => Task.FromResult(Result.Success());
+    public Task<Result<Unit>> SendAsync({Request} request, CancellationToken ct = default)
+        => Task.FromResult(Result.Ok());
 }
 ```
 

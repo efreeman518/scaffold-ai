@@ -84,9 +84,9 @@ public interface I{Entity}Service
 {
     Task<Result<DefaultResponse<{Entity}Dto>>> CreateAsync(DefaultRequest<{Entity}Dto> request, CancellationToken ct = default);
     Task<Result<DefaultResponse<{Entity}Dto>>> UpdateAsync(DefaultRequest<{Entity}Dto> request, long? expectedVersion, CancellationToken ct = default);
-    Task<Result> DeleteAsync(Guid id, long? expectedVersion, CancellationToken ct = default);
+    Task<Result<Unit>> DeleteAsync(Guid id, long? expectedVersion, CancellationToken ct = default);
     Task<Result<DefaultResponse<{Entity}Dto>>> GetAsync(Guid id, CancellationToken ct = default);
-    Task<Result<PagedResponse<{Entity}Dto>>> SearchAsync(SearchRequest<{Entity}SearchFilter> request, CancellationToken ct = default);
+    Task<PagedResponse<{Entity}Dto>> SearchAsync(SearchRequest<{Entity}SearchFilter> request, CancellationToken ct = default);
 }
 ```
 
@@ -157,10 +157,10 @@ public class {Entity} : EntityBase<{Entity}Id>, ITenantEntity<TenantId>
     // SHELL: Phase 5a will implement domain logic
     private {Entity}() { }
 
-    public static DomainResult<{Entity}> Create(Guid tenantId, string name)
+    public static Result<{Entity}> Create(Guid tenantId, string name)
         => throw new NotImplementedException("Shell - implement in Phase 5a");
 
-    public DomainResult<{Entity}> Update(string? name = null)
+    public Result<{Entity}> Update(string? name = null)
         => throw new NotImplementedException("Shell - implement in Phase 5a");
 }
 ```
@@ -244,7 +244,7 @@ For every interface, generate a no-op implementation. The example below is the `
 public class NoOp{Entity}Service : I{Entity}Service
 {
     public Task<Result<DefaultResponse<{Entity}Dto>>> CreateAsync(DefaultRequest<{Entity}Dto> request, CancellationToken ct = default)
-        => Task.FromResult(Result<DefaultResponse<{Entity}Dto>>.Success(new DefaultResponse<{Entity}Dto>()));
+        => Task.FromResult<Result<DefaultResponse<{Entity}Dto>>>(new DefaultResponse<{Entity}Dto>());
 
     // ... all interface methods with safe default returns
 }
@@ -257,7 +257,7 @@ For `cqrs` / `switch`, the equivalent stub satisfies the handler contract instea
 public class NoOp{Entity}CreateHandler : IRequestHandler<Create{Entity}Command, Result<DefaultResponse<{Entity}Dto>>>
 {
     public Task<Result<DefaultResponse<{Entity}Dto>>> HandleAsync(Create{Entity}Command request, CancellationToken ct = default)
-        => Task.FromResult(Result<DefaultResponse<{Entity}Dto>>.Success(new DefaultResponse<{Entity}Dto>()));
+        => Task.FromResult<Result<DefaultResponse<{Entity}Dto>>>(new DefaultResponse<{Entity}Dto>());
 }
 ```
 

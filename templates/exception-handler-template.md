@@ -8,7 +8,7 @@
 
 ## Purpose
 
-The global exception handler is the EF.AspNetCore `ProblemDetailsExceptionHandler`, registered by `AddEfProblemDetails()`; the app generates no `IExceptionHandler`. Its status comes from the EF.Common `ExceptionClassifier`, the one exception taxonomy the HTTP handler and the gRPC `ServiceErrorInterceptor` share. The app adds only its own mappings. This is the **safety net** - not a control-flow mechanism. All expected business outcomes flow through `Result<T>`/`DomainResult<T>`.
+The global exception handler is the EF.AspNetCore `ProblemDetailsExceptionHandler`, registered by `AddEfProblemDetails()`; the app generates no `IExceptionHandler`. Its status comes from the EF.Common `ExceptionClassifier`, the one exception taxonomy the HTTP handler and the gRPC `ServiceErrorInterceptor` share. The app adds only its own mappings. This is the **safety net** - not a control-flow mechanism. Expected outcomes, and infrastructure failures a service catches (never 400: [ef-packages-reference.md](../support/ef-packages-reference.md) `Error` row), are `Result<T>` errors.
 
 ## Template
 
@@ -65,7 +65,7 @@ app.UseExceptionHandler();
 
 ## Rules
 
-- **Safety net only** - business validation errors must use `Result<T>` / `DomainResult<T>`, never exceptions.
+- **Safety net only** - business errors are `Result<T>` errors, never exceptions.
 - **Map only the app's own client-input exceptions to 400.** Framework exceptions (table above) are server bugs: a 4xx would hide them and echo their text. Input the app rejects by exception uses its own type, mapped here.
 - Detail: full `exception.ToString()` in Development only (`ExceptionHandlingOptions.IncludeExceptionDetails`). Outside Development a 5xx carries no exception text; SQL, connection, and internal messages belong in the log.
 - 499 only when `HttpContext.RequestAborted` is cancelled. Any other cancellation is a server-side timeout: 504.
@@ -79,4 +79,3 @@ app.UseExceptionHandler();
 - [ ] `AddEfProblemDetails()` and `AddExceptionClassifier(MapExceptions)` registered in `RegisterApiServices.cs`; no app `IExceptionHandler` and no second `AddProblemDetails` customizer
 - [ ] `UseExceptionHandler()` called in pipeline before routing
 - [ ] Exception text gated by environment and every mapped status **proved by `tests/Test.Endpoints/Middleware/ExceptionMappingTests.cs`** - generate it from [test-templates-endpoint.md](test-templates-endpoint.md) section Exception Mapping Tests
-- [ ] No business logic errors handled here - those use `Result<T>` pattern

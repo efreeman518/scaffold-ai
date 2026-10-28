@@ -1,7 +1,5 @@
 # gRPC
 
-Base types (error interceptors, registration helpers) come from the `EF.Grpc` package - see [package-dependencies.md](package-dependencies.md) and the [EF.Packages repo](https://github.com/efreeman518/EF.Packages) for full API details.
-
 ## Prerequisites
 
 - [package-dependencies.md](package-dependencies.md) - `EF.Grpc` package types
@@ -68,25 +66,21 @@ message {Entity}Response {
 ```csharp
 namespace {Project}.Api.Grpc;
 
-public class {Entity}GrpcService(
-    I{Entity}Service entityService,
-    ILogger<{Entity}GrpcService> logger) : {Entity}Service.{Entity}ServiceBase
+public class {Entity}GrpcService(I{Entity}Service entityService) : {Entity}Service.{Entity}ServiceBase
 {
-    public override async Task<{Entity}Response> Get{Entity}(
-        Get{Entity}Request request, ServerCallContext context)
+    public override async Task<{Entity}Response> Get{Entity}(Get{Entity}Request request, ServerCallContext context)
     {
         var result = await entityService.GetAsync(Guid.Parse(request.Id), context.CancellationToken);
 
-        return result.Match(
-            entity => new {Entity}Response
-            {
-                Id = entity.Id.ToString(),
-                Name = entity.Name,
-                Description = entity.Description
-            },
-            errors => throw new RpcException(new Status(StatusCode.InvalidArgument,
-                string.Join("; ", errors.Select(e => e.Error)))),
-            () => throw new RpcException(new Status(StatusCode.NotFound, "Entity not found")));
+        // Error categories map to status codes as EF.AspNetCore maps them to HTTP; no discard arm.
+        return result switch
+        {
+            DefaultResponse<{Entity}Dto> { Item: { } item } => item.ToProto(),
+            DefaultResponse<{Entity}Dto> or NotFoundError => throw new RpcException(new Status(StatusCode.NotFound, "Not found.")),
+            ForbiddenError f => throw new RpcException(new Status(StatusCode.PermissionDenied, f.Message)),
+            UnexpectedError => throw new RpcException(new Status(StatusCode.Internal, "Read failed.")),
+            Error error => throw new RpcException(new Status(StatusCode.InvalidArgument, error.Message)),
+        };
     }
 }
 ```

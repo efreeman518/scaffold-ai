@@ -10,7 +10,7 @@
 
 Validates DTO structure (required fields, string lengths, enum ranges, child collection constraints) **before** domain factory/update calls. Static class - no DI registration needed.
 
-Returns `Result<{Entity}Dto>` so services can short-circuit on invalid input without touching the domain layer.
+Returns `Result<{Entity}Dto>`: the DTO, or one `ValidationError` (400) carrying every `ValidationIssue`, so callers short-circuit before the domain layer.
 
 > **Multi-tenant toggle:** the common checks are `EntityDtoRules.ValidateCreate` / `ValidateUpdate` (EF.Common.Contracts), which constrain on `ITenantEntityDto` and fail with `dto.required`, `tenant.required` or `id.required`. Generate no shared `StructureValidators` class. For single-tenant scaffolds the DTO does not implement `ITenantEntityDto`: replace the common call with a null check (and an `Id` check on update).
 
@@ -37,47 +37,43 @@ internal static class {Entity}StructureValidator
     public static Result<{Entity}Dto> ValidateCreate({Entity}Dto dto)
     {
         // Common checks (null, TenantId)
-        var common = EntityDtoRules.ValidateCreate(dto);
-        if (common.IsFailure) return Result<{Entity}Dto>.Failure(common.Errors);
+        var common = EntityDtoRules.ValidateCreate(dto);   // Result<Unit>
+        if (common.TryGetValue(out Error? commonError)) return commonError;
 
-        var errors = new List<DomainError>();
+        var errors = new List<ValidationIssue>();
 
         // Entity-specific field checks
         if (string.IsNullOrWhiteSpace(dto.Name))
-            errors.Add(DomainError.Create("{Entity} name is required."));
+            errors.Add(new ValidationIssue("{Entity} name is required."));
 
         if (dto.Name?.Length > DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX)
-            errors.Add(DomainError.Create($"{Entity} name cannot exceed {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX} characters."));
+            errors.Add(new ValidationIssue($"{Entity} name cannot exceed {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX} characters."));
 
         if (dto.Description?.Length > DomainConstants.RULE_DEFAULT_DESCRIPTION_LENGTH_MAX)
-            errors.Add(DomainError.Create($"Description cannot exceed {DomainConstants.RULE_DEFAULT_DESCRIPTION_LENGTH_MAX} characters."));
+            errors.Add(new ValidationIssue($"Description cannot exceed {DomainConstants.RULE_DEFAULT_DESCRIPTION_LENGTH_MAX} characters."));
 
-        return errors.Count > 0
-            ? Result<{Entity}Dto>.Failure(errors)
-            : Result<{Entity}Dto>.Success(dto);
+        return errors.Count > 0 ? new ValidationError(errors) : dto;
     }
 
     public static Result<{Entity}Dto> ValidateUpdate({Entity}Dto dto)
     {
         // Common checks (null, Id, TenantId)
         var common = EntityDtoRules.ValidateUpdate(dto);
-        if (common.IsFailure) return Result<{Entity}Dto>.Failure(common.Errors);
+        if (common.TryGetValue(out Error? commonError)) return commonError;
 
-        var errors = new List<DomainError>();
+        var errors = new List<ValidationIssue>();
 
         // Reuse shared field checks
         if (string.IsNullOrWhiteSpace(dto.Name))
-            errors.Add(DomainError.Create("{Entity} name is required."));
+            errors.Add(new ValidationIssue("{Entity} name is required."));
 
         if (dto.Name?.Length > DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX)
-            errors.Add(DomainError.Create($"{Entity} name cannot exceed {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX} characters."));
+            errors.Add(new ValidationIssue($"{Entity} name cannot exceed {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX} characters."));
 
         if (dto.Description?.Length > DomainConstants.RULE_DEFAULT_DESCRIPTION_LENGTH_MAX)
-            errors.Add(DomainError.Create($"Description cannot exceed {DomainConstants.RULE_DEFAULT_DESCRIPTION_LENGTH_MAX} characters."));
+            errors.Add(new ValidationIssue($"Description cannot exceed {DomainConstants.RULE_DEFAULT_DESCRIPTION_LENGTH_MAX} characters."));
 
-        return errors.Count > 0
-            ? Result<{Entity}Dto>.Failure(errors)
-            : Result<{Entity}Dto>.Success(dto);
+        return errors.Count > 0 ? new ValidationError(errors) : dto;
     }
 }
 ```

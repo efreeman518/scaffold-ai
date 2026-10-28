@@ -103,7 +103,7 @@ public abstract record EntityBaseDto : IEntityBaseDto
 ```csharp
 using System.Linq.Expressions;
 using EF.Common;
-using EF.Domain.Contracts;  // DomainResult<T> lives here, NOT in EF.Domain
+using EF.Domain.Contracts;  // Result<T> lives here, NOT in EF.Domain
 
 namespace Application.Mappers;
 
@@ -139,8 +139,8 @@ public static class {Entity}Mapper
 
     public static {Entity}Dto ToDto(this {Entity} entity) => Compiled(entity);
 
-    // ===== DTO -> Entity (factory, returns DomainResult) =====
-    public static DomainResult<{Entity}> ToEntity(this {Entity}Dto dto, Guid tenantId)
+    // ===== DTO -> Entity (factory, returns Result) =====
+    public static Result<{Entity}> ToEntity(this {Entity}Dto dto, Guid tenantId)
     {
         // tenantId is the server-authoritative request-context value, never dto.TenantId fallback.
         // Create value objects from flattened DTO fields here, then pass successful values into the factory.
@@ -195,7 +195,7 @@ public static class {ChildEntity}Mapper
 - Mappers are **static classes** in `Application.Mappers/` -- separate project, no DI, no state
 - **`Projection`** -- Canonical full DTO shape. EF uses it with `.Select(Projection)`; `ToDto()` reuses its compiled delegate for in-memory mapping.
 - **`ToDto()`** -- Extension method on entity. Route through cached `Projection.Compile()` delegate, not a second hand-written mapping.
-- **`ToEntity()`** -- Extension method on DTO. Returns `DomainResult<T>` (delegates to domain factory) and receives the server-authoritative tenant explicitly; it must not read or recover tenant ownership from `dto.TenantId`.
+- **`ToEntity()`** -- Extension method on DTO. Returns `Result<T>` (delegates to domain factory) and receives the server-authoritative tenant explicitly; it must not read or recover tenant ownership from `dto.TenantId`.
 - **Query-shape projectors** -- `ProjectorSearch` and `ProjectorStaticItems` are only for shapes with no `ToDto()` twin. Keep them EF-safe.
 - **Multiple projectors per entity** -- `Projection` is the canonical full shape. Add `ProjectorSearch` only when list/grid rows intentionally omit fields or children. Keep `ProjectorStaticItems` for lookup DTOs.
 - **No mapper registration** -- Static classes, no DI needed.

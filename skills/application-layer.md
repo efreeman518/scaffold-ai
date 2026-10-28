@@ -13,7 +13,7 @@ Create orchestration stays explicit: extract DTO -> stamp trusted request-contex
 
 The application layer owns DTOs, contracts, static mappers, orchestration services, validation helpers, and internal message handlers. Domain invariants stay in domain factories/methods.
 
-Base types (`IRequestContext`, `Result<T>`): [../support/ef-packages-reference.md](../support/ef-packages-reference.md) - do not regenerate these. DomainResult mechanics (factory results, Bind/Map chaining, error surface): [domain-model.md](domain-model.md) section DomainResult Pattern.
+Base types (`IRequestContext`, `Result<T>`, the `Error` categories) and the Result idioms: [../support/ef-packages-reference.md](../support/ef-packages-reference.md) section Domain Layer - do not regenerate these.
 
 ## Non-Negotiables
 
@@ -103,7 +103,7 @@ Service rules:
 6. **CreateAsync must apply ALL DTO properties** - `Entity.Create()` only takes factory args. Call `entity.Update(...)` afterward to apply remaining DTO fields (e.g., EstimatedHours, ActualHours). If `Update()` triggers `Valid()`, propagate failures.
 7. **SaveChangesAsync overload** - Always use the two-parameter overload. Default application writes to `SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct)` so conflict handling remains reachable. Use `ClientWins` only for a recorded last-write-wins requirement. The single-parameter `SaveChangesAsync(ct)` names no conflict strategy.
 8. **`BuildResponse` helper** - Each service should have a private static `BuildResponse({Entity}Dto dto)` that returns `new DefaultResponse<{Entity}Dto> { Item = dto }` (add `TenantInfo` when multi-tenant). Centralizes response construction.
-9. **`ErrorConstants`** - Use `ErrorConstants.ERROR_ITEM_NOTFOUND` in Update not-found paths (not inline strings).
+9. **Not found** - Get returns `new NotFoundError(ErrorConstants.ERROR_ITEM_NOTFOUND)`; Update returns `new DefaultResponse<{Entity}Dto> { Item = null }`, which the endpoint answers 404.
 10. **`nameof({Entity})`** - Use in all boundary-validator calls and error messages.
 
 Flow pattern:
@@ -118,16 +118,16 @@ When `.scaffold/resource-implementation.yaml` sets `applicationStyle: cqrs` or `
 
 - `Features/{Entity}/{Entity}Requests.cs` contains one command/query record per endpoint operation and implements `ICommand<TResponse>` or `IQuery<TResponse>`.
 - `Features/{Entity}/{Entity}Handlers.cs` contains one `IRequestHandler<TRequest,TResponse>` implementation per request. No handler implements `I{Entity}Service`.
-- `Features/{Entity}/{Entity}CqrsRegistrations.cs` owns that feature's `CqrsHandlerRegistration` entries.
+- `Features/{Entity}/{Entity}CqrsRegistrations.cs` owns that feature's `RequestHandlerRegistration` entries.
 - `Features/{Entity}/{Entity}CommandValidators.cs` owns CQRS-specific `IRequestValidator<TRequest>` implementations when validation should happen before handler execution.
 - `Features/{Entity}/{Entity}StructureValidator.cs` may mirror service structure validation when the CQRS path needs its own validator surface.
-- `Features/Shared/` owns small CQRS-only helpers such as response wrapping, save error handling, search cancellation handling, best-effort event publishing, validation result mapping, tenant boundary helpers, and shared error text.
+- `Features/Shared/` owns small CQRS-only helpers: response wrapping (`HandlerHelpers`), save-failure and validation-result mapping (`CqrsHandlerSupport`), shared error text. Searches get no helper.
 - `Registration/CqrsHandlerRegistrationCatalog.cs` aggregates feature-owned registration fragments.
-- `Registration/CqrsApplicationRegistration.cs` owns `Add{Project}CqrsApplication(...)` and registers validators plus decorated handlers.
+- `Registration/CqrsApplicationRegistration.cs` owns `Add{Project}CqrsApplication(...)`: validators, then every handler (searches included) in one `AddDecoratedRequestHandlers` call.
 
 Keep DTOs and static mappers in `Application.Models` and `Application.Mappers` by default. This mirrors TaskFlow and keeps `service`, `cqrs`, and `switch` styles on one HTTP contract and one repository projection surface. For a CQRS-only or stricter vertical-slice implementation, move feature-specific models, mappers, projections, validators, or persistence adapters into `Features/{Entity}` when those shapes intentionally diverge from the shared API contract.
 
-Use `EF.CQRS` / `<packagePrefix>.CQRS` only for handler contracts, validators, decorator registration, and validation response factories. Do not add MediatR, a dispatcher, a request bus, or a generic `Send` method. Minimal API endpoints inject the specific handler they call.
+Use `EF.CQRS` / `<packagePrefix>.CQRS` only for handler contracts, validators, and decorator registration. Do not add MediatR, a dispatcher, a request bus, or a generic `Send` method. Minimal API endpoints inject the specific handler they call.
 
 For greenfield scaffolds, CQRS handlers should orchestrate the same repositories, mappers, validators, tenant rules, cache, and event publishers that services use. For brownfield refactors, a CQRS handler may delegate to an existing service only when that preserves established behavior and the architecture tests still prove the CQRS layer has no host/infrastructure dependency and does not implement service contracts.
 

@@ -1,11 +1,11 @@
 # Domain Model
 
-> **When to read:** Phase 5a, when building entities, value objects, domain rules, or factory `Create()` methods returning `DomainResult<T>`.
+> **When to read:** Phase 5a, when building entities, value objects, domain rules, or factory `Create()` methods returning `Result<T>`.
 > **Skip if:** Phase 5b+ where the domain layer is already in place; non-domain work (services, endpoints, infra).
 
 ## Overview
 
-Domain entities use a **rich domain model** pattern with factory creation, private setters, encapsulated validation, and `DomainResult<T>` for railway-oriented error handling. No public constructors - all creation goes through static `Create()` methods.
+Domain entities use a **rich domain model** pattern with factory creation, private setters, encapsulated validation, and `Result<T>` for typed failures. No public constructors - all creation goes through static `Create()` methods.
 
 Model business language and invariants first. Entity methods should answer what business actions are allowed under what conditions; controllers, services, DTOs, EF configuration, and UI code should not be the only place the rule exists.
 
@@ -38,15 +38,13 @@ Reference patterns: [../patterns/expected-output-index.md](../patterns/expected-
 
 ## Key Design Rules
 
-1. **No public constructors** - Always use `static Create()` that returns `DomainResult<T>`
+1. **No public constructors** - Always use `static Create()` that returns `Result<T>`
 2. **Private setters** - State changes only through domain methods (`Update()`, `Add*()`, `Remove*()`)
 3. **`init` for invariants** - Properties that must not change after creation (e.g., `TenantId`) use `init`
 4. **Validation on create AND update** - `Valid()` is called in both paths
-5. **DomainResult chaining** - Use `.Bind()` and `.Map()` for composing operations:
+5. **Result composition** - `.Bind()` / `.Map()` chain operations; a child method's value maps back to the parent:
    ```csharp
-   return entity.Update(name: dto.Name)
-       .Bind(e => e.AddChild(child))
-       .Map(e => e);  // unwrap to parent
+   return entity.Update(name: dto.Name).Bind(e => e.AddChild(child)).Map(_ => entity);
    ```
 6. **Private parameterless constructor for EF** - Required for materialization, never used directly
 7. **Collection properties** - Use `ICollection<T>` initialized to `[]`. Never expose `List<T>`.
@@ -55,8 +53,8 @@ Reference patterns: [../patterns/expected-output-index.md](../patterns/expected-
    public Email? PrimaryEmail => Emails.FirstOrDefault(e => e.ContactType == ContactType.Primary)?.Email;
    ```
 9. **DomainConstants for validation limits** - `Valid()` uses constants from `Domain.Shared/Constants/DomainConstants.cs`, not magic numbers. See [DomainConstants](#domainconstants-domainshared) below.
-10. **Remove overloads** - Provide both `Remove{Child}({Child} entity)` and `Remove{Child}(Guid id)` overloads. The Guid overload looks up the entity in the collection and removes it. Both return `DomainResult.Success()` unconditionally (desired-state pattern).
-11. **Idempotent Add** - `Add{Child}` / `AssociateTag` checks for duplicates first and returns `Success(existing)` if already present.
+10. **Remove overloads** - Provide both `Remove{Child}({Child} entity)` and `Remove{Child}(Guid id)` overloads. The Guid overload looks up the entity in the collection and removes it. Both return `Result.Ok()` unconditionally (desired-state pattern).
+11. **Idempotent Add** - `Add{Child}` / `AssociateTag` checks for duplicates first and returns the existing child if already present.
 
 ## Aggregate Roots vs Internal Children (GR-15)
 
@@ -104,13 +102,10 @@ public sealed record DateRange  // Value object, no EntityBase
         EndDate = endDate;
     }
 
-    public static DomainResult<DateRange> Create(DateTimeOffset startDate, DateTimeOffset? endDate)
-    {
-        if (endDate is not null && endDate <= startDate)
-            return DomainResult<DateRange>.Failure("End date must be after start date.");
-
-        return DomainResult<DateRange>.Success(new DateRange(startDate, endDate));
-    }
+    public static Result<DateRange> Create(DateTimeOffset startDate, DateTimeOffset? endDate) =>
+        endDate is not null && endDate <= startDate
+            ? new ValidationError("End date must be after start date.", nameof(EndDate))
+            : new DateRange(startDate, endDate);
 }
 ```
 
@@ -189,27 +184,20 @@ public static class DomainConstants
 Entity `Valid()` example:
 ```csharp
 if (Name.Length < DomainConstants.RULE_DEFAULT_NAME_LENGTH_MIN)
-    errors.Add(DomainError.Create($"Name must be at least {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MIN} characters."));
+    errors.Add(new ValidationIssue($"Name must be at least {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MIN} characters.", nameof(Name)));
 ```
 
 ## Domain Rules
 
-A rule lives on the aggregate method that changes the guarded state: `Valid()` for field invariants, a guarded `Transition` for lifecycle moves ([entity-template.md](../templates/entity-template.md); reference `TaskItem.TransitionStatus`). Merge independent checks with `DomainResult.Combine`. Generate no rule-object layer (`IRule`, rule classes, `Domain.Model/Rules/`). Rules are pure; a rule that needs stored data (uniqueness, cross-aggregate counts) belongs in the application service.
+A rule lives on the aggregate method that changes the guarded state: `Valid()` for field invariants, a guarded `Transition` for lifecycle moves ([entity-template.md](../templates/entity-template.md); reference `TaskItem.TransitionStatus`). Field invariants fail with `ValidationError` (issues carry `Field`); a lifecycle or business rule on valid input fails with `RuleError` and an app code (`task.status_transition`, 422). Merge independent checks with `Result.Combine`. Generate no rule-object layer (`IRule`, rule classes, `Domain.Model/Rules/`). Rules are pure; a rule that needs stored data (uniqueness, cross-aggregate counts) belongs in the application service.
 
 ## Domain Services
 
 Use a domain service only when a business rule spans multiple aggregates and does not belong naturally to one entity. Domain services stay pure domain logic: no database calls, no HTTP clients, no email, no queues, no clock reads unless passed in as values. Application services load aggregates, call entity/domain-service methods, save changes, and trigger infrastructure side effects.
 
-## DomainResult Pattern
+## Result Pattern
 
-`DomainResult<T>` provides:
-- `DomainResult<T>.Success(value)` - successful operation
-- `DomainResult<T>.Failure(errors)` - validation failure with error list
-- `.Bind(func)` - chain operations, short-circuiting on failure
-- `.Map(func)` - transform the success value
-- `.IsSuccess` / `.IsFailure` - check state
-- `.Value` - the success value (null on failure)
-- `.ErrorMessage` - combined error string (null on success)
+`Result<T>`, the `Error` categories and the idioms (return either case, propagate with `TryGetValue`, exhaustive switch, `.Value` is never the success value): [ef-packages-reference.md](../support/ef-packages-reference.md) section Domain Layer.
 
 ---
 
@@ -218,7 +206,7 @@ Use a domain service only when a business rule spans multiple aggregates and doe
 After generating domain entities, confirm:
 
 - [ ] Entity inherits from `EntityBase<{Entity}Id>` (+ `ITenantEntity<TenantId>` for multi-tenant - NOT `AuditableBase`)
-- [ ] Private/protected constructor + static `Create()` factory method returning `DomainResult<T>`
+- [ ] Private/protected constructor + static `Create()` factory method returning `Result<T>`
 - [ ] All setters are `private set` - mutations go through named methods
 - [ ] Flags enum is defined with `[Flags]` attribute and `None = 0` value
 - [ ] Child collections use `ICollection<T>` with controlled mutation methods (`Add/Remove`) on the entity
@@ -226,8 +214,8 @@ After generating domain entities, confirm:
 - [ ] `Add*()` checks for duplicates and returns `Success(existing)` if already present (idempotent)
 - [ ] Concurrency uses the inherited `Version` (mapped by `RegisterVersionConcurrencyTokens`, not in entity)
 - [ ] No infrastructure concerns (no EF attributes, no `DbContext`, no DTOs)
-- [ ] Value objects are immutable, validate through factory methods returning `DomainResult<T>`, and stay domain-side while DTOs flatten their fields
-- [ ] Entity factory folds each VO's `Create()` `DomainResult` into the aggregate `Valid()` error list (one pass, no short-circuit); a non-validating `From()` handles EF/materialization - see [entity-template.md](../templates/entity-template.md)
+- [ ] Value objects are immutable, validate through factory methods returning `Result<T>`, and stay domain-side while DTOs flatten their fields
+- [ ] Entity factory folds each VO's `Create()` failure issues into the aggregate `Valid()` error list (one pass, no short-circuit); a non-validating `From()` handles EF/materialization - see [entity-template.md](../templates/entity-template.md)
 - [ ] `Valid()` uses `DomainConstants` for length/range limits, not magic numbers
 - [ ] `DomainConstants.cs` exists in `Domain.Shared/Constants/` with all validation limits
 - [ ] Shared entities (Tag, etc.) are `sealed class` with `IEquatable<T>` and `Normalize` helper
@@ -235,8 +223,8 @@ After generating domain entities, confirm:
 
 ## Pitfalls
 
-- Anemic entities (only auto-properties; all behavior pushed to services) - defeats the rich domain model and lets services drift into god classes. Encapsulate invariants on the entity; expose mutation via named methods returning `DomainResult`.
-- Public constructors on entities - bypasses validation and the `DomainResult<T>` failure path. All creation goes through static `Create()`.
+- Anemic entities (only auto-properties; all behavior pushed to services) - defeats the rich domain model and lets services drift into god classes. Encapsulate invariants on the entity; expose mutation via named methods returning `Result<T>`.
+- Public constructors on entities - bypasses validation and the `Result<T>` failure path. All creation goes through static `Create()`.
 - Public setters - the entity loses control over which transitions are valid. Use `private set` and a named mutation method per state change.
 - Using an enum where a closed value-object set is the right model (e.g., shipping address, money amount, schedule expression) - enums collapse business meaning to a label; value objects keep behavior and equality with the data.
 - Exposing value objects directly through DTOs by default - couples API contracts to domain internals. Flatten fields at the boundary and reconstruct value objects in mappers/application code.

@@ -20,7 +20,7 @@ public sealed record Create{Entity}Command(DefaultRequest<{Entity}Dto> Request)
 public sealed record Update{Entity}Command(DefaultRequest<{Entity}Dto> Request, long? ExpectedVersion)
     : ICommand<Result<DefaultResponse<{Entity}Dto>>>;
 
-public sealed record Delete{Entity}Command(Guid Id, long? ExpectedVersion) : ICommand<Result>;
+public sealed record Delete{Entity}Command(Guid Id, long? ExpectedVersion) : ICommand<Result<Unit>>;
 
 internal sealed class Create{Entity}Handler(
     ILogger<Create{Entity}Handler> logger,
@@ -38,22 +38,22 @@ internal sealed class Create{Entity}Handler(
         dto.TenantId = authoritativeTenantId; // overwrite untrusted payload; never fall back to dto.TenantId
 
         var validation = {Entity}StructureValidator.ValidateCreate(dto);
-        if (validation.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(validation.Errors);
+        if (validation.TryGetValue(out Error? validationError)) return validationError;
 
         var boundary = tenantBoundaryValidator.EnsureTenantBoundary(   // EF.Tenancy
             requestContext.TenantId, requestContext.Roles, authoritativeTenantId,
             "{Entity}:Create", nameof({Entity}));
-        if (boundary.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(boundary.ErrorMessage!);
+        if (boundary.TryGetValue(out Error? boundaryError)) return boundaryError;
 
         var entityResult = dto.ToEntity(authoritativeTenantId)
             .Bind(e => repoTrxn.UpdateFromDto(e, dto));
-        if (entityResult.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(entityResult.ErrorMessage!);
+        if (entityResult.TryGetValue(out Error? entityError)) return entityError;
 
-        var entity = entityResult.Value!;
+        var entity = entityResult.GetValueOrThrow();
         repoTrxn.Create(ref entity);
 
         var save = await CqrsHandlerSupport.TrySaveAsync(repoTrxn, logger, "Error creating {Entity}", ct);
-        if (save.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(save.ErrorMessage!);
+        if (save.TryGetValue(out Error? saveError)) return saveError;
 
         return HandlerHelpers.Success(entity.ToDto());
     }
@@ -75,7 +75,7 @@ internal sealed class Update{Entity}Handler(
         dto.TenantId = authoritativeTenantId;
 
         var validation = {Entity}StructureValidator.ValidateUpdate(dto);
-        if (validation.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(validation.Errors);
+        if (validation.TryGetValue(out Error? validationError)) return validationError;
 
         return await ConcurrencyRetry.RunAsync(repoTrxn, command.ExpectedVersion,   // If-Match: * retries (service-template.md)
             attemptCt => UpdateOnceAsync(dto, authoritativeTenantId, command.ExpectedVersion, attemptCt), ct);
@@ -85,25 +85,24 @@ internal sealed class Update{Entity}Handler(
         {Entity}Dto dto, Guid authoritativeTenantId, long? expectedVersion, CancellationToken ct)
     {
         var entity = await repoTrxn.Get{Entity}Async(dto.Id!.Value, true, ct);
-        if (entity == null)
-            return Result<DefaultResponse<{Entity}Dto>>.Failure($"{ErrorConstants.ERROR_ITEM_NOTFOUND}: {dto.Id}");
+        if (entity == null) return new NotFoundError(ErrorConstants.ERROR_ITEM_NOTFOUND);
 
         var boundary = tenantBoundaryValidator.EnsureTenantBoundary(
             requestContext.TenantId, requestContext.Roles, entity.TenantId.Value,
             "{Entity}:Update", nameof({Entity}), entity.Id.Value);
-        if (boundary.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(boundary.ErrorMessage!);
+        if (boundary.TryGetValue(out Error? boundaryError)) return boundaryError;
 
         ConcurrencyGuard.Require(expectedVersion, entity.Version, nameof({Entity}), entity.Id.Value);
 
         var tenantChange = tenantBoundaryValidator.PreventTenantChange(
             entity.TenantId.Value, authoritativeTenantId, nameof({Entity}), entity.Id.Value);
-        if (tenantChange.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(tenantChange.ErrorMessage!);
+        if (tenantChange.TryGetValue(out Error? tenantChangeError)) return tenantChangeError;
 
         var update = repoTrxn.UpdateFromDto(entity, dto, RelatedDeleteBehavior.RelationshipAndEntity);
-        if (update.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(update.ErrorMessage!);
+        if (update.TryGetValue(out Error? updateError)) return updateError;
 
         var save = await CqrsHandlerSupport.TrySaveAsync(repoTrxn, logger, "Error updating {Entity}", ct);
-        if (save.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(save.ErrorMessage!);
+        if (save.TryGetValue(out Error? saveError)) return saveError;
 
         return HandlerHelpers.Success(entity.ToDto());
     }
@@ -114,20 +113,20 @@ internal sealed class Delete{Entity}Handler(
     IRequestContext<string, Guid?> requestContext,
     I{Entity}RepositoryTrxn repoTrxn,
     ITenantBoundaryValidator tenantBoundaryValidator)
-    : IRequestHandler<Delete{Entity}Command, Result>
+    : IRequestHandler<Delete{Entity}Command, Result<Unit>>
 {
-    public Task<Result> HandleAsync(Delete{Entity}Command command, CancellationToken ct = default) =>
+    public Task<Result<Unit>> HandleAsync(Delete{Entity}Command command, CancellationToken ct = default) =>
         ConcurrencyRetry.RunAsync(repoTrxn, command.ExpectedVersion, attemptCt => DeleteOnceAsync(command, attemptCt), ct);
 
-    private async Task<Result> DeleteOnceAsync(Delete{Entity}Command command, CancellationToken ct)
+    private async Task<Result<Unit>> DeleteOnceAsync(Delete{Entity}Command command, CancellationToken ct)
     {
         var entity = await repoTrxn.Get{Entity}Async(command.Id, false, ct);
-        if (entity == null) return Result.Success();   // idempotent
+        if (entity == null) return Result.Ok();   // idempotent
 
         var boundary = tenantBoundaryValidator.EnsureTenantBoundary(
             requestContext.TenantId, requestContext.Roles, entity.TenantId.Value,
             "{Entity}:Delete", nameof({Entity}), entity.Id.Value);
-        if (boundary.IsFailure) return Result.Failure(boundary.ErrorMessage!);
+        if (boundary.TryGetValue(out Error? boundaryError)) return boundaryError;
 
         ConcurrencyGuard.Require(command.ExpectedVersion, entity.Version, nameof({Entity}), entity.Id.Value);
 
@@ -140,16 +139,14 @@ internal sealed class Delete{Entity}Handler(
 Rules:
 
 - **Derive repository call sites from the actual contract (GR-14).** Before writing handler bodies, read the repository interface the handler injects (vendored source under `src/Packages/<packagePrefix>.Data.Contracts`, or [repository-template.md](repository-template.md) section Generic Repository Pair) or the first green handler in the codebase, and call only members that exist there. `IRepositoryQuery<TEntity, TId>` exposes `GetAsync(id)` and `ListAsync(predicate)` - there is no `QueryPageAsync` on it. Paged search goes through the bespoke `I{Entity}RepositoryQuery.Search{Entities}Async` (which uses the protected `RepositoryBase.QueryPageProjectionAsync` internally). Do not invent method names from conventions; a plausible name that compiles nowhere costs a fix in every generated handler.
-- Avoid central request dispatchers, request buses, and generic `Send()` entrypoints.
-- Reason: keep route -> request -> handler flow explicit and registered once.
-- One command/query maps to one handler registration.
+- One command/query maps to one handler registration; no dispatcher, request bus or generic `Send()`.
 - Multi-tenant create/update handlers overwrite DTO `TenantId` from `IRequestContext` before validation/mapping. Keep the field for contract compatibility, but never use payload tenant as fallback when context is missing.
 - Create handlers apply `UpdateFromDto` after the factory so non-factory fields and aggregate children match service-style behavior.
 - Update and delete commands carry `long? ExpectedVersion` (the endpoint passes `ifMatch.ExpectedVersion`); the handler calls `ConcurrencyGuard.Require(command.ExpectedVersion, entity.Version, nameof({Entity}), entity.Id.Value)` right after the load and boundary check, exactly as [service-template.md](service-template.md) does.
 - Handler injects only repositories and collaborators it uses.
 - Reuse existing repository contracts; do not create CQRS-specific repositories unless the domain needs a genuinely different abstraction.
-- Keep DTOs in `Application.Models` and mappers in `Application.Mappers` for the default scaffold and TaskFlow reference app. For a CQRS-only or stricter vertical-slice implementation, move feature-specific models, mappers, projections, or adapters into the feature folder when the CQRS contract intentionally differs.
-- Use `CqrsHandlerSupport` only for small ceremony: save error handling, search cancellation, best-effort publish, and validation-result mapping. Do not hide create/update/delete flow behind generic base handlers.
+- Handlers return `Result<T>` / `Result<Unit>`, propagating per [../support/ef-packages-reference.md](../support/ef-packages-reference.md) Result idioms. Search handlers return plain `PagedResponse<{Entity}Dto>` in the same catalog; no custom validation failure factory ([../support/ef-packages-optional.md](../support/ef-packages-optional.md) section CQRS).
+- `CqrsHandlerSupport` holds small ceremony only: `TrySaveAsync` (save failures as in [service-template.md](service-template.md) Common Mistake 5) and `ToValidationResult` ([cqrs-validation-template.md](cqrs-validation-template.md)); searches get no helper, so cancellation propagates. Do not hide create/update/delete flow behind generic base handlers.
 
 Per-feature registration fragment:
 
@@ -158,11 +155,11 @@ namespace {Project}.Application.Cqrs.Features.{EntityPlural};
 
 internal static class {Entity}CqrsRegistrations
 {
-    public static IReadOnlyList<CqrsHandlerRegistration> Registrations { get; } =
+    public static IReadOnlyList<RequestHandlerRegistration> Registrations { get; } =
     [
         new(typeof(Create{Entity}Command), typeof(Result<DefaultResponse<{Entity}Dto>>), typeof(Create{Entity}Handler)),
         new(typeof(Update{Entity}Command), typeof(Result<DefaultResponse<{Entity}Dto>>), typeof(Update{Entity}Handler)),
-        new(typeof(Delete{Entity}Command), typeof(Result), typeof(Delete{Entity}Handler)),
+        new(typeof(Delete{Entity}Command), typeof(Result<Unit>), typeof(Delete{Entity}Handler)),
     ];
 }
 ```
@@ -172,7 +169,7 @@ Root catalog aggregates feature fragments:
 ```csharp
 public static class CqrsHandlerRegistrationCatalog
 {
-    public static IReadOnlyList<CqrsHandlerRegistration> Registrations { get; } =
+    public static IReadOnlyList<RequestHandlerRegistration> Registrations { get; } =
     [
         ..{Entity}CqrsRegistrations.Registrations,
     ];

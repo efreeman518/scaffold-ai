@@ -1,6 +1,6 @@
 # Identity Management
 
-Use this skill when domain inputs enable `authProvider` and the solution needs authentication or identity-backed user management. **This skill is applied in the integration phase (Phase 5e)** - earlier phases use auth stubs so the project compiles and runs without identity configuration.
+Use this skill when domain inputs enable `authProvider` and the solution needs authentication or identity-backed user management. **Applied in Phase 5e** - earlier phases use auth stubs so the project compiles and runs without identity configuration.
 
 Reference patterns: [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) (Conditional Auth Configuration).
 
@@ -327,11 +327,11 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 public interface IEntraExtService
 {
     Task<Result<string>> CreateUserAsync(string email, string displayName, CancellationToken ct = default);
-    Task<Result> InviteUserAsync(string email, string redirectUrl, CancellationToken ct = default);
-    Task<Result> AssignAppRoleAsync(string userId, string appRoleId, CancellationToken ct = default);
-    Task<Result> RemoveAppRoleAsync(string userId, string appRoleId, CancellationToken ct = default);
+    Task<Result<Unit>> InviteUserAsync(string email, string redirectUrl, CancellationToken ct = default);
+    Task<Result<Unit>> AssignAppRoleAsync(string userId, string appRoleId, CancellationToken ct = default);
+    Task<Result<Unit>> RemoveAppRoleAsync(string userId, string appRoleId, CancellationToken ct = default);
     Task<Result<ExternalUserInfo>> GetUserAsync(string userId, CancellationToken ct = default);
-    Task<Result> DisableUserAsync(string userId, CancellationToken ct = default);
+    Task<Result<Unit>> DisableUserAsync(string userId, CancellationToken ct = default);
 }
 ```
 
@@ -347,7 +347,7 @@ public interface IGraphService
 }
 ```
 
-Implementation rule: return `Result`/`Result<T>` from all Graph operations; do not leak exceptions.
+Graph operations return `Result<T>`; a caught Graph failure is a fixed-text, app-coded `UnexpectedError`.
 
 ---
 
@@ -389,7 +389,7 @@ else
 }
 ```
 
-No-op stubs return `Result.Failure("Not configured")` or empty collections and log a warning; never-throw rule and safe-default table: [../templates/no-op-stub-template.md](../templates/no-op-stub-template.md).
+No-op stubs return `UnexpectedError` `graph.not_configured` or empty collections, logging a warning; never-throw rule and safe-default table: [../templates/no-op-stub-template.md](../templates/no-op-stub-template.md).
 
 NuGet:
 

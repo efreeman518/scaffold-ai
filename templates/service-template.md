@@ -19,6 +19,7 @@
 using EF.Cache;
 using EF.Common.Contracts;
 using EF.Data.Contracts;
+using EF.Domain.Contracts;
 using EF.Tenancy;   // [MULTI-TENANT]
 
 namespace Application.Services;
@@ -57,15 +58,15 @@ internal class {Entity}Service(
     public async Task<Result<DefaultResponse<{Entity}Dto>>> GetAsync(Guid id, CancellationToken ct = default)
     {
         var entity = await repoTrxn.Get{Entity}Async(id, true, ct);
-        if (entity == null) return Result<DefaultResponse<{Entity}Dto>>.None();
+        if (entity == null) return new NotFoundError(ErrorConstants.ERROR_ITEM_NOTFOUND);
 
         // [MULTI-TENANT]
         var boundary = tenantBoundaryValidator.EnsureTenantBoundary(
             RequestTenantId, RequestRoles, entity.TenantId.Value,
             "{Entity}:Get", nameof({Entity}), entity.Id.Value);
-        if (boundary.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(boundary.ErrorMessage!);
+        if (boundary.TryGetValue(out Error? boundaryError)) return boundaryError;
 
-        return Result<DefaultResponse<{Entity}Dto>>.Success(BuildResponse(entity.ToDto()));
+        return BuildResponse(entity.ToDto());
     }
 
     // ===== Create =====
@@ -87,21 +88,20 @@ internal class {Entity}Service(
 
         // Structure validation (EntityDtoRules common checks plus the entity's own rules)
         var validation = {Entity}StructureValidator.ValidateCreate(dto);
-        if (validation.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(validation.Errors);
+        if (validation.TryGetValue(out Error? validationError)) return validationError;
 
         // [MULTI-TENANT] Tenant boundary
         var boundary = tenantBoundaryValidator.EnsureTenantBoundary(
             RequestTenantId, RequestRoles, authoritativeTenantId,
             "{Entity}:Create", nameof({Entity}));
-        if (boundary.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(boundary.ErrorMessage!);
+        if (boundary.TryGetValue(out Error? boundaryError)) return boundaryError;
 
         // Create domain entity via factory + UpdateFromDto for children
         var entityResult = dto.ToEntity(authoritativeTenantId)
             .Bind(e => repoTrxn.UpdateFromDto(e, dto));
-        if (entityResult.IsFailure)
-            return Result<DefaultResponse<{Entity}Dto>>.Failure(entityResult.ErrorMessage);
+        if (entityResult.TryGetValue(out Error? entityError)) return entityError;
 
-        var entity = entityResult.Value!;
+        var entity = entityResult.GetValueOrThrow();
         repoTrxn.Create(ref entity);
 
         // The aggregate raised {Entity}CreatedEvent in its factory; when messaging is enabled, the EF.Data.Outbox
@@ -109,7 +109,7 @@ internal class {Entity}Service(
         await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
         logger.LogInformation("{Entity} {Id} created", entity.Id.Value);
 
-        return Result<DefaultResponse<{Entity}Dto>>.Success(BuildResponse(entity.ToDto()));
+        return BuildResponse(entity.ToDto());
     }
 
     // ===== Update =====
@@ -123,12 +123,12 @@ internal class {Entity}Service(
         dto.TenantId = authoritativeTenantId;
 
         var validation = {Entity}StructureValidator.ValidateUpdate(dto);
-        if (validation.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(validation.Errors);
+        if (validation.TryGetValue(out Error? validationError)) return validationError;
 
         // Concrete If-Match runs once (412); `*` (null) retries, 409 when exhausted.
         var result = await ConcurrencyRetry.RunAsync(repoTrxn, expectedVersion,
             attemptCt => UpdateOnceAsync(dto, authoritativeTenantId, expectedVersion, attemptCt), ct);
-        if (result.IsSuccess) await InvalidateAsync(authoritativeTenantId, dto.Id!.Value, ct);
+        if (result is DefaultResponse<{Entity}Dto> { Item: not null }) await InvalidateAsync(authoritativeTenantId, dto.Id!.Value, ct);
         return result;
     }
 
@@ -136,14 +136,13 @@ internal class {Entity}Service(
         {Entity}Dto dto, Guid authoritativeTenantId, long? expectedVersion, CancellationToken ct)
     {
         var entity = await repoTrxn.Get{Entity}Async(dto.Id!.Value, true, ct);
-        if (entity == null)
-            return Result<DefaultResponse<{Entity}Dto>>.Failure($"{ErrorConstants.ERROR_ITEM_NOTFOUND}: {dto.Id}");
+        if (entity == null) return new NotFoundError(ErrorConstants.ERROR_ITEM_NOTFOUND);
 
         // [MULTI-TENANT] Tenant boundary
         var boundary = tenantBoundaryValidator.EnsureTenantBoundary(
             RequestTenantId, RequestRoles, entity.TenantId.Value,
             "{Entity}:Update", nameof({Entity}), entity.Id.Value);
-        if (boundary.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(boundary.ErrorMessage!);
+        if (boundary.TryGetValue(out Error? boundaryError)) return boundaryError;
 
         // Stale If-Match -> PreconditionFailedException -> 412 with the current ETag (RequireIfMatch filter).
         ConcurrencyGuard.Require(expectedVersion, entity.Version, nameof({Entity}), entity.Id.Value);
@@ -151,34 +150,33 @@ internal class {Entity}Service(
         // [MULTI-TENANT] Prevent tenant change
         var tenantChange = tenantBoundaryValidator.PreventTenantChange(
             entity.TenantId.Value, authoritativeTenantId, nameof({Entity}), entity.Id.Value);
-        if (tenantChange.IsFailure) return Result<DefaultResponse<{Entity}Dto>>.Failure(tenantChange.ErrorMessage!);
+        if (tenantChange.TryGetValue(out Error? tenantChangeError)) return tenantChangeError;
 
         // RelationshipAndEntity: the DTO carries the full child list (data-persistence.md, Updater Pattern).
         var updateResult = repoTrxn.UpdateFromDto(entity, dto, RelatedDeleteBehavior.RelationshipAndEntity);
-        if (updateResult.IsFailure)
-            return Result<DefaultResponse<{Entity}Dto>>.Failure(updateResult.ErrorMessage);
+        if (updateResult.TryGetValue(out Error? updateError)) return updateError;
 
         await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
-        return Result<DefaultResponse<{Entity}Dto>>.Success(BuildResponse(entity.ToDto()));
+        return BuildResponse(entity.ToDto());
     }
 
     // ===== Delete (idempotent - return success if not found) =====
-    public async Task<Result> DeleteAsync(Guid id, long? expectedVersion, CancellationToken ct = default)
+    public async Task<Result<Unit>> DeleteAsync(Guid id, long? expectedVersion, CancellationToken ct = default)
     {
         Guid deletedTenantId = default;
-        var result = await ConcurrencyRetry.RunAsync(repoTrxn, expectedVersion, async attemptCt =>
+        var result = await ConcurrencyRetry.RunAsync<Result<Unit>>(repoTrxn, expectedVersion, async attemptCt =>
         {
             var entity = await repoTrxn.Get{Entity}Async(id, false, attemptCt);
-            if (entity == null) return Result.Success();  // idempotent
+            if (entity == null) return Result.Ok();  // idempotent
             var boundary = tenantBoundaryValidator.EnsureTenantBoundary( // [MULTI-TENANT]
                 RequestTenantId, RequestRoles, entity.TenantId.Value,
                 "{Entity}:Delete", nameof({Entity}), entity.Id.Value);
-            if (boundary.IsFailure) return Result.Failure(boundary.ErrorMessage!);
+            if (boundary.TryGetValue(out Error? boundaryError)) return boundaryError;
             ConcurrencyGuard.Require(expectedVersion, entity.Version, nameof({Entity}), entity.Id.Value);
             repoTrxn.Delete(entity);
             deletedTenantId = entity.TenantId.Value;   // before the save: a retry finding it gone still evicts
             await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, attemptCt);
-            return Result.Success();
+            return Result.Ok();
         }, ct);
         if (deletedTenantId != default) await InvalidateAsync(deletedTenantId, id, ct);
         return result;
@@ -189,7 +187,7 @@ internal class {Entity}Service(
         Guid? tenantId, string? search, CancellationToken ct = default)
     {
         // [MULTI-TENANT] Only a cross-tenant role may name another tenant.
-        if (tenantBoundaryValidator.EnsureCrossTenantRole(RequestRoles, "{Entity}:Lookup").IsFailure) tenantId = RequestTenantId;
+        if (!tenantBoundaryValidator.EnsureCrossTenantRole(RequestRoles, "{Entity}:Lookup").IsSuccess) tenantId = RequestTenantId;
         return await repoQuery.Lookup{Entity}Async(tenantId, search, ct);
     }
 }
@@ -206,7 +204,7 @@ public interface I{Entity}Service
     Task<Result<DefaultResponse<{Entity}Dto>>> GetAsync(Guid id, CancellationToken ct = default);
     Task<Result<DefaultResponse<{Entity}Dto>>> CreateAsync(DefaultRequest<{Entity}Dto> request, CancellationToken ct = default);
     Task<Result<DefaultResponse<{Entity}Dto>>> UpdateAsync(DefaultRequest<{Entity}Dto> request, long? expectedVersion, CancellationToken ct = default);
-    Task<Result> DeleteAsync(Guid id, long? expectedVersion, CancellationToken ct = default);
+    Task<Result<Unit>> DeleteAsync(Guid id, long? expectedVersion, CancellationToken ct = default);
     Task<StaticList<StaticItem<Guid, Guid?>>> LookupAsync(Guid? tenantId, string? search, CancellationToken ct = default);
 }
 ```
@@ -215,10 +213,10 @@ public interface I{Entity}Service
 
 Service rules 5-10 in [application-layer.md](../skills/application-layer.md) section Service Pattern (delete marking, full DTO apply on create, the `Throw` save overload, `BuildResponse`, `ErrorConstants`, `nameof`) and Non-Negotiable 6 (tenant stamping) cover the most frequent failures. Also:
 1. **Post-mapping search results** - When the query repo uses `QueryPageProjectionAsync` and returns `PagedResponse<{Entity}Dto>`, the service MUST direct-return: `return await repoQuery.Search{Entity}Async(request, ct);`. Do NOT re-wrap into a new `PagedResponse` or call `.ToDto()` - the projection already happened at the SQL level.
-2. **Missing UpdateFromDto mock in tests** - `CreateAsync` uses `.Bind(e => repoTrxn.UpdateFromDto(e, dto))` and `UpdateAsync` calls `repoTrxn.UpdateFromDto(entity, dto, RelatedDeleteBehavior.RelationshipAndEntity)`. If tests don't mock `UpdateFromDto`, they get `NullReferenceException`. Always mock with `It.IsAny<RelatedDeleteBehavior>()` so both call shapes match: `_repoTrxnMock.Setup(r => r.UpdateFromDto(It.IsAny<{Entity}>(), It.IsAny<{Entity}Dto>(), It.IsAny<RelatedDeleteBehavior>())).Returns((Entity e, EntityDto _, RelatedDeleteBehavior _) => DomainResult<{Entity}>.Success(e));`
+2. **Missing UpdateFromDto mock in tests** - `CreateAsync` uses `.Bind(e => repoTrxn.UpdateFromDto(e, dto))` and `UpdateAsync` calls `repoTrxn.UpdateFromDto(entity, dto, RelatedDeleteBehavior.RelationshipAndEntity)`. Unmocked, it returns the default `Result`, an `UnexpectedError` (500). Always mock with `It.IsAny<RelatedDeleteBehavior>()` so both call shapes match: `_repoTrxnMock.Setup(r => r.UpdateFromDto(It.IsAny<{Entity}>(), It.IsAny<{Entity}Dto>(), It.IsAny<RelatedDeleteBehavior>())).Returns((Entity e, EntityDto _, RelatedDeleteBehavior _) => e);` (`Result<{Entity}>` converts implicitly)
 3. **[Multi-tenant] Missing PreventTenantChange in Update** - After boundary check, before domain update, compare the existing entity tenant with the stamped authoritative tenant as a defense-in-depth invariant.
 4. **Invented repository members (GR-14)** - Call only members that exist on the injected contract. Read the interface (or the first green service/handler) before writing call sites. `IRepositoryQuery<TEntity, TId>` exposes `GetAsync(id)` / `ListAsync(predicate)`; paged search lives on the bespoke `I{Entity}RepositoryQuery.Search{Entity}Async`. `QueryPageAsync` / `QueryPageProjectionAsync` are protected `RepositoryBase` helpers for repository implementations only.
-5. **Provider error text in a result** - Save exceptions propagate to the exception handler, which maps concurrency to 412 and everything else to a generic 500. Never return `ex.Message` or `GetBaseException().Message`: it leaks SQL, schema, and connection details to the caller. Catch only an app-mapped constraint exception (for example a unique-name violation) and return a fixed `ErrorConstants` message.
+5. **Save failure as a result** - An uncaught save exception reaches the exception handler (concurrency 412, else generic 500). Code returning it as a result (`CqrsHandlerSupport.TrySaveAsync` too) catches only `when (SaveFailure.MapsToFailureResult(ex))` (not cancellation or concurrency) and returns `SaveFailure.ToError(ex)`: the `Application.Contracts/Concurrency` helper applying the [../support/ef-packages-reference.md](../support/ef-packages-reference.md) `Error` row rule with fixed `ErrorConstants.ERROR_SAVE_FAILED` text (`save.constraint`, `save.failed`). Never `ex.Message`: it leaks SQL, schema and connection details.
 6. **Version check after the load** - `ConcurrencyGuard.Require` runs right after the boundary check, before any change; concrete and `*` If-Match semantics: [data-persistence.md](../skills/data-persistence.md) section Provider Branch and Concurrency Discipline.
 
 ## Policy Notes

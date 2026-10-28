@@ -144,7 +144,7 @@ public class {ServiceName}Service(
     I{ServiceName}Api api,
     ILogger<{ServiceName}Service> logger) : I{ServiceName}Service
 {
-    public async Task<DomainResult<PaymentResultDto>> ProcessPaymentAsync(PaymentRequestDto request, CancellationToken ct = default)
+    public async Task<Result<PaymentResultDto>> ProcessPaymentAsync(PaymentRequestDto request, CancellationToken ct = default)
     {
         try
         {
@@ -155,17 +155,17 @@ public class {ServiceName}Service(
                 PaymentSourceToken = request.SourceToken
             }, ct);
 
-            return DomainResult<PaymentResultDto>.Success(new PaymentResultDto
+            return new PaymentResultDto
             {
                 ExternalId = response.Id,
                 Status = MapStatus(response.Status),
                 AmountInCents = response.AmountInCents
-            });
+            };
         }
         catch (ApiException ex)
         {
             logger.LogError(ex, "External API failure");
-            return DomainResult<PaymentResultDto>.Failure("External provider request failed.");
+            return new UnexpectedError("External provider request failed.", ex, "payment.provider_failed");
         }
     }
 }
@@ -173,7 +173,7 @@ public class {ServiceName}Service(
 
 Rules:
 1. Map provider models to app DTOs in wrapper service.
-2. Catch `ApiException`; log detail, return sanitized failure message.
+2. Catch `ApiException`; log it, return a fixed-text `UnexpectedError` with an app code ([categories](../support/ef-packages-reference.md)).
 3. Never expose provider internals directly to callers.
 
 ---
@@ -221,22 +221,21 @@ Classify every external call at the call site: **required** (the operation canno
 
 When an external API is not yet configured (no credentials, no base URL, or provider not chosen). Canonical stub shapes, safe-default table, and `// TODO: [CONFIGURE]` placement: [../templates/no-op-stub-template.md](../templates/no-op-stub-template.md).
 
-1. **Generate a compilable stub** - implement `I{ServiceName}Service` as a no-op that returns `DomainResult.Success()` with placeholder data
+1. **Generate a compilable stub** - implement `I{ServiceName}Service` as a no-op that returns a success `Result<T>` with placeholder data
 2. **Mark all integration points** with `// TODO: [CONFIGURE] {ServiceName} - replace stub with real implementation`
 3. **Include comments** in `appsettings.json` sections indicating placeholder values
 4. The project must **build and run** with stubs in place (no exceptions, graceful no-ops)
 
 ```csharp
-// Stub implementation - replace when external provider is configured
 public class {ServiceName}ServiceStub : I{ServiceName}Service
 {
     // TODO: [CONFIGURE] {ServiceName} - replace this stub with the real {ServiceName}Service implementation
-    public Task<DomainResult<PaymentResultDto>> ProcessPaymentAsync(PaymentRequestDto request, CancellationToken ct = default)
-        => Task.FromResult(DomainResult<PaymentResultDto>.Success(new PaymentResultDto
+    public Task<Result<PaymentResultDto>> ProcessPaymentAsync(PaymentRequestDto request, CancellationToken ct = default)
+        => Task.FromResult<Result<PaymentResultDto>>(new PaymentResultDto
         {
             ExternalId = "stub-" + Guid.NewGuid().ToString("N")[..8],
             Status = "Pending",
             AmountInCents = request.AmountInCents
-        }));
+        });
 }
 ```

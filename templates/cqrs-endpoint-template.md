@@ -9,19 +9,17 @@ Import request types from the feature namespace, for example `using {Project}.Ap
 Keep `[FromServices]` on every injected handler parameter; see [api.md](../skills/api.md) section Endpoint Contract for the route-discovery body-inference failure this prevents.
 
 ```csharp
-group.MapPost("/", async (
+g.MapPost("/", async (
     HttpContext httpContext,
     [FromServices] IRequestHandler<Create{Entity}Command, Result<DefaultResponse<{Entity}Dto>>> handler,
     [FromBody] DefaultRequest<{Entity}Dto> request,
     CancellationToken ct) =>
 {
     var result = await handler.HandleAsync(new Create{Entity}Command(request), ct);
-    return result.Match<IResult>(
-        response => TypedResults.Created($"{httpContext.Request.Path}/{response.Item?.Id}", response),
-        errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)));
+    return result.ToHttp(response => TypedResults.Created($"{httpContext.Request.Path}/{response.Item?.Id}", response));
 });
 
-group.MapPut("/{id:guid}", async (
+g.MapPut("/{id:guid}", async (
     [FromServices] IRequestHandler<Update{Entity}Command, Result<DefaultResponse<{Entity}Dto>>> handler,
     Guid id,
     IfMatch ifMatch,
@@ -33,27 +31,23 @@ group.MapPut("/{id:guid}", async (
             StatusCodes.Status400BadRequest, $"{ErrorConstants.ERROR_URL_BODY_ID_MISMATCH}: {id} <> {request.Item.Id}"));
 
     var result = await handler.HandleAsync(new Update{Entity}Command(request, ifMatch.ExpectedVersion), ct);
-    return result.Match(
-        response => response.Item is null ? Results.NotFound(id) : TypedResults.Ok(response),
-        errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)));
+    return result.ToHttp(response => TypedResults.Ok(response));
 })
 .RequireIfMatch();
 
-group.MapDelete("/{id:guid}", async (
-    [FromServices] IRequestHandler<Delete{Entity}Command, Result> handler,
+g.MapDelete("/{id:guid}", async (
+    [FromServices] IRequestHandler<Delete{Entity}Command, Result<Unit>> handler,
     Guid id,
     IfMatch ifMatch,
     CancellationToken ct) =>
 {
     var result = await handler.HandleAsync(new Delete{Entity}Command(id, ifMatch.ExpectedVersion), ct);
-    return result.Match<IResult>(
-        () => TypedResults.NoContent(),
-        errors => TypedResults.Problem(ProblemDetailsHelper.FromErrors(errors)));
+    return result.ToHttp(_ => TypedResults.NoContent());
 })
 .RequireIfMatch();
 ```
 
-`IfMatch`, `RequireIfMatch()` and the group-level `WithETag()` are EF.AspNetCore (`EF.AspNetCore.Concurrency`), wired exactly as in [endpoint-template.md](endpoint-template.md). Correlation is added centrally by `AddEfProblemDetails()`; see [exception-handler-template.md](exception-handler-template.md). Do not pass `HttpContext.TraceIdentifier` as `traceId`.
+`IfMatch`, `RequireIfMatch()`, the group's `WithETag()` and 403, and the route `Produces*` metadata are wired exactly as in [endpoint-template.md](endpoint-template.md). Correlation is added centrally by `AddEfProblemDetails()`; see [exception-handler-template.md](exception-handler-template.md). Do not pass `HttpContext.TraceIdentifier` as `traceId`.
 
 For `applicationStyle: switch`, register only one endpoint set at runtime:
 

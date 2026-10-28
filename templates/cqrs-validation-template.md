@@ -1,30 +1,26 @@
 # CQRS Validation Template
 
-Custom validation only. Do not add FluentValidation or another third-party validation package.
-
-Put CQRS validators in `Application.Cqrs/Features/{Entity}/{Entity}CommandValidators.cs`. Put shared validation-result mapping in `Application.Cqrs/Features/Shared/CqrsHandlerSupport.cs` so feature validators stay small.
+Custom validators only (no FluentValidation) in `Application.Cqrs/Features/{Entity}/{Entity}CommandValidators.cs`; the result bridge lives in `Features/Shared/CqrsHandlerSupport.cs`.
 
 ```csharp
-namespace {Project}.Application.Cqrs.Features.{EntityPlural};
-
 internal sealed class Create{Entity}CommandValidator(IRequestContext<string, Guid?> requestContext)
     : IRequestValidator<Create{Entity}Command>
 {
     public Task<RequestValidationResult> ValidateAsync(Create{Entity}Command request, CancellationToken ct = default)
     {
         var dto = request.Request.Item;
-        var authoritativeTenantId = requestContext.TenantId ?? Guid.Empty;
-        dto.TenantId = authoritativeTenantId; // overwrite untrusted payload before validation
-        var validation = {Entity}StructureValidator.ValidateCreate(dto);
-        return Task.FromResult(CqrsHandlerSupport.ToValidationResult(validation));
+        dto.TenantId = requestContext.TenantId ?? Guid.Empty; // stamp before validation, as the handler does
+        return Task.FromResult(CqrsHandlerSupport.ToValidationResult({Entity}StructureValidator.ValidateCreate(dto)));
     }
 }
+
+// CqrsHandlerSupport: exhaustive, no discard arm
+public static RequestValidationResult ToValidationResult<T>(Result<T> result) where T : notnull => result switch
+{
+    T => RequestValidationResult.Valid(),
+    ValidationError v => RequestValidationResult.Failure(v.Issues),
+    Error e => RequestValidationResult.Failure(e.Message),
+};
 ```
 
-Put cheap shape validation in validators when it removes repeated handler code. Keep aggregate/domain invariants in domain methods. Multi-tenant validators and handlers both stamp from `IRequestContext` so every execution path is server-authoritative; neither may use DTO tenant as fallback.
-
-Registration stays in `Registration/CqrsApplicationRegistration.cs`:
-
-```csharp
-services.AddScoped<IRequestValidator<Create{Entity}Command>, Create{Entity}CommandValidator>();
-```
+Validators hold cheap shape checks; invariants stay in domain methods. `Registration/CqrsApplicationRegistration.cs` adds `services.AddScoped<IRequestValidator<Create{Entity}Command>, Create{Entity}CommandValidator>();` per validator, then one `AddDecoratedRequestHandlers` call ([../support/ef-packages-optional.md](../support/ef-packages-optional.md) section CQRS).

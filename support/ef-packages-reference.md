@@ -12,9 +12,9 @@ How those contracts are delivered depends on `packageStrategy` in `.scaffold/res
 
 Throughout this file, `EF` is the **canonical example prefix** (used by the reference app TaskFlow and the [efreeman518/EF.Packages](https://github.com/efreeman518/EF.Packages) repo). Substitute your `packagePrefix` everywhere you see `EF.<Layer>` below. The type signatures themselves are identical regardless of prefix.
 
-Do not regenerate these types into your application/domain/host layers - they live in `<packagePrefix>.*` only, whether package or project. Which project references which package: [../skills/package-dependencies.md](../skills/package-dependencies.md) section Package Map.
+Package-to-project map: [../skills/package-dependencies.md](../skills/package-dependencies.md) section Package Map.
 
-> **Pre-flight:** When `packageStrategy: feed` or `hybrid`, configure the private feed in `nuget.config` before Phase 4; local environments need package read access exposed through `NUGET_AUTH_TOKEN` or an equivalent credential provider. When `packageStrategy: local`, no feed configuration is needed for these layers (only `nuget.org` is required). Verify with `configure-ef-packages-feed.py --check-only` (exit 0) in Phase 3 and `dotnet restore` once the Phase 4 solution exists. See [execution-gates.md](execution-gates.md).
+> **Pre-flight:** `feed` / `hybrid` need the private feed configured and readable before Phase 4 ([../START-AI.md](../START-AI.md) Phase 3; gates in [execution-gates.md](execution-gates.md)); `local` needs only `nuget.org`.
 
 ---
 
@@ -39,10 +39,20 @@ Capability-gated packages (CQRS, column encryption, auth and the gateway claims 
 | `ITimestampedEntity` (`CreatedAtUtc`, `ModifiedAtUtc`) / `IAuditable<TAuditIdType>` (adds `CreatedBy`, `ModifiedBy`) | EF.Domain.Contracts | Save-time stamps: `DbContextBase` writes them through the change tracker, so the entity exposes getters with private setters |
 | `IDomainEvent`, `IHasDomainEvents` | EF.Domain.Contracts | Events an aggregate raises; `EF.Data.Outbox` stages them in the same save |
 | `MaskAttribute` | EF.Domain.Contracts | The one redaction attribute: audit payloads (Added and Modified) and `SerializeToJson` |
-| `DomainGuard` | EF.Domain.Contracts | Argument guard helpers for domain code |
-| `DomainResult<T>` | EF.Domain.Contracts | Railway-style result for domain operations. Properties: `Value`, `IsSuccess`, `IsFailure`, `IsNone`, `ErrorMessage` (aggregated string), `Errors` (`IReadOnlyList<DomainError>`). Static: `Success(T)`, `Failure(string error)`, `Failure(string code, string error)`, `Failure(IReadOnlyList<DomainError>)`, `Failure(Exception)`, `None()`. Instance: `Match` - the failure branch receives `IReadOnlyList<DomainError>`; the generic form adds a 3-branch overload with `onNone`. |
-| `DomainResult` | EF.Domain.Contracts | Non-generic domain result. Same shape as `DomainResult<T>` minus `Value`/`IsNone`. |
-| `DomainError` | EF.Domain.Contracts | Typed error. Properties: `Error` (the human message), `Code` (machine key), `Message` (alias for `Error`). Static factories: `Create(string error)` (no code key) and `Create(string error, string code)`. **Argument order trap (GR-14):** `Create` takes the human message FIRST, code second - the reverse of `DomainResult.Failure(string code, string error)`. Do not infer order from the names; verify against this row or a compiled call site. Never access `.Message` from `Exception` - use `.Error` or `.Message` (same). **Propagation pattern:** `if (r.IsFailure) return Result<T>.Failure(r.ErrorMessage!);` or `Result<T>.Failure(r.Errors)`. |
+| `DomainGuard` | EF.Domain.Contracts | Guards (`Required`, `MaxLength`, `NotEmpty`, `Positive`) returning `ValidationIssue?` with `Field` set |
+| `Result<T>` (`where T : notnull`), `Result.Ok()`, `Result.Combine(...)`, `Unit` | EF.Domain.Contracts | The one result type, a C# union of `T` and `Error`; `Result<Unit>` when there is no value. Return either case directly (implicit conversion; `Result.Ok()` for `Unit`). Read with `IsSuccess`, `TryGetValue(out T value)` / `TryGetValue(out Error? error)`, a pattern (`r is NotFoundError`), an exhaustive `switch` (no discard arm), `Map`, `Bind`, or `GetValueOrThrow()` (tests, or after the failure check). `.Value` is the union content (`object`), never the success value. A default `Result<T>` holds `UnexpectedError.Uninitialized`. `Combine` merges `ValidationError` issues; any other failure wins first. |
+| `Error(Message, Code)`, closed: `ValidationError` 400, `UnauthorizedError` 401, `ForbiddenError` 403, `NotFoundError` 404, `ConflictError` 409, `PreconditionError` 412, `RuleError(Message, Code)` 422, `UnexpectedError(Message, Exception?, Code)` 500 | EF.Domain.Contracts | The subtype is the category and sets the HTTP status; `Code` defaults to the category (`not_found`). Apps add no subtypes: a business rule on a valid request is `RuleError` with an app code. Missing or invisible target -> `NotFoundError`. Only `ValidationError` (invalid input) is 400. A caught infrastructure failure (save, blob, queue): `DatabaseConstraintException` -> `ConflictError` (`save.constraint`), else `UnexpectedError(fixedText, ex, "<area>.<failure>")` (500 sends no detail; the code is what clients see) |
+| `ValidationError(IReadOnlyList<ValidationIssue>)` / `ValidationError(message, field, issueCode)`, `ValidationIssue(Message, Field, Code)` | EF.Domain.Contracts | Invalid input; each issue carries field and code. **Argument order (GR-14):** message first, then field, then code |
+
+Result idioms (`out` variables in an `if` stay in scope for the method, so name each one: `boundaryError`, `saveError`):
+
+```csharp
+public static Result<Order> Create(string name) => // return either case
+    DomainGuard.Required(name, nameof(Name)) is { } issue ? new ValidationError([issue]) : new Order(name);
+if (check.TryGetValue(out Error? checkError)) return checkError; // propagate
+if (!created.TryGetValue(out Order? order)) return (Error)created.Value; // propagate, then use the value
+return result switch { Order o => TypedResults.Ok(o.ToDto()), Error e => e.ToProblemResult() }; // consume
+```
 
 ### Data Access Layer (EF.Data, EF.Data.Contracts)
 
@@ -67,11 +77,12 @@ Capability-gated packages (CQRS, column encryption, auth and the gateway claims 
 | `AddDatabaseMigrationRunner()` / `AddEfCoreMigrationTarget<TContext>(name, order)` | EF.Data (`EF.Data.Migrations`) | DI registration for the runner and its EF Core targets. One target per migration-owning context (app Trxn, FlowEngine, third-party stores), deterministic `order`. See [data-persistence-advanced.md](data-persistence-advanced.md) -> Migration Ownership: Dedicated Migrator Host. |
 | `AddDatabaseMigrationStep<TContext, TStep>()` / `AddSqlDatabaseMigrationStep<TContext>(...)` | EF.Data (`EF.Data.Migrations`) | Ordered non-EF steps around a target (`IDatabaseMigrationStep<TContext>`, `DatabaseMigrationStepPhase`) |
 | `GetMissingTablesAsync()` | EF.Data (`EF.Data.Migrations`) | Mapped tables the database lacks; a runtime host that is not the migration owner checks schema presence with it |
+| `DatabaseConstraintException` (base of `UniqueConstraintException`, `ReferenceConstraintException`, `CannotInsertNullException`, `MaxLengthExceededException`, `NumericOverflowException`) | EF.Data.Contracts | Typed save failures deriving from `DbUpdateException`; catch the base for any constraint |
 | `ResilientTransaction` | EF.Data | `ResilientTransaction.New(db).ExecuteAsync(ct => work(ct), ct)` under the execution strategy; the work must be re-runnable |
 
 ### Relational Providers (EF.Data.PostgreSql, EF.Data.SqlServer)
 
-`EF.Data` references no database provider. Reference `EF.Data.PostgreSql` for the PostgreSQL arm (the `NonAzure` default) and `EF.Data.SqlServer` for a SQL Server / Azure SQL arm; both surface duplicate keys as `UniqueConstraintException` (EntityFrameworkCore.Exceptions). Read-uncommitted interceptors and Always Encrypted migration DDL: [ef-packages-optional.md](ef-packages-optional.md) section SQL Server Extras.
+`EF.Data` references no database provider. Reference `EF.Data.PostgreSql` for the PostgreSQL arm (the `NonAzure` default) and `EF.Data.SqlServer` for a SQL Server / Azure SQL arm; with `UseExceptionProcessor` (default on) both raise the typed constraint exceptions from `EF.Data.Contracts`. Read-uncommitted interceptors and Always Encrypted migration DDL: [ef-packages-optional.md](ef-packages-optional.md) section SQL Server Extras.
 
 | Type | Package | Used For |
 |---|---|---|
@@ -84,13 +95,11 @@ Capability-gated packages (CQRS, column encryption, auth and the gateway claims 
 | Type | Package | Used For |
 |---|---|---|
 | `IRequestContext<out TAuditIdType, out TTenantIdType>` | EF.Common.Contracts | Scoped request context: `string CorrelationId`, `TAuditIdType AuditId`, `TTenantIdType? TenantId`, `List<string> Roles`, `bool RoleExists(string)` |
-| `RequestContext<TAuditIdType, TTenantIdType>` | EF.Common.Contracts | Default implementation of IRequestContext. Constructor order: `(correlationId, auditId, tenantId, roles)` |
-| `Result<T>` | EF.Common.Contracts | Application-layer result wrapper. Members: IsSuccess, IsFailure, IsNone, Value, ErrorMessage, Errors, Match / MatchAsync (failure branch receives `IReadOnlyList<DomainError>`; the 3-branch overload adds `onNone`), Map, Bind, BindOrContinue, OnSuccess, OnFailure, Tap. Static: `Success(T)`, `None()`, `Failure(string error)`, `Failure(string code, string error)`, `Failure(IReadOnlyList<DomainError>)`, `Failure(Exception)`. **Not JSON-deserializable** - lacks parameterless constructor; use `JsonDocument` parsing in tests. When passed to `Results.Ok(result)` in endpoints, serializes to just the `Value` payload (not the full Result wrapper). |
-| `Result` | EF.Common.Contracts | Non-generic result. Static: `Success()`, `Failure(string error)`, `Failure(string code, string error)`, `Failure(IReadOnlyList<DomainError>)`, `Failure(Exception)`, `Combine(Result[])`. `Match` is 2-branch (success, failure `IReadOnlyList<DomainError>`). |
+| `RequestContext<TAuditIdType, TTenantIdType>` | EF.Common.Contracts | Default `IRequestContext`; ctor `(correlationId, auditId, tenantId, roles)` |
 | `PagedResponse<T>` | EF.Common.Contracts | Paged response with Data, Total, PageSize, PageIndex |
 | `SearchRequest<TFilter>` | EF.Common.Contracts | Paged search request with PageSize, PageIndex, Sorts, Filter |
 | `IEntityBaseDto<TKey>` / `IEntityBaseDto` | EF.Common.Contracts | Base DTO contract. Generic `IEntityBaseDto<TKey>` (`TKey : struct`) exposes `TKey? Id` (null on Create, required on Update); non-generic `IEntityBaseDto : IEntityBaseDto<Guid>` is the Guid alias most DTOs bind to. App-level `EntityBaseDto` implements the alias - see [data-mapping-template.md](../templates/data-mapping-template.md). Non-Guid-key apps derive `EntityBaseDto<TKey>`. |
-| `ITenantEntityDto` / `ITenantEntityDto<TTenantId>`, `EntityDtoRules` (`ValidateCreate`, `ValidateUpdate`) | EF.Common.Contracts | DTO tenant marker and the shared DTO structure rules (codes `dto.required`, `tenant.required`, `id.required`); per-entity validators add their own rules on top |
+| `ITenantEntityDto` / `ITenantEntityDto<TTenantId>`, `EntityDtoRules` (`ValidateCreate`, `ValidateUpdate` -> `Result<Unit>`) | EF.Common.Contracts | DTO tenant marker and the shared DTO structure rules (codes `dto.required`, `tenant.required`, `id.required`); per-entity validators add their own rules on top |
 | `IETagVersioned` | EF.Common.Contracts | Response model exposing `ETagVersion`; `WithETag()` writes the strong ETag from it |
 | `NotFoundException`, `ConflictException`, `PreconditionFailedException` (`EntityType`, `EntityId`, `Expected`, `Current`), `PreconditionRequiredException` | EF.Common.Contracts | App-facing exceptions the `ExceptionClassifier` maps by default (404, 409, 412, 428) |
 | `UuidV7` (`IsV7`, `TimestampOf`, `ValidateCallerId`) | EF.Common.Contracts | Caller-supplied id validation (`id.not_uuidv7`) and timestamp extraction |
@@ -98,17 +107,16 @@ Capability-gated packages (CQRS, column encryption, auth and the gateway claims 
 | `SortOrder` | EF.Common.Contracts | Enum: Ascending=0, Descending=1 |
 | `IMessage` | EF.Common.Contracts | Marker interface for internal-bus messages |
 | `ISpecification<T>` / `Specification<T>` | EF.Common.Contracts | Specification pattern base |
-| `StaticItem<TId, TValue>` | EF.Common.Contracts | Lookup item for dropdowns: positional `record StaticItem<TId, TValue>(TId? Id, string? Name, TValue? Value = default)` |
-| `StaticList<T>` | EF.Common.Contracts | Positional `record StaticList<T>(IReadOnlyList<T> Items)`; construct with `new StaticList<T>(items)` |
+| `StaticItem<TId, TValue>(TId? Id, string? Name, TValue? Value = default)`, `StaticList<T>(IReadOnlyList<T> Items)` | EF.Common.Contracts | Positional records for dropdown lookups |
 | `IDistributedLock`, `AcquireWithinAsync` | EF.Common.Contracts | `ValueTask<IAsyncDisposable?> TryAcquireAsync(key, ttl, ct)` and a bounded-wait acquire; implementations `InProcessDistributedLock` (EF.Common) and `RedisDistributedLock` (EF.Cache) |
 | `CursorPage<T>` / `CursorSearchRequest<TFilter, TSortMode>` / `PageSizeLimits` | EF.Common.Contracts | Cursor paging contracts and page-size clamps |
 | `AuditEntry<TAuditIdType, TTenantIdType>` (`StartedAtUtc`), `AuditStatus` | EF.Common.Contracts | Audit entry carrying audit identity, tenant identity and the start instant |
 | `ExceptionClassifier`, `ExceptionCategory`, `ExceptionClassifierOptions`, `AddExceptionClassifier(o => o.Map<T>(category))` | EF.Common (`EF.Common.Exceptions`) | The one exception taxonomy behind HTTP (`AddEfProblemDetails`) and gRPC (`ServiceErrorInterceptor`). `ArgumentException`, `FormatException` and `InvalidOperationException` are unmapped (500) by default; mapping rules in [../templates/exception-handler-template.md](../templates/exception-handler-template.md) |
 | `ValidationException` | EF.Common (`EF.Common.Exceptions`) | Validation failure; classified as 400 |
-| `StrictEnum.Parse` / `ParseOrDefault`, `GetRequiredEnum` / `GetEnum` | EF.Common | Enum settings by defined name only; numeric or undefined values fail at startup |
+| `StrictEnum.Parse` / `ParseOrDefault`, `GetRequiredEnum` / `GetEnum` | EF.Common | Enum settings by defined name only; others fail at startup |
 | `StaticLogging`, `PredicateBuilder` | EF.Common | Pre-host logger factory, dynamic LINQ predicates |
 | `IValidator<T>`, `ValidationResult`, `ValidationUtility` | EF.Common | Validation contract consumed by `ValidationFilter<T>` |
-| `InProcessDistributedLock`, `DeterministicGuid`, `ResultExtensions.ToResult()` | EF.Common | Single-process `IDistributedLock`, deterministic GUIDs from stable input, `DomainResult` to `Result` conversion |
+| `InProcessDistributedLock`, `DeterministicGuid` | EF.Common | Single-process `IDistributedLock`, deterministic GUIDs from stable input |
 
 ### Background Services (EF.BackgroundServices)
 
@@ -122,7 +130,7 @@ Capability-gated packages (CQRS, column encryption, auth and the gateway claims 
 | `IBackgroundTaskQueue` / `ChannelBackgroundTaskQueue` | EF.BackgroundServices (`EF.BackgroundServices.Work`) | Queue for background task processing; `AddChannelBackgroundTaskQueue()` registers it with its hosted service |
 | `ScopedBackgroundService` | EF.BackgroundServices | Base class for scoped background services |
 | `LeasedWorkerBase<TOptions>` / `LeasedWorkerOptions` / `RetryBackoff` | EF.BackgroundServices (`EF.BackgroundServices.Leased`) | Polling worker over leased work rows: `ProcessBatchAsync(CancellationToken)`, `MaxAttempts` 5, `RetryBaseDelay`, `RetryMaxDelay`, `SettlementTimeout`; `AddLeasedWorkerService<TWorker, TOptions>()` validates options at host start |
-| `IScheduledJobHandler`, `ScheduledJobTelemetry` | EF.BackgroundServices (`EF.BackgroundServices.Scheduling`) | Scheduled job handler contract and `scheduler.job.*` metrics; the TickerQ runner is in [ef-packages-optional.md](ef-packages-optional.md) section Scheduling |
+| `IScheduledJobHandler`, `ScheduledJobTelemetry` | EF.BackgroundServices (`EF.BackgroundServices.Scheduling`) | Scheduled job handler contract and `scheduler.job.*` metrics; the EF.Data.Scheduling runner is in [ef-packages-optional.md](ef-packages-optional.md) section Scheduling |
 
 #### Critical Wiring Notes
 
@@ -145,13 +153,13 @@ Capability-gated packages (CQRS, column encryption, auth and the gateway claims 
 | `AddMemoryHealthCheck()`, `HealthCheckHelper`, `HealthLoggingPublisher` | EF.AspNetCore (`EF.AspNetCore.HealthChecks`) | Memory check reporting the registration's failure status; tag-filtered options; health logging |
 | `AddCorrelationId()` / `AddCorrelationIdPropagation()` / `UseCorrelationId()` | EF.AspNetCore (`EF.AspNetCore.Correlation`) | Validated inbound `X-Correlation-Id` becomes `TraceIdentifier`; outbound calls send it, and outside a request the handler sends nothing and never throws |
 | `AddEfProblemDetails()`, `ExceptionHandlingOptions`, `ProblemDetailsExceptionHandler` | EF.AspNetCore (`EF.AspNetCore.ExceptionHandling`) | The host `IExceptionHandler`: status from `ExceptionClassifier`, caller cancellation 499 with no body, no 5xx detail outside Development, `requestId`/`traceId` on every problem |
-| `ProblemDetailsHelper` | EF.AspNetCore | Endpoint problems: `Create(status, detail, title)` and `FromErrors(errors, status = 400)`, which emits `extensions.errors` as an ordered `{code, message}` array - pass the `Match` failure branch straight through |
+| `ToHttp(value => ...)`, `ToProblemResult()`, `ProblemDetailsHelper` (`From(error)`, `StatusFor(error)`, `Create(status, detail, title)`) | EF.AspNetCore | Endpoint results: `result.ToHttp(ok)` maps success through `ok` and any `Error` to its category's problem; `error.ToProblemResult()` in a `switch`. Bodies carry `extensions.code`; a `ValidationError` adds `extensions.errors` (`{field, code, message}`); a 5xx has no detail |
 | `IfMatch`, `RequireIfMatch()`, `WithETag()`, `IfMatchOptions`, `AddConcurrencyOpenApiContract()` | EF.AspNetCore (`EF.AspNetCore.Concurrency`) | Bind `IfMatch` and pass `ifMatch.ExpectedVersion`; the filter answers 428 missing, 400 malformed, 412 with `ETag` from `PreconditionFailedException.Current`; `WithETag()` writes the strong ETag from `IETagVersioned` and answers 304 |
 | `AddCorsPolicyFromConfiguration(policyName, section)`, `CorsPolicySettings` | EF.AspNetCore (`EF.AspNetCore.Cors`) | Origins validated at registration (no empty list, trailing `/`, path, or `*` with credentials) |
 | `AddHttpRequestContext<TTenantId>(parseTenant, configure)`, `HttpRequestContextOptions` | EF.AspNetCore (`EF.AspNetCore.RequestContext`) | Claims-based scoped `IRequestContext<string, TTenantId>`; no HTTP request gives the system context (`SystemAuditId`, every role in `SystemRoles`, default `system`), and every `SystemRoles` entry is stripped from a token |
 | `SecurityHeadersMiddleware` / `UseBasicSecurityHeaders()` | EF.AspNetCore (`EF.AspNetCore.Security`) | Baseline security response headers |
 | `ValidationFilter<T>` | EF.AspNetCore (`EF.AspNetCore.Filters`) | Endpoint filter over `EF.Common.IValidator<T>` (no FluentValidation) |
-| `AddEfVersionedOpenApi()`, `MapVersionedApiGroup()`, `BuildApiVersionSet()` | EF.AspNetCore (`EF.AspNetCore.Versioning`) | Versioned OpenAPI documents and route groups |
+| `AddEfVersionedOpenApi()`, `VersionedApiOptions.OpenApiVersion`, `MapVersionedApiGroup()`, `BuildApiVersionSet()` | EF.AspNetCore (`EF.AspNetCore.Versioning`) | One OpenAPI document per version (mapped by `app.MapOpenApi()`) and route groups |
 
 ### Caching (EF.Cache)
 
@@ -185,7 +193,7 @@ Services cache through EF.Cache `ITypedCache` directly ([../skills/caching.md](.
 
 - **5a:** EF.Common, EF.Domain, EF.Domain.Contracts, EF.Data, EF.Data.Contracts, EF.Common.Contracts; EF.Data.PostgreSql / EF.Data.SqlServer per provider arm; EF.Data.Encryption when columns are encrypted
 - **5b:** EF.AspNetCore, EF.Host, EF.OpenTelemetry, EF.AspNetCore.DataProtection, EF.Cache, EF.Tenancy when multi-tenant, EF.CQRS when `applicationStyle` is `cqrs` or `switch`, EF.Auth (fixed principal, claims relay), EF.RateLimiting / EF.RateLimiting.Redis and EF.Gateway when enabled, EF.FilterBuilder, optional Key Vault
-- **5c:** messaging (EF.Messaging.Contracts, EF.Data.Outbox, EF.Messaging, EF.Messaging.RabbitMq, EF.Messaging.Functions), scheduling (EF.BackgroundServices.TickerQ), storage (EF.Storage, EF.Storage.S3, EF.Table, EF.CosmosDb), durable audit (EF.Audit.*), and UI client (EF.UI.Client, EF.UI.Refit, EF.Http.Resilience) packages when enabled
+- **5c:** messaging (EF.Messaging.Contracts, EF.Data.Outbox, EF.Messaging, EF.Messaging.RabbitMq, EF.Messaging.Functions), scheduling (EF.Data.Scheduling), storage (EF.Storage, EF.Storage.S3, EF.Table, EF.CosmosDb), durable audit (EF.Audit.*), and UI client (EF.UI.Client, EF.UI.Refit, EF.Http.Resilience) packages when enabled
 - **4 (test infrastructure):** EF.Testing, EF.IntegrationTesting plus the provider packages (`Test.Support` WAF adapter and database fixture), EF.IntegrationTesting.Aspire for `Test.Aspire`
 - **5d:** EF.Testing.Architecture for `Test.Architecture`; `LoadRunner` from EF.Testing for `Test.Load`
 - **5e:** EF.Auth and optional EF.MSGraph; EF.AI and EF.AI.Testing (when AI in scope)
@@ -198,7 +206,6 @@ Extend `Directory.Packages.props` with the sub-phase's packages at the START of 
 
 - **Never regenerate types that exist in EF.Packages.** Check this reference before creating base classes, result types, repository interfaces, host plumbing, or test helpers.
 - All EF.Packages target the latest stable .NET TFM. Match the target app's TFM to the EF.Packages release in use.
-- Packages use **central package management** - pin versions only in `Directory.Packages.props`.
+- Packages use **central package management**: versions live only in `Directory.Packages.props`, never on a `<PackageReference>`.
 - Private feed must be in `nuget.config` with `<packageSourceMapping>` entries for `EF.*` packages.
-- Project files must not put `Version="..."` on `EF.*` `<PackageReference>` entries.
 - Local definitions of package types (base classes, result and paging types, request context, bus, entity configuration base, UTC converters, tenant validator, `IStartupTask`, exception handler, ETag filters, inbox/outbox stores, consumer base, fixed-principal handler, rate limiter, load runner, container fixtures, AI fakes) are replaced by the package types above or in [ef-packages-optional.md](ef-packages-optional.md).

@@ -31,9 +31,9 @@ High-signal lookup for structure, dependencies, DI patterns, and common routes/c
 | Package | Primary Purpose |
 |---|---|
 | `EF.Domain` | entity bases, domain exceptions, `DomainEventContainer` |
-| `EF.Domain.Contracts` | typed IDs, tenant contracts, `DomainResult` / `DomainError`, `MaskAttribute`, domain-event contracts |
+| `EF.Domain.Contracts` | typed IDs, tenant contracts, `Result<T>` / `Error`, `MaskAttribute`, domain-event contracts |
 | `EF.Data` | EF repo/config base abstractions, tenant filter, `TenantEntityTypeConfiguration` |
-| `EF.Common` | `ResultExtensions`, helpers, predicates, app-facing exceptions |
+| `EF.Common` | Helpers, predicates, app-facing exceptions |
 | `EF.Common.Contracts` | `Result`, request context, paging/search contracts, DTO base contract |
 | `EF.BackgroundServices` | internal message bus, handlers, background queue |
 | `EF.Host` | `AddEfAzureAppConfiguration`, `AzureCredentialFactory`, `IStartupTask`, host lifecycle |
@@ -61,7 +61,7 @@ Rules:
 |---|---|
 | `EntityBase` | common Id + `Version` concurrency base entity |
 | `ITenantEntity<TTenantId>` | tenant ownership contract |
-| `DomainResult<T>` | domain-level success/failure monad |
+| `Result<T>` | union of `T` and a categorized `Error` |
 | `TenantEntityTypeConfiguration<TEntity, TId, TTenantId>` | EF.Data base configuration: tenant-first key, `Id`, `TenantId` |
 | `RepositoryBase<TContext, TAuditId, TTenantId>` | common repository operations |
 | `IRequestContext<TAuditId, TTenantId>` | scoped audit/tenant/role context |

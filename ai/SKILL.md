@@ -49,7 +49,7 @@ This sizing does **not** change phase semantics, gates, or conflict-resolution o
   - [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) - Multi-cache config, Aspire resource wiring. Phase 5b; Phase 5c only when an enabled optional host needs the shared runtime wiring.
   - [../patterns/expected-output-index.md](../patterns/expected-output-index.md) - Expected file layout when scaffolding is complete. On-demand verification.
   Prefer template-owned implementation detail over duplicating wiring; use pattern files for orchestration decisions across projects only.
-- **Load [../support/ef-packages-reference.md](../support/ef-packages-reference.md) before Phase 5a** to know which base types (DbContextBase, DomainResult, IRequestContext, etc.) are part of the shared base-contract set. These types are sourced as `<packagePrefix>.<Layer>` packages from `customNugetFeeds` when `packageStrategy: feed`, or as project references against `src/Packages/<packagePrefix>.<Layer>` when `packageStrategy: local` (and the listed layers when `packageStrategy: hybrid`). Do not regenerate these types into application/domain/host layers regardless of mode - they live in the `<packagePrefix>.*` layer only.
+- **Load [../support/ef-packages-reference.md](../support/ef-packages-reference.md) before Phase 5a** to know which base types (DbContextBase, Result, IRequestContext, etc.) are part of the shared base-contract set. These types are sourced as `<packagePrefix>.<Layer>` packages from `customNugetFeeds` when `packageStrategy: feed`, or as project references against `src/Packages/<packagePrefix>.<Layer>` when `packageStrategy: local` (and the listed layers when `packageStrategy: hybrid`). Do not regenerate these types into application/domain/host layers regardless of mode - they live in the `<packagePrefix>.*` layer only.
 - **Reference app - TaskFlow.** When a skill or template is ambiguous, consult it. Rules for when/how to consult, local sibling preference, and the do-not-copy-wholesale constraint live in [../support/reference-app.md](../support/reference-app.md). Use [../support/taskflow-proof-map.md](../support/taskflow-proof-map.md) for the phase -> area index.
 - Generate code only in the user's new project directory **(GR-07)**.
 - Use `.slnx` (not legacy `.sln`) **(GR-03)**.
@@ -124,7 +124,7 @@ Generate one complete slice, validate, then move to next slice.
 - Clean architecture boundaries
 - Bootstrapper-based shared DI wiring
 - Static mappers + EF-safe projectors
-- `DomainResult`-style railway flow
+- Typed `Result<T>` failures
 - Tenant-safe defaults where enabled
 - Provider-neutral EF model: decimal `(18,4)`, UTC temporals
 - Stub external dependencies for local compile/run **(GR-06)** - generate compilable no-op implementations with `// TODO: [CONFIGURE]` comments at every integration point (stub class, DI registration, appsettings section)

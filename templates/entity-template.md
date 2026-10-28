@@ -65,14 +65,12 @@ public class {Entity} : EntityBase<{Entity}Id>, ITenantEntity<TenantId>, IHasDom
     public void ClearDomainEvents() => _domainEvents.Clear();
 
     // ===== Factory Create - the ONLY way to create an instance =====
-    public static DomainResult<{Entity}> Create(Guid tenantId, string name, /* additional params */)
+    public static Result<{Entity}> Create(Guid tenantId, string name, /* additional params */)
     {
         var entity = new {Entity}(TenantId.From(tenantId), name);  // wrap raw Guid on intake
-        return entity.Valid().Map(_ =>
-        {
-            entity._domainEvents.Raise(new {Entity}CreatedEvent(entity.Id.Value, tenantId, entity.Name)); // [MESSAGING]
-            return entity;
-        });
+        var validated = entity.Valid();
+        if (validated.IsSuccess) entity._domainEvents.Raise(new {Entity}CreatedEvent(entity.Id.Value, tenantId, entity.Name)); // [MESSAGING]
+        return validated;
     }
 
     // ===== Private constructor - enforces factory usage =====
@@ -94,59 +92,57 @@ public class {Entity} : EntityBase<{Entity}Id>, ITenantEntity<TenantId>, IHasDom
     // ===== Navigation Properties - ICollection<T>, never List<T> =====
     public ICollection<{ChildEntity}> {ChildEntities} { get; private set; } = [];
 
-    // ===== Update - returns DomainResult for validation =====
-    public DomainResult<{Entity}> Update(string? name = null, {Entity}Flags? flags = null)
+    // ===== Update - returns Result for validation =====
+    public Result<{Entity}> Update(string? name = null, {Entity}Flags? flags = null)
     {
         if (name is not null) Name = name;
         if (flags.HasValue) Flags = flags.Value;
-        return Valid().Map(_ => this);
+        return Valid();
     }
 
     // ===== Child Collection Management =====
-    public DomainResult<{ChildEntity}> Add{ChildEntity}({ChildEntity} child)
+    public Result<{ChildEntity}> Add{ChildEntity}({ChildEntity} child)
     {
         var existing = {ChildEntities}.FirstOrDefault(c => c.Id == child.Id);
-        if (existing != null) return DomainResult<{ChildEntity}>.Success(existing);  // Idempotent
+        if (existing != null) return existing;  // Idempotent
 
         {ChildEntities}.Add(child);
-        return DomainResult<{ChildEntity}>.Success(child);
+        return child;
     }
 
-    public DomainResult Remove{ChildEntity}({ChildEntity} child)
+    public Result<Unit> Remove{ChildEntity}({ChildEntity} child)
     {
         {ChildEntities}.Remove(child);
-        return DomainResult.Success();  // Desired-state: always succeeds
+        return Result.Ok();  // Desired-state: always succeeds
     }
 
-    public DomainResult Remove{ChildEntity}(Guid id)
+    public Result<Unit> Remove{ChildEntity}(Guid id)
     {
         var child = {ChildEntities}.FirstOrDefault(c => c.Id.Value == id);  // unwrap for Guid comparison
         if (child != null) {ChildEntities}.Remove(child);
-        return DomainResult.Success();  // Desired-state: always succeeds
+        return Result.Ok();  // Desired-state: always succeeds
     }
 
     // ===== Validation - called by Create() and Update() =====
-    private DomainResult<{Entity}> Valid()
+    private Result<{Entity}> Valid()
     {
-        var errors = new List<DomainError>();
+        var errors = new List<ValidationIssue>();
 
-        if (TenantId.Value == Guid.Empty) errors.Add(DomainError.Create("Tenant ID cannot be empty.")); // [MULTI-TENANT]
-        if (string.IsNullOrWhiteSpace(Name)) errors.Add(DomainError.Create("Name is required."));
+        if (TenantId.Value == Guid.Empty) errors.Add(new ValidationIssue("Tenant ID cannot be empty.", nameof(TenantId))); // [MULTI-TENANT]
+        if (string.IsNullOrWhiteSpace(Name)) errors.Add(new ValidationIssue("Name is required.", nameof(Name)));
         if (Name?.Length < DomainConstants.RULE_DEFAULT_NAME_LENGTH_MIN)
-            errors.Add(DomainError.Create($"Name must be at least {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MIN} characters."));
+            errors.Add(new ValidationIssue($"Name must be at least {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MIN} characters.", nameof(Name)));
         if (Name?.Length > DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX)
-            errors.Add(DomainError.Create($"Name cannot exceed {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX} characters."));
+            errors.Add(new ValidationIssue($"Name cannot exceed {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MAX} characters.", nameof(Name)));
 
-        return errors.Count > 0
-            ? DomainResult<{Entity}>.Failure(errors)
-            : DomainResult<{Entity}>.Success(this);
+        return errors.Count > 0 ? new ValidationError(errors) : this;
     }
 }
 ```
 
 ## File: Domain/Model/ValueObjects/{ValueObject}.cs
 
-Generate value objects only when `.scaffold/domain-specification.yaml` declares `valueObjects`. Keep them immutable, domain-side, and free of EF/DTO concerns. Use factories returning `DomainResult<T>` for validation instead of throwing expected domain failures.
+Generate value objects only when `.scaffold/domain-specification.yaml` declares `valueObjects`. Keep them immutable, domain-side, and free of EF/DTO concerns. Use factories returning `Result<T>` for validation instead of throwing expected domain failures.
 
 ```csharp
 using EF.Domain.Contracts;
@@ -162,13 +158,10 @@ public sealed record {ValueObject}
         Value = value;
     }
 
-    public static DomainResult<{ValueObject}> Create(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return DomainResult<{ValueObject}>.Failure("{ValueObject} is required.");
-
-        return DomainResult<{ValueObject}>.Success(new {ValueObject}(value.Trim()));
-    }
+    public static Result<{ValueObject}> Create(string value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? new ValidationError("{ValueObject} is required.", nameof(Value))
+            : new {ValueObject}(value.Trim());
 
     public override string ToString() => Value;
 }
@@ -176,28 +169,26 @@ public sealed record {ValueObject}
 
 ### Composing a value object into the entity factory
 
-VO `Create()` short-circuits on the first error (single-error `DomainResult<T>`). The entity **aggregates** across VOs and primitives so the caller sees every field error in one pass. Use two VO construction paths:
+VO `Create()` short-circuits on the first error (one `ValidationError`). The entity **aggregates** across VOs and primitives so the caller sees every field error in one pass. Use two VO construction paths:
 
-- **Validating intake** (`Create` / `Update`): build the VO via `{ValueObject}.Create(raw)` and fold its errors into the same `List<DomainError>` as the primitive checks; materialize the VO property only when the aggregate passes. Do this inside `Valid()` (which runs on both create and update) so both paths aggregate identically - keep the raw input as a backing field the constructor captures.
+- **Validating intake** (`Create` / `Update`): build the VO via `{ValueObject}.Create(raw)` and fold its issues into the same `List<ValidationIssue>` as the primitive checks; materialize the VO property only when the aggregate passes. Do this inside `Valid()` (which runs on both create and update) so both paths aggregate identically - keep the raw input as a backing field the constructor captures.
 - **Non-validating materialization** (EF rehydration + internal reconstruction): add a `{ValueObject}.From(raw)` that skips validation and trusts stored data. EF and post-materialization code use `From`, never `Create`.
 
 ```csharp
 // VO: validating Create for intake, non-validating From for EF/materialization
 public static {ValueObject} From(string value) => new(value); // stored data assumed valid
 
-// Entity Valid() folds the VO's DomainResult into the aggregate (no short-circuit)
-private DomainResult<{Entity}> Valid()
+// Entity Valid() folds the VO's issues into the aggregate (no short-circuit)
+private Result<{Entity}> Valid()
 {
-    var errors = new List<DomainError>();
-    if (string.IsNullOrWhiteSpace(Name)) errors.Add(DomainError.Create("Name is required."));
+    var errors = new List<ValidationIssue>();
+    if (string.IsNullOrWhiteSpace(Name)) errors.Add(new ValidationIssue("Name is required.", nameof(Name)));
 
     var {vo} = {ValueObject}.Create({voRaw});   // {voRaw}: raw input captured at construction
-    if ({vo}.IsFailure) errors.AddRange({vo}.Errors);
-    else {ValueObjectProperty} = {vo}.Value;    // materialize only on success
+    if ({vo} is ValidationError invalid) errors.AddRange(invalid.Issues);
+    else {ValueObjectProperty} = {vo}.GetValueOrThrow();  // materialize only on success
 
-    return errors.Count > 0
-        ? DomainResult<{Entity}>.Failure(errors)
-        : DomainResult<{Entity}>.Success(this);
+    return errors.Count > 0 ? new ValidationError(errors) : this;
 }
 ```
 
@@ -212,17 +203,17 @@ private DomainResult<{Entity}> Valid()
 
 ### `Update()` MUST re-validate (non-negotiable)
 
-Every `Update()` ends with `Valid().Map(_ => this)` - it returns `DomainResult<T>`, never a bare `this`. Mutating fields and returning the entity without re-running `Valid()` lets an update persist invalid state (negative counters, blank required fields) that the factory would have rejected. If a generated `Update()` does not call `Valid()`, it is wrong.
+Every `Update()` ends with `return Valid();` - it returns `Result<T>`, never a bare `this`. Mutating fields and returning the entity without re-running `Valid()` lets an update persist invalid state (negative counters, blank required fields) that the factory would have rejected. If a generated `Update()` does not call `Valid()`, it is wrong.
 
 ```csharp
 // WRONG - skips validation, can persist invalid state
 public {Entity} Update(string? name = null) { if (name is not null) Name = name; return this; }
 
-// RIGHT - re-validates, returns DomainResult
-public DomainResult<{Entity}> Update(string? name = null)
+// RIGHT - re-validates, returns Result
+public Result<{Entity}> Update(string? name = null)
 {
     if (name is not null) Name = name;
-    return Valid().Map(_ => this);
+    return Valid();
 }
 ```
 
@@ -231,13 +222,13 @@ public DomainResult<{Entity}> Update(string? name = null)
 When the domain spec declares a `stateMachine` for an entity, the status is **not** a parameter on `Update()`. Expose a dedicated `Transition(target)` that enforces allowed moves and keeps dependent fields aligned (e.g. a completion timestamp). A free-form `Update(status, ...)` lets callers jump to any state and bypass the lifecycle. Use an explicit transition matrix inside the aggregate; no separate rule class.
 
 ```csharp
-public DomainResult<{Entity}> Transition({Entity}Status target)
+public Result<{Entity}> Transition({Entity}Status target)
 {
-    if (!IsValidTransition(Status, target))
-        return DomainResult<{Entity}>.Failure($"Cannot transition from {Status} to {target}.");
+    if (!IsValidTransition(Status, target))  // a rule on a valid request: RuleError, 422
+        return new RuleError($"Cannot transition from {Status} to {target}.", "{entity}.status_transition");
     Status = target;
     if (target == {Entity}Status.Completed) CompletedDate = DateTimeOffset.UtcNow;
-    return DomainResult<{Entity}>.Success(this);
+    return this;
 }
 
 private static bool IsValidTransition({Entity}Status current, {Entity}Status target) =>
@@ -246,18 +237,17 @@ private static bool IsValidTransition({Entity}Status current, {Entity}Status tar
 
 Reference: `TaskItem.TransitionStatus` + `IsValidTransition` in the reference app. (Use a non-flags `enum` status for a state machine; `{Entity}Flags` is for independently combinable booleans, not a lifecycle.)
 
-### `DomainError.Create` argument order (GR-14)
+### `ValidationIssue` / `RuleError` argument order (GR-14)
 
-`DomainError.Create` takes the **human message FIRST**. `EF.Domain.Contracts` exposes `DomainError.Create(string error)` (no code key) and `DomainError.Create(string error, string code)` (message, then code key). Verify the overload set against the package (GR-14) rather than inferring it. The common, silent bug is emitting the two-arg form with the arguments reversed:
+Both take the **human message FIRST**: `new ValidationIssue(message, field, code)`, `new RuleError(message, code)`. Verify against the package rather than inferring from names. The silent bug is reversed arguments:
 
 ```csharp
 // WRONG - code key surfaces as the user-facing message
-DomainError.Create("TenantId.Required", "Tenant ID is required.")
+new RuleError("task.status_transition", "Cannot transition from Open to Done.")
 
-// RIGHT - message first
-DomainError.Create("Tenant ID is required.", "TenantId.Required")
-// or, when no machine code key is needed:
-DomainError.Create("Tenant ID is required.")
+// RIGHT - message first; a ValidationIssue names its field
+new RuleError("Cannot transition from Open to Done.", "task.status_transition")
+new ValidationIssue("Tenant ID is required.", nameof(TenantId))
 ```
 
 ## File: Domain/Shared/{Entity}Flags.cs
@@ -302,11 +292,8 @@ namespace Domain.Model;
 
 public class {Parent}{Related} : EntityBase<{Parent}{Related}Id>
 {
-    public static DomainResult<{Parent}{Related}> Create(Guid tenantId, Guid parentId, Guid relatedId)
-    {
-        var entity = new {Parent}{Related}(TenantId.From(tenantId), {Parent}Id.From(parentId), {Related}Id.From(relatedId));
-        return DomainResult<{Parent}{Related}>.Success(entity);
-    }
+    public static Result<{Parent}{Related}> Create(Guid tenantId, Guid parentId, Guid relatedId) =>
+        new {Parent}{Related}(TenantId.From(tenantId), {Parent}Id.From(parentId), {Related}Id.From(relatedId));
 
     private {Parent}{Related}(TenantId tenantId, {Parent}Id parentId, {Related}Id relatedId)
     {

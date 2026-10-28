@@ -1262,42 +1262,77 @@ def check_golden_path_schemas(findings: Findings) -> None:
 # local NuGet cache (expected in CI without feed access).
 
 EF_PACKAGES_REL = "support/ef-packages-reference.md"
+EF_OPTIONAL_REL = "support/ef-packages-optional.md"
 
-# (package_id, fully_qualified_type, member_name, "prop"|"static")
-EF_API_CLAIMS: list[tuple[str, str, str, str]] = [
-    ("EF.Domain.Contracts", "EF.Domain.Contracts.DomainError",  "Error",        "prop"),
-    ("EF.Domain.Contracts", "EF.Domain.Contracts.DomainError",  "Code",         "prop"),
-    ("EF.Domain.Contracts", "EF.Domain.Contracts.DomainError",  "Message",      "prop"),
-    ("EF.Domain.Contracts", "EF.Domain.Contracts.DomainError",  "Create",       "static"),
-    ("EF.Domain.Contracts", "EF.Domain.Contracts.DomainResult", "IsSuccess",    "prop"),
-    ("EF.Domain.Contracts", "EF.Domain.Contracts.DomainResult", "IsFailure",    "prop"),
-    ("EF.Domain.Contracts", "EF.Domain.Contracts.DomainResult", "ErrorMessage", "prop"),
-    ("EF.Domain.Contracts", "EF.Domain.Contracts.DomainResult", "Errors",       "prop"),
-    ("EF.Domain.Contracts", "EF.Domain.Contracts.DomainResult", "Failure",      "static"),
-    ("EF.Domain.Contracts", "EF.Domain.Contracts.DomainResult", "Success",      "static"),
-    ("EF.Common.Contracts", "EF.Common.Contracts.Result",       "IsSuccess",    "prop"),
-    ("EF.Common.Contracts", "EF.Common.Contracts.Result",       "IsFailure",    "prop"),
-    ("EF.Common.Contracts", "EF.Common.Contracts.Result",       "ErrorMessage", "prop"),
-    ("EF.Common.Contracts", "EF.Common.Contracts.Result",       "Failure",      "static"),
-    ("EF.Common.Contracts", "EF.Common.Contracts.Result",       "Success",      "static"),
+# (documenting file, package_id, fully_qualified_type, member_name, kind); kind is "prop", "static"
+# (public static method), "method" (public instance method) or "field" (public static field).
+_R, _O = EF_PACKAGES_REL, EF_OPTIONAL_REL
+EF_API_CLAIMS: list[tuple[str, str, str, str, str]] = [
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.Result`1",          "IsSuccess",       "prop"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.Result`1",          "Value",           "prop"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.Result`1",          "TryGetValue",     "method"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.Result`1",          "GetValueOrThrow", "method"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.Result`1",          "Map",             "method"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.Result`1",          "Bind",            "method"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.Result",            "Ok",              "static"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.Result",            "Combine",         "static"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.Unit",              "Value",           "field"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.Error",             "Message",         "prop"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.Error",             "Code",            "prop"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.ValidationError",   "Issues",          "prop"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.ValidationIssue",   "Field",           "prop"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.UnauthorizedError", "Code",            "prop"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.ForbiddenError",    "Code",            "prop"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.NotFoundError",     "Code",            "prop"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.ConflictError",     "Code",            "prop"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.PreconditionError", "Code",            "prop"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.RuleError",         "Code",            "prop"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.UnexpectedError",   "Exception",       "prop"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.UnexpectedError",   "Uninitialized",   "field"),
+    (_R, "EF.Domain.Contracts", "EF.Domain.Contracts.DomainGuard",       "Required",        "static"),
+    (_R, "EF.Domain",           "EF.Domain.CollectionUtility",           "SyncCollectionWithResult", "static"),
+    (_R, "EF.Common.Contracts", "EF.Common.Contracts.EntityDtoRules",    "ValidateCreate",  "static"),
+    (_R, "EF.AspNetCore",       "EF.AspNetCore.ResultHttpExtensions",    "ToHttp",          "static"),
+    (_R, "EF.AspNetCore",       "EF.AspNetCore.ResultHttpExtensions",    "ToProblemResult", "static"),
+    (_R, "EF.AspNetCore",       "EF.AspNetCore.ProblemDetailsHelper",    "From",            "static"),
+    (_R, "EF.AspNetCore",       "EF.AspNetCore.ProblemDetailsHelper",    "StatusFor",       "static"),
+    (_O, "EF.CQRS",             "EF.CQRS.Validation.FailableValidationResponseFactory`1", "CreateFailure", "method"),
+    (_O, "EF.CQRS",             "EF.CQRS.Validation.RequestValidationResult", "Failure",    "static"),
+    (_O, "EF.Tenancy",          "EF.Tenancy.ITenantBoundaryValidator",   "EnsureTenantBoundary", "method"),
+    (_O, "EF.Tenancy",          "EF.Tenancy.ITenantBoundaryValidator",   "PreventTenantChange",  "method"),
 ]
 
 
-def _semver_key(p: Path) -> tuple[int, ...]:
+def _version_key(p: Path) -> tuple:
+    """NuGet order: numeric core, then a release above its prereleases, then prerelease identifiers
+    (numeric ones numerically). Build metadata is ignored; an unparseable folder sorts first."""
+    core, _, pre = p.name.partition("+")[0].partition("-")
     try:
-        return tuple(int(x) for x in p.name.split("."))
+        numbers = tuple(int(x) for x in core.split("."))
     except ValueError:
-        return (0,)
+        return ((-1,), 0, ())
+    identifiers = tuple((0, int(x), "") if x.isdigit() else (1, 0, x.lower()) for x in pre.split(".")) if pre else ()
+    return (numbers, 0 if pre else 1, identifiers)
+
+
+def _tfm_key(p: Path) -> tuple[int, ...]:
+    """Order netN.M folders by version; any other folder sorts first."""
+    match = re.fullmatch(r"net(\d+)\.(\d+)", p.name)
+    return (int(match[1]), int(match[2])) if match else (-1,)
 
 
 def _find_cached_dll(package_id: str) -> Path | None:
-    """Return the DLL for the latest cached version of package_id, or None."""
+    """Return the DLL of the newest cached version of package_id (prereleases included) from its highest
+    netN.M lib folder, or None."""
     cache = Path.home() / ".nuget" / "packages" / package_id.lower()
     if not cache.exists():
         return None
-    for ver_dir in sorted(cache.iterdir(), key=_semver_key, reverse=True):
-        for tfm in ("net10.0", "net9.0", "net8.0"):
-            dll = ver_dir / "lib" / tfm / f"{package_id}.dll"
+    for ver_dir in sorted(cache.iterdir(), key=_version_key, reverse=True):
+        lib = ver_dir / "lib"
+        if not lib.is_dir():
+            continue
+        for tfm_dir in sorted((d for d in lib.iterdir() if _tfm_key(d) != (-1,)), key=_tfm_key, reverse=True):
+            dll = tfm_dir / f"{package_id}.dll"
             if dll.exists():
                 return dll
     return None
@@ -1308,7 +1343,7 @@ def check_ef_package_api(findings: Findings) -> None:
         return  # dotnet not on PATH - skip silently
 
     dll_map: dict[str, Path] = {}
-    for pkg_id, *_ in EF_API_CLAIMS:
+    for _doc, pkg_id, *_ in EF_API_CLAIMS:
         if pkg_id in dll_map:
             continue
         dll = _find_cached_dll(pkg_id)
@@ -1316,9 +1351,8 @@ def check_ef_package_api(findings: Findings) -> None:
             return  # packages not cached - skip silently (expected in CI)
         dll_map[pkg_id] = dll
 
-    # Detect SDK major version for TargetFramework.
-    sdk_proc = subprocess.run(["dotnet", "--version"], capture_output=True, text=True)
-    tfm = f"net{sdk_proc.stdout.strip().split('.')[0]}.0" if sdk_proc.returncode == 0 else "net10.0"
+    # The probe targets the highest framework the packages were built for, so it can load every one of them.
+    tfm = max((dll.parent for dll in dll_map.values()), key=_tfm_key).name
 
     # Generate a self-contained C# console app that loads the assemblies and
     # checks each documented member. Assembly.LoadFile is metadata-safe for
@@ -1328,31 +1362,48 @@ def check_ef_package_api(findings: Findings) -> None:
         for dll in dll_map.values()
     )
     check_lines = "\n".join(
-        f'    Check(asms[@"{str(dll_map[pkg_id]).replace(chr(34), chr(34)+chr(34))}"], "{type_fqn}", "{member}", "{kind}");'
-        for pkg_id, type_fqn, member, kind in EF_API_CLAIMS
+        f'    Check(asms[@"{str(dll_map[pkg_id]).replace(chr(34), chr(34)+chr(34))}"], "{doc}", "{type_fqn}", "{member}", "{kind}");'
+        for doc, pkg_id, type_fqn, member, kind in EF_API_CLAIMS
     )
+    # A member that cannot be reflected (a dependency the probe cannot resolve) is reported as a mismatch,
+    # never skipped, so a broken claim cannot pass silently.
     cs_check_method = (
-        "static void Check(Assembly asm, string typeFqn, string member, string kind)\n"
+        "static void Check(Assembly asm, string doc, string typeFqn, string member, string kind)\n"
         "{\n"
-        "    var t = asm.GetType(typeFqn);\n"
-        "    if (t == null) { Console.WriteLine(\"FAIL:\" + typeFqn + \" type not found\"); return; }\n"
-        "    bool found = kind == \"prop\"\n"
-        "        ? Array.Exists(t.GetProperties(), p => p.Name == member)\n"
-        "        : Array.Exists(t.GetMethods(BindingFlags.Public | BindingFlags.Static), m => m.Name == member);\n"
-        "    Console.WriteLine(found ? \"OK:\" + typeFqn + \".\" + member : \"FAIL:\" + typeFqn + \".\" + member + \" (\" + kind + \" not found)\");\n"
+        "    var head = \"FAIL:\" + doc + \"|\" + typeFqn;\n"
+        "    try\n"
+        "    {\n"
+        "        var t = asm.GetType(typeFqn);\n"
+        "        if (t == null) { Console.WriteLine(head + \" type not found\"); return; }\n"
+        "        bool found = kind switch\n"
+        "        {\n"
+        "            \"prop\" => Array.Exists(t.GetProperties(), p => p.Name == member),\n"
+        "            \"static\" => Array.Exists(t.GetMethods(BindingFlags.Public | BindingFlags.Static), m => m.Name == member),\n"
+        "            \"method\" => Array.Exists(t.GetMethods(BindingFlags.Public | BindingFlags.Instance), m => m.Name == member),\n"
+        "            \"field\" => Array.Exists(t.GetFields(BindingFlags.Public | BindingFlags.Static), f => f.Name == member),\n"
+        "            _ => false,\n"
+        "        };\n"
+        "        if (!found) Console.WriteLine(head + \".\" + member + \" (\" + kind + \" not found)\");\n"
+        "    }\n"
+        "    catch (Exception ex) { Console.WriteLine(head + \".\" + member + \" (reflection failed: \" + ex.GetType().Name + \")\"); }\n"
         "}"
     )
     cs_source = "\n".join([
         "using System;",
         "using System.Collections.Generic;",
+        "using System.Linq;",
         "using System.Reflection;",
         "var asms = new Dictionary<string, Assembly>();",
+        # LoadFile isolates each assembly; resolve EF.* dependencies (EF.AspNetCore -> EF.Domain.Contracts) to the
+        # copies loaded here. The Web SDK below supplies the ASP.NET Core shared framework.
+        "AppDomain.CurrentDomain.AssemblyResolve += (_, e) => "
+        "asms.Values.FirstOrDefault(a => a.GetName().Name == new AssemblyName(e.Name).Name);",
         load_lines,
         cs_check_method,
         check_lines,
     ])
     csproj = (
-        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup>"
+        "<Project Sdk=\"Microsoft.NET.Sdk.Web\"><PropertyGroup>"
         f"<OutputType>Exe</OutputType><TargetFramework>{tfm}</TargetFramework>"
         "<Nullable>enable</Nullable><ImplicitUsings>disable</ImplicitUsings>"
         "</PropertyGroup></Project>"
@@ -1372,9 +1423,10 @@ def check_ef_package_api(findings: Findings) -> None:
             return
         for line in proc.stdout.splitlines():
             if line.startswith("FAIL:"):
+                doc, _, claim = line[5:].partition("|")
                 findings.err(
-                    ref_path,
-                    f"EF package API mismatch: {line[5:]} - update {EF_PACKAGES_REL} to match installed packages",
+                    INSTRUCTIONS_ROOT / doc,
+                    f"EF package API mismatch: {claim} - update {doc} to match installed packages",
                 )
 
 
@@ -1385,6 +1437,10 @@ def check_ef_package_api(findings: Findings) -> None:
 # Naive `+s` pluralization produces `Categorys` / `Addresss`. The glossary derives
 # plurals with real English rules, so the naive token forms must not reappear.
 NAIVE_PLURAL_TOKENS = ("{Entity}s", "{ChildEntity}s")
+
+# $(LatestStableTfm) is the only TFM placeholder; skills/package-dependencies.md owns the rule.
+TFM_TOKEN_OWNER = "skills/package-dependencies.md"
+RETIRED_TFM_TOKENS = ("<tfm>", "{tfm}", "net{X}.0", "{TargetFramework}")
 
 # CLI verbs that do not exist. An instruction prescribing one emits CI that fails
 # on first run. `dotnet nuget` has no `audit` verb; the real mechanisms are
@@ -1409,6 +1465,8 @@ RETIRED_EF_SURFACE_PATTERN = re.compile(
     r"EF\.Utility\.UI\b|EF\.IntegrationTesting\.Environment\b|\bNBomber\b|\bNetArchTest\b"
     r"|(?<![\w.])RedisRateLimiting\b|\bAddGrpcClient2\b|\bAddOpenTelemetryWithConfig\b"
     r"|HeaderPropagation\w*|\bScopedMessageHandler\b|\bConcurrencyMismatchException\b|\breadNoLock\b"
+    r"|\bDomainResult\b|\bDomainError\b|\bFromErrors\b|\bWithDocumentPerVersion\b|StaticFailureValidationResponseFactory"
+    r"|EntityFramework\.Exceptions|TickerQ"
 )
 PACKAGE_TYPE_DECLARATION_PATTERN = re.compile(
     r"\b(?:class|interface|record)\s+(?:LoadRunner|InboxStore|OutboxStore|OutboxStaging|OutboxStagingInterceptor"
@@ -1416,7 +1474,7 @@ PACKAGE_TYPE_DECLARATION_PATTERN = re.compile(
     r"|DefaultExceptionHandler|GlobalExceptionHandler|I?TenantBoundaryValidator|EntityBaseConfiguration"
     r"|UtcDateTime(?:Offset)?Converter|ConcurrencyGuard|IfMatchEndpointFilter|ETagEndpointFilter|UuidV7|StrictEnum"
     r"|DomainEventContainer|ITenantEntityDto|IStartupTask|IScheduledJobHandler|SchedulerHealthCheck"
-    r"|TickerQOccurrenceRetentionHandler|AspireTestHostContext|DockerRuntimePreflight|StubHttpMessageHandler"
+    r"|SchedulerRetentionHandler|SchedulerSchemaValidator|AspireTestHostContext|DockerRuntimePreflight|StubHttpMessageHandler"
     r"|I?BusyTracker|BusyDelegatingHandler|ProblemDetailsDelegatingHandler|NoOpChatClient)\b"
 )
 
@@ -1433,6 +1491,14 @@ CONCRETE_MODEL_PATTERN = re.compile(
 DATED_REPORT_PATTERN = re.compile(r"-\d{4}-\d{2}-\d{2}(-to-\d{4}-\d{2}-\d{2})?\.md$")
 
 CLAUDE_COMMAND_KEYS = ("description:", "argument-hint:")
+
+
+def check_tfm_token_spelling(path: Path, findings: Findings) -> None:
+    """$(LatestStableTfm) is the one TFM token (TFM_TOKEN_OWNER)."""
+    for num, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        for token in RETIRED_TFM_TOKENS:
+            if token in line:
+                findings.err(path, f"line {num}: TFM placeholder {token} - use $(LatestStableTfm) ({TFM_TOKEN_OWNER})")
 
 
 def check_naive_plural_tokens(path: Path, findings: Findings) -> None:
@@ -1561,6 +1627,7 @@ def main() -> int:
         check_action_reference_policy(path, findings)
         check_deprecated_layout(path, findings)
         check_naive_plural_tokens(path, findings)
+        check_tfm_token_spelling(path, findings)
         check_nonexistent_commands(path, findings)
         check_no_foundry_local(path, findings)
         check_no_retired_ef_surface(path, findings)

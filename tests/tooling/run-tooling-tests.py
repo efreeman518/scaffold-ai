@@ -738,6 +738,38 @@ class ValidatorHelperTests(unittest.TestCase):
             if not path.exists():
                 path.write_text("current policy\n", encoding="utf-8")
 
+    def test_cached_dll_lookup_takes_newest_version_and_highest_framework(self):
+        names = ["2.0.132", "3.0.0-dotnet11.12", "3.0.0-dotnet11.9", "2.0.9", "not-a-version"]
+        ordered = sorted((Path(n) for n in names), key=validator._version_key, reverse=True)
+        self.assertEqual([p.name for p in ordered],
+                         ["3.0.0-dotnet11.12", "3.0.0-dotnet11.9", "2.0.132", "2.0.9", "not-a-version"])
+        self.assertGreater(validator._version_key(Path("3.0.1")), validator._version_key(Path("3.0.1-rc.1")))
+
+        with tempfile.TemporaryDirectory(prefix="tooling-nuget-") as tmp:
+            home = Path(tmp)
+            cache = home / ".nuget" / "packages" / "ef.domain.contracts"
+            for version, tfm in [("2.0.132", "net10.0"), ("3.0.0-dotnet11.12", "net11.0"), ("3.0.0-dotnet11.12", "netstandard2.0")]:
+                lib = cache / version / "lib" / tfm
+                lib.mkdir(parents=True, exist_ok=True)
+                (lib / "EF.Domain.Contracts.dll").write_bytes(b"")
+            with mock.patch.object(validator.Path, "home", return_value=home):
+                dll = validator._find_cached_dll("EF.Domain.Contracts")
+            self.assertEqual(dll, cache / "3.0.0-dotnet11.12" / "lib" / "net11.0" / "EF.Domain.Contracts.dll")
+
+    def test_tfm_token_spelling_rejects_other_spellings(self):
+        with tempfile.TemporaryDirectory(prefix="tooling-tfm-") as tmp:
+            root = Path(tmp)
+            good = root / "good.md"
+            good.write_text("dotnet build -p:TargetFrameworkOverride=$(LatestStableTfm)-browserwasm\n", encoding="utf-8")
+            bad = root / "bad.md"
+            bad.write_text("bin/Debug/net{X}.0/x\n<tfm>-android\n", encoding="utf-8")
+            with mock.patch.object(validator, "INSTRUCTIONS_ROOT", root):
+                findings = validator.Findings()
+                for path in (good, bad):
+                    validator.check_tfm_token_spelling(path, findings)
+            self.assertEqual(len(findings.errors), 2, findings.errors)
+            self.assertTrue(all("bad.md" in str(e) for e in findings.errors), findings.errors)
+
     def test_optional_ai_contract_guard_requires_owner_policy_and_prehost_order(self):
         with tempfile.TemporaryDirectory(prefix="tooling-optional-ai-") as tmp:
             root = Path(tmp)
@@ -1136,11 +1168,16 @@ class RetiredEfSurfaceTests(unittest.TestCase):
         for text in ("EF.Utility.UI", "NBomber", "NetArchTest.Rules", "RedisRateLimiting.AspNetCore",
                      "AddGrpcClient2", "AddOpenTelemetryWithConfig", "AddHeaderPropagation()",
                      "[ScopedMessageHandler]", "ConcurrencyMismatchException", "readNoLock: true",
-                     "EF.IntegrationTesting.Environment"):
+                     "EF.IntegrationTesting.Environment", "DomainResult<T>", "DomainError.Create",
+                     "ProblemDetailsHelper.FromErrors", "MapOpenApi().WithDocumentPerVersion()",
+                     "StaticFailureValidationResponseFactory<T>", "EntityFramework.Exceptions.Common",
+                     "EF.BackgroundServices.TickerQ"):
             self.assertIsNotNone(pattern.search(text), text)
         for text in ("services.AddRedisRateLimiting();", "EF.RateLimiting.Redis", "EF.Utility", "EF.UI.Refit",
                      "EF.Testing.Architecture", "EF.Testing.Environment", "AddEFGrpcClient",
-                     "AddCorrelationIdPropagation()", "ReadIsolation.Default"):
+                     "AddCorrelationIdPropagation()", "ReadIsolation.Default", "Result<Unit>",
+                     "new ValidationError(errors)", "error.ToProblemResult()", "EF.Data.Scheduling",
+                     "DatabaseConstraintException"):
             self.assertIsNone(pattern.search(text), text)
 
     def test_every_retired_id_on_a_line_is_reported(self):

@@ -116,7 +116,7 @@ See [updater-template.md](../templates/updater-template.md) for full implementat
 
 Updater rules:
 
-- Use railway `.Bind()` flow: `entity.Update(...).Bind(updatedEntity => DomainResult.Combine(...).Map(updatedEntity))` - parent update errors short-circuit child syncs.
+- Use railway `.Bind()` flow: `entity.Update(...).Bind(updatedEntity => Result.Combine(...).Map(_ => updatedEntity))` - parent update errors short-circuit child syncs.
 - Centralize add/update/remove in one `SyncCollectionWithResult` call per child collection.
 - Use `RelatedDeleteBehavior` parameter to gate deletion - `None` = no-op in removeFunc, otherwise `db.Delete(toRemove)` + collection remove.
 - **Aggregate-parent `UpdateAsync` where the UI sends the full desired child list must pass `RelatedDeleteBehavior.RelationshipAndEntity`** - e.g. `repoTrxn.UpdateFromDto(entity, dto, RelatedDeleteBehavior.RelationshipAndEntity)`. The default `None` silently drops client-side removals and leaves orphaned rows. This is the canonical setting for the "edit page binds children to `_model.<Collection>` and saves in one call" UI pattern in [ui-blazor-forms.md](ui-blazor-forms.md) -> *Editing Parent Aggregates with Child Collections*.
@@ -245,7 +245,7 @@ The 2-param overload applies the selected concurrency policy. Use `Throw` for no
 
 ```csharp
 var entity = await repoTrxn.Get{Entity}Async(id, false, ct);
-if (entity == null) return Result.Success(); // idempotent
+if (entity == null) return Result.Ok();     // idempotent
 repoTrxn.Delete(entity);                     // marks for deletion
 await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 ```

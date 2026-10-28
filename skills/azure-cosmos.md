@@ -32,17 +32,10 @@ public class TodoItemDocument : CosmosDbEntity
     public List<ChecklistItem> ChecklistItems { get; private set; } = [];
     public Dictionary<string, string> Metadata { get; private set; } = [];
 
-    public static DomainResult<TodoItemDocument> Create(Guid tenantId, string title)
-    {
-        if (string.IsNullOrWhiteSpace(title))
-            return DomainResult<TodoItemDocument>.Failure("Title is required.");
-
-        return DomainResult<TodoItemDocument>.Success(new TodoItemDocument
-        {
-            TenantId = tenantId,
-            Title = title
-        });
-    }
+    public static Result<TodoItemDocument> Create(Guid tenantId, string title) =>
+        DomainGuard.Required(title, nameof(Title)) is { } issue
+            ? new ValidationError([issue])
+            : new TodoItemDocument { TenantId = tenantId, Title = title };
 }
 
 public class Schedule
@@ -193,7 +186,7 @@ public class TodoItemService(I{Project}CosmosDbRepository cosmosRepo, IRequestCo
     {
         var tenantPk = requestContext.TenantId!.Value.ToString();
         var item = await cosmosRepo.GetItemAsync<TodoItemDocument>(id.ToString(), tenantPk);
-        return item is null ? Result<TodoItemDocument>.None() : Result<TodoItemDocument>.Success(item);
+        return item is null ? new NotFoundError($"Todo item {id} was not found.") : item;
     }
 }
 ```
