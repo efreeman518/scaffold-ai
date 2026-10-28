@@ -181,10 +181,10 @@ builder.AddServiceDefaults();
 builder.Services
     .AddDatabaseMigrationRunner()
     .Add{App}MigrationDbContexts(builder.Configuration)  // migrator-local context factories
-    // Deterministic order: app schema first, then FlowEngine, then Scheduler/TickerQ.
+    // Deterministic order: app schema first, then FlowEngine, then Scheduler.
     .AddEfCoreMigrationTarget<{App}DbContextTrxn>("{App}DbContextTrxn", 10)
     .AddEfCoreMigrationTarget<{App}FlowEngineDbContext>("{App}FlowEngineDbContext", 20)
-    .AddEfCoreMigrationTarget<{App}TickerQDbContext>("{App}TickerQDbContext", 30);
+    .AddEfCoreMigrationTarget<{App}SchedulerDbContext>("{App}SchedulerDbContext", 30);
 
 using var host = builder.Build();
 using var scope = host.Services.CreateScope();
@@ -212,17 +212,17 @@ Tests (proportional to blast radius): unit tests for target ordering and fail-fa
 
 ### Third-Party Operational Store Schemas
 
-Libraries like TickerQ, Hangfire, or Quartz persist operational tables through their own EF model but do not ship bundled migrations. Give each an app-owned migration context; never let runtime startup auto-create or patch third-party schema, and keep any library `AutoCreateSchema`/deployment-script feature off in production.
+Packages like EF.Data.Scheduling, Hangfire, or Quartz persist operational tables through their own EF model but ship no migrations. Give each an app-owned migration context; never let runtime startup auto-create or patch that schema, and keep any library `AutoCreateSchema`/deployment-script feature off in production.
 
-Shape (TickerQ example):
+Shape (EF.Data.Scheduling):
 
-- `{App}TickerQDbContext` - app-owned context exposing the library's model, with a dedicated schema (`Scheduler`) and history table (`Scheduler.__EFMigrationsHistory_TickerQ`).
-- Generated migrations live under a separate folder (`Migrations/TickerQ`) with an explicit migrations assembly, so third-party operational schema never mixes with app domain migrations.
+- `{App}SchedulerDbContext : DbContext`, `OnModelCreating` calls `modelBuilder.ApplySchedulingModel("scheduler")` (lower case round-trips unquoted on both providers), history table `__EFMigrationsHistory_Scheduler`.
+- One initial migration per provider in its own folder (`Migrations/Scheduler`), so operational schema never mixes with app domain migrations.
 - Registered as an ordered target in the migrator host (see <Migration Ownership: Dedicated Migrator Host>); the design-time factory matches the target configuration.
-- The scheduler host validates required tables exist at startup and fails fast when missing - it does not create them. The scheduler uses its own logical operational-store connection string; app domain connection strings stay reserved for domain work.
+- The scheduler host validates required tables at startup (`SchedulerSchemaValidator`) and fails fast when one is missing - it does not create them. The scheduler uses its own logical connection string (`{App}SchedulerDbContext`); app domain connection strings stay reserved for domain work.
 - Prefer an explicit app-owned context name over a library-provided context name - upstream design-time context discovery is unreliable in fresh projects. Prove `dotnet ef migrations add` plus a real SQL apply before treating the integration as done.
 
-**TaskFlow proof:** `src/Infrastructure/TaskFlow.Infrastructure.Data/TaskFlowTickerQDbContext.cs`, `TaskFlowTickerQSchemaValidator.cs`, `Migrations/TickerQ/`, scheduler validation in `src/Host/TaskFlow.Scheduler/RegisterSchedulerServices.cs`.
+**TaskFlow proof:** `src/Infrastructure/TaskFlow.Infrastructure.Data/TaskFlowSchedulerDbContext.cs`, `Migrations/Scheduler/`, scheduler validation in `src/Host/TaskFlow.Scheduler/RegisterSchedulerServices.cs`.
 
 ### Zero-Downtime Schema Changes
 

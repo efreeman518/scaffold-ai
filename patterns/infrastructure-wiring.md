@@ -58,7 +58,7 @@ public static WebApplication MapDefaultEndpoints(this WebApplication app)
 
 ### Telemetry Export (`ConfigureOpenTelemetry`)
 
-`ConfigureOpenTelemetry` is EF.OpenTelemetry's one call; it registers logs, traces and metrics with HttpClient, runtime and ASP.NET Core instrumentation, and wires exporters from configuration, each **gated on a connection string** so local runs work with zero Azure resources and cloud export lights up the moment the setting is present. Name every app and package meter and activity source here once, so each host that loads the library exports it:
+`ConfigureOpenTelemetry` is EF.OpenTelemetry's one call; it registers logs, traces and metrics with HttpClient and runtime instrumentation plus the native ASP.NET Core source and meters, and wires exporters from configuration, each **gated on a connection string** so local runs work with zero Azure resources and cloud export lights up the moment the setting is present. Name every app and package meter and activity source here once, so each host that loads the library exports it:
 
 ```csharp
 public static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicationBuilder builder) =>
@@ -77,7 +77,7 @@ public static IHostApplicationBuilder ConfigureOpenTelemetry(this IHostApplicati
 | `OpenTelemetry:Tracing:SampleRatio` | Parent-based head sampling ratio, 0 to 1, validated at startup |
 | `OpenTelemetry:SuppressAspNetCoreInstrumentation` | `true` on the Functions worker, whose host already reports each invocation |
 
-**Discipline gate (docs must match wiring).** "Azure Monitor in cloud" is a wiring claim, not a doc sentence. Every exporter or resource named in an Observability section (tech-design `§Observability`, `infra/README`, the implementation plan) MUST have a matching configuration value here, or be explicitly tagged `not wired`. Do not assert a telemetry capability the code does not deliver. The same rule covers instrumentation meters: if a doc lists FusionCache/EF/etc. as instrumented, `ConfigureOpenTelemetry` (or the owning registration, such as the cache's `CacheTelemetry.MeterNames()`) must register that meter, or the doc drops the claim.
+**Discipline gate (docs must match wiring).** "Azure Monitor in cloud" is a wiring claim, not a doc sentence. Every exporter or resource named in an Observability section (tech-design `§Observability`, `infra/README`, the implementation plan) MUST have a matching configuration value here, or be explicitly tagged `not wired`. The same rule covers instrumentation meters: if a doc lists FusionCache/EF/etc. as instrumented, `ConfigureOpenTelemetry` (or the owning registration, such as the cache's `CacheTelemetry.MeterNames()`) must register that meter, or the doc drops the claim.
 
 Exporter gates are signal-specific; the package keeps logs and traces when metrics are disabled, and a service-provider test pins the disabled-metrics registration shape. Deployment-sink requirements live in [../skills/observability.md](../skills/observability.md) section Signal and Deployment Sink Contract.
 
@@ -141,7 +141,7 @@ if (!isTesting)
 var migrator = builder.AddProject<Projects.{Host}_DatabaseMigrator>("{host}migrator")
     .WithReference(db, connectionName: "{Project}DbContextTrxn")
     .WithReference(db, connectionName: "{Project}FlowEngineDbContext")
-    .WithReference(db, connectionName: "TickerQDbContext")
+    .WithReference(db, connectionName: "{App}SchedulerDbContext")
     .WaitFor(db);
 
 // -- API: one WithReference per pooled DbContext connection name, plus Redis
@@ -154,11 +154,11 @@ var api = builder.AddProject<Projects.{Host}_Api>("{host}api")
     .WaitForCompletion(migrator)
     .WithExternalHttpEndpoints();
 
-// -- Scheduler: same DB refs, pinned to one replica (dev/prod only)
+// -- Scheduler: same DB refs plus its store
 var scheduler = builder.AddProject<Projects.{Host}_Scheduler>("{host}scheduler")
     .WithReference(db, connectionName: "{Project}DbContextTrxn")
     .WithReference(db, connectionName: "{Project}DbContextQuery")
-    .WithReplicas(1)
+    .WithReference(db, connectionName: "{App}SchedulerDbContext")
     .WaitFor(db)
     .WaitForCompletion(migrator);
 

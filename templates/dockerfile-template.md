@@ -67,7 +67,7 @@ Same pattern but replace `{Host}.Api` with `{Gateway}.Gateway` and include YARP 
 
 ## Variant: Scheduler
 
-Same pattern but replace `{Host}.Api` with `{Host}.Scheduler` and include TickerQ dependencies. Add `--replicas=1` in orchestration.
+Same pattern but replace `{Host}.Api` with `{Host}.Scheduler`.
 
 ## Variant: Function App
 

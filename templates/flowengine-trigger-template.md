@@ -87,10 +87,10 @@ public sealed class TaskItemService(
     IRepository<TaskItem> repo,
     IWorkflowTrigger workflows) : ITaskItemService
 {
-    public async Task<DomainResult<TaskItem>> ApproveAsync(Guid id, CancellationToken ct)
+    public async Task<Result<TaskItem>> ApproveAsync(Guid id, CancellationToken ct)
     {
         var item = await repo.GetByIdAsync(id, ct);
-        if (item is null) return DomainResult.NotFound<TaskItem>(id);
+        if (item is null) return new NotFoundError($"Task {id} not found.");
 
         item.MarkApproved();
         await repo.SaveAsync(item, ct);
@@ -101,7 +101,7 @@ public sealed class TaskItemService(
             input: new { item.Id, item.TenantId },
             ct: ct);
 
-        return DomainResult.Success(item);
+        return item;
     }
 }
 ```
@@ -115,23 +115,17 @@ Avoid this when:
 
 ---
 
-## Trigger 3 - TickerQ Recurring Job (`includeScheduler: true`)
+## Trigger 3 - Scheduled Job (`includeScheduler: true`)
 
 Use when a workflow runs on a cron. Lives in `{Project}.Scheduler`.
 
 ```csharp
-namespace {Project}.Scheduler.Jobs;
+namespace {Project}.Scheduler.Handlers;
 
-// Top-level class: TickerQ's source generator ignores nested job classes.
-public sealed class NightlyReconciliationJob(ScheduledJobRunner runner)   // EF.BackgroundServices.TickerQ
-{
-    [TickerFunction(functionName: nameof(NightlyReconciliationJob), cronExpression: "0 0 2 * * *")]
-    public Task Run(TickerFunctionContext context, CancellationToken ct) =>
-        runner.RunAsync<NightlyReconciliationHandler>(context, ct);
-}
-
+// AddEFScheduler<{App}SchedulerDbContext>().AddJob<NightlyReconciliationHandler>(NightlyReconciliationHandler.JobName, o => o.Cron = "0 0 2 * * *")
 public sealed class NightlyReconciliationHandler(IWorkflowTrigger workflows, TimeProvider clock) : IScheduledJobHandler
 {
+    public const string JobName = "nightly_reconciliation";
     public Task HandleAsync(CancellationToken ct) =>
         workflows.StartAsync(
             workflowId: "nightly-reconciliation",
@@ -141,8 +135,8 @@ public sealed class NightlyReconciliationHandler(IWorkflowTrigger workflows, Tim
 ```
 
 Notes:
-- Cron uses TickerQ's six-field expression with seconds first (UTC); the attribute is the only place a job's cron lives - see [../skills/background-services.md](../skills/background-services.md) section Runtime Scheduling APIs.
-- Register the handler scoped (`services.AddScoped<NightlyReconciliationHandler>()`); the runner resolves it in TickerQ's execution scope with one span, `scheduler.job.*` metrics and TickerQ's cancellation contract. More than one scheduler replica needs the Redis-backed `IDistributedLock` for cron seeding - see [../skills/background-services.md](../skills/background-services.md).
+- Cron is six fields, seconds first, read in UTC unless `TimeZoneId`; set on `AddJob` and overridable per job under `Scheduling:Jobs:{name}` - see [../skills/background-services.md](../skills/background-services.md) section Runtime Scheduling APIs.
+- `AddJob` registers the handler scoped; the worker resolves it per attempt with one span, `scheduler.job.*` metrics, retry and parking. Replicas need no lock service.
 - Do **not** put the workflow's business logic in the job. The job is a thin trigger; the work belongs in the workflow's nodes.
 
 ### Per-tenant scheduled start
@@ -198,7 +192,7 @@ public sealed class {Workflow}Handler(
 |---|---|
 | Out-of-process integration event (Service Bus topic/queue) | Trigger 1 (Functions subscriber) |
 | In-process API/service call | Trigger 2 (inline) |
-| Cron / time-based | Trigger 3 (TickerQ job) |
+| Cron / time-based | Trigger 3 (scheduled job) |
 | Multiple sources | Generate each independently; all funnel through `IWorkflowTrigger`. |
 
 Record which triggers are enabled per workflow in `.scaffold/DESIGN-DECISIONS.md`.

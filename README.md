@@ -158,7 +158,7 @@ Pattern files in `patterns/` document how generated components wire together acr
 
 ## Reference Application
 
-A companion reference app - **TaskFlow** - provides executable proof for many high-value patterns: dual DbContext pooling, YARP gateway, Aspire orchestration, FusionCache + Redis backplane, TickerQ scheduling, Azure Functions, multi-tenancy, scaffold-mode auth, Uno WASM UI, Blazor UI, and React/Vite UI. Its canonical capability matrix distinguishes `proven`, `deployment-only`, `documented-only`, and `not enabled`; see [support/reference-app.md](support/reference-app.md).
+A companion reference app - **TaskFlow** - provides executable proof for many high-value patterns: dual DbContext pooling, YARP gateway, Aspire orchestration, FusionCache + Redis backplane, cron scheduling, Azure Functions, multi-tenancy, scaffold-mode auth, Uno WASM UI, Blazor UI, and React/Vite UI. Its canonical capability matrix distinguishes `proven`, `deployment-only`, `documented-only`, and `not enabled`; see [support/reference-app.md](support/reference-app.md).
 
 TaskFlow is a reference/proof target, not a normal install target for `.instructions/`. Keep scaffold runtime instructions in this repository and consult TaskFlow through [support/reference-app.md](support/reference-app.md) and [support/taskflow-proof-map.md](support/taskflow-proof-map.md).
 

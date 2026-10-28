@@ -4,7 +4,7 @@
 
 Structured logging, distributed tracing, custom metrics, and health checks for all hosts. Complements [aspire.md](aspire.md) (which wires OpenTelemetry/ServiceDefaults) - this skill covers application-level conventions.
 
-Not a monitoring dashboard skill - dashboard/alerting configuration is Azure-side (App Insights, Grafana, Azure Monitor). The telemetry **export** to Azure Monitor is wired in ServiceDefaults (gated on `APPLICATIONINSIGHTS_CONNECTION_STRING`) - only the dashboards/alerts on top of it are Azure-side. Any exporter, resource, or instrumented meter this skill or a tech-design Observability section names must have a real call-site or be tagged `not wired`; the discipline gate and `ConfigureOpenTelemetry` body are owned by [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section Telemetry Export.
+Not a monitoring dashboard skill: telemetry **export** is wired in ServiceDefaults (Azure Monitor gated on `APPLICATIONINSIGHTS_CONNECTION_STRING`); dashboards and alerting on top of it are Azure-side (App Insights, Grafana, Azure Monitor). Any exporter, resource, or instrumented meter this skill or a tech-design Observability section names must have a real call-site or be tagged `not wired`; the discipline gate and `ConfigureOpenTelemetry` body are owned by [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section Telemetry Export.
 
 ---
 
@@ -17,7 +17,7 @@ Not a monitoring dashboard skill - dashboard/alerting configuration is Azure-sid
 | `Debug` | EF queries, cache internals, detailed diagnostics | `"Executing query for {Entity} with filter {Filter}"` |
 | `Information` | Request/response lifecycle, business events | `"Created {Entity} {EntityId} for tenant {TenantId}"` |
 | `Warning` | Retries, degraded paths, fallback behavior | `"Cache miss for {Entity}:{EntityId}, falling back to database"` |
-| `Error` | Unhandled + caught-and-handled failures | `"Failed to save {Entity} {EntityId}: {ErrorMessage}"` |
+| `Error` | Unhandled + caught-and-handled failures | `"Failed to save {Entity} {EntityId}"` |
 | `Critical` | Startup failures, data corruption, unrecoverable state | `"Required schema missing - run the database migrator; application cannot start"` |
 
 ### Template Format
@@ -51,7 +51,7 @@ internal class TodoItemService(ILogger<TodoItemService> logger, ...) : ITodoItem
 
 ### Aspire Automatic Wiring
 
-ServiceDefaults calls `ConfigureOpenTelemetry()`, which is EF.OpenTelemetry's `AddEfOpenTelemetry(...)` ([../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Observability): logs, traces and metrics with HTTP, runtime and ASP.NET Core instrumentation, plus the app meters and sources it names. No manual setup needed for standard request flows.
+ServiceDefaults calls `ConfigureOpenTelemetry()`, which is EF.OpenTelemetry's `AddEfOpenTelemetry(...)` ([../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Observability): logs, traces and metrics with HTTP client and runtime instrumentation, plus the app meters and sources it names. ASP.NET Core server tracing and metrics are native: EF.OpenTelemetry subscribes to the `Microsoft.AspNetCore` activity source and `Microsoft.AspNetCore.*` meters, so the app adds no ASP.NET Core instrumentation call or `OpenTelemetry.Instrumentation.AspNetCore` package (`SuppressAspNetCoreInstrumentation` still applies).
 
 ### Cross-Service Correlation
 
@@ -59,7 +59,7 @@ EF.AspNetCore owns `X-Correlation-Id`; generate no correlation middleware. Servi
 
 ### Background Services
 
-Scheduled jobs run through the TickerQ `ScheduledJobRunner`, which starts one `{job} execute` activity on source `EF.Scheduler` and records `scheduler.job.*` metrics; export that source and meter. Other background loops create explicit `Activity` spans:
+The EF.Data.Scheduling worker runs each job attempt as one `{job} execute` activity on source `EF.Scheduler` and records `scheduler.job.*` metrics; export that source and meter. Other background loops create explicit `Activity` spans:
 
 ```csharp
 using var activity = ActivitySource.StartActivity("ProcessDueReminders");
@@ -70,7 +70,7 @@ Keep tenant ids on the span only when the loop runs per tenant; never as a metri
 
 ### Gateway -> API
 
-YARP preserves correlation headers by default. Forward: `X-Correlation-Id`, `traceparent`, `tracestate`. No additional config needed unless custom headers are required.
+YARP preserves correlation headers by default. Forward: `X-Correlation-Id`, `traceparent`, `tracestate`.
 
 ### Broker Hops
 
@@ -89,13 +89,13 @@ The local Aspire Dashboard is local inspection, not evidence for a deployed tele
 - apply the same health, authenticated ingestion, query, retention, and numeric-minimum gates to deploy and rollback;
 - mask credentials and generated authorization headers in command output and diagnostic artifacts.
 
-Changing sink storage or removing a legacy volume is a data migration. Inspect and back it up first, then require an explicit operator action; deployment automation must not delete it implicitly. Vendor choice remains deployment-specific.
+Changing sink storage or removing a legacy volume is a data migration. Inspect and back it up first, then require an explicit operator action; deployment automation must not delete it implicitly.
 
 ---
 
 ## Custom Metrics
 
-Use `System.Diagnostics.Metrics` (not legacy `EventCounters`):
+Use `System.Diagnostics.Metrics`:
 
 ### Meter Naming
 
@@ -113,7 +113,6 @@ Create meters from `IMeterFactory` in DI-constructed classes; a static `Meter` i
 private static readonly Meter s_meter = new("{Project}.Api");
 private static readonly Counter<long> s_entityCreated = s_meter.CreateCounter<long>("entity.created");
 private static readonly Counter<long> s_cacheHit = s_meter.CreateCounter<long>("cache.hit");
-private static readonly Counter<long> s_cacheMiss = s_meter.CreateCounter<long>("cache.miss");
 private static readonly Histogram<double> s_requestDuration = s_meter.CreateHistogram<double>("request.duration", "ms");
 
 // Usage
@@ -136,7 +135,7 @@ s_cacheHit.Add(1, new KeyValuePair<string, object?>("cache", cacheName));
 
 Implementation: the package check per dependency where one exists (Redis, Blob, S3, Cosmos DB, Service Bus, RabbitMQ, outbox backlog, scheduler stall, downstream API) and an app `IHealthCheck` otherwise (SQL). `MapEfHealthEndpoints()` maps `/healthz/live` to `"live"` checks only, `/healthz/ready` to `"ready"` checks, and `/healthz` to the operator aggregate. See [health-check-template.md](../templates/health-check-template.md) for the registration.
 
-Aspire wiring: ServiceDefaults calls `AddDefaultHealthChecks()` to register the `"self"` liveness check (`AddSelfCheck()`) and `AddHostLifecycle()`, whose `draining` readiness check fails before shutdown stops hosted services. Add host-specific critical readiness checks in host registration. Dependency outages make readiness fail without triggering liveness restart loops. Optional dependencies with a proven degraded path report telemetry but do not make readiness fail.
+Aspire wiring: ServiceDefaults calls `AddDefaultHealthChecks()` to register the `"self"` liveness check (`AddSelfCheck()`) and `AddHostLifecycle()`, whose `draining` readiness check fails before shutdown stops hosted services. Add host-specific critical readiness checks in host registration. Optional dependencies with a proven degraded path report telemetry but do not make readiness fail.
 
 ---
 

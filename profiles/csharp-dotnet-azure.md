@@ -14,8 +14,8 @@ A clean-architecture C#/.NET solution with:
 - DDD aggregate boundaries enforced in the generated write surface (GR-15): aggregate roots get the full slice, while internal children (1:N owned, M:N junction) are mutated only through the root's `Add*`/`Remove*` methods, the `{Root}Updater`, and nested sub-resource routes - no standalone child write handlers/services/endpoints. See [../skills/domain-model.md](../skills/domain-model.md) section Aggregate Roots vs Internal Children.
 - ASP.NET Core minimal-API host with `WebApplicationFactoryBase` test infrastructure.
 - Aspire AppHost orchestration with a `NonAzure` default lane (PostgreSQL, RabbitMQ, S3-compatible storage) and an opt-in, independently tested `Azure` provider/deployment lane.
-- Optional hosts: YARP Gateway, Azure Functions, TickerQ scheduler, notifications, Blazor server/WASM, React/Vite SPA, Uno (desktop / WASM / mobile).
-- Shared base-type contracts (`EntityBase`, `DbContextBase`, `DomainResult`, `IRepositoryBase`, `IRequestContext`) sourced as `<packagePrefix>.*` packages via one of three strategies: `feed`, `local`, or `hybrid`.
+- Optional hosts: YARP Gateway, Azure Functions, cron scheduler, notifications, Blazor server/WASM, React/Vite SPA, Uno (desktop / WASM / mobile).
+- Shared base-type contracts (`EntityBase`, `DbContextBase`, `Result<T>`, `IRepositoryBase`, `IRequestContext`) sourced as `<packagePrefix>.*` packages via one of three strategies: `feed`, `local`, or `hybrid`.
 - Azure integrations as no-op stubs by default (Entra, Key Vault, AI Search, Foundry, ACS), promoted to live only when configured.
 
 ## Profile-owned files
@@ -48,7 +48,7 @@ All files. Cross-project wiring for the C#/.NET solution shape: data-layer-wirin
 
 C#-specific operator content:
 
-- [`support/ef-packages-reference.md`](../support/ef-packages-reference.md) - base-type catalog (EntityBase, DbContextBase, DomainResult, IRepositoryBase, IRequestContext).
+- [`support/ef-packages-reference.md`](../support/ef-packages-reference.md) - base-type catalog (EntityBase, DbContextBase, Result<T>, IRepositoryBase, IRequestContext).
 - [`support/execution-gates.md`](../support/execution-gates.md) - `dotnet build` / `dotnet test` / `dotnet run` gates per phase.
 - [`support/vertical-slice-checklist.md`](../support/vertical-slice-checklist.md) - single-entity fast path.
 - [`support/final-scaffold-checklist.md`](../support/final-scaffold-checklist.md) - solution-level acceptance.

@@ -110,11 +110,16 @@ CANARIES = {
     "Map only the app's own client-input exceptions to 400.": "templates/exception-handler-template.md",  # R14: framework exceptions stay 500; MapExceptions lists app types only
     "Only the standard hedging pipeline snapshots the `HttpRequestMessage` for each attempt": "skills/resilience.md",  # one hedging shape; scale doc keeps the GET-only policy by name
     "Branch on the `CanConnectAsync` result": "templates/health-check-template.md",  # SQL health check must use the bool, not an unconditional Healthy()
-    "Never seed code-defined jobs with `ICronTickerManager.AddAsync`": "skills/background-services.md",  # TickerQ cron lives on [TickerFunction]; trigger templates point here
-    "TickerQ jobs are top-level classes, and the host calls `UseTickerQ()`.": "skills/background-services.md",  # a nested job class or a missing UseTickerQ() compiles and never runs
+    "Register every job on the one `AddEFScheduler` call.": "skills/background-services.md",  # an unregistered job never runs; trigger templates point here
+    "A `BackgroundService` failure stops the host.": "skills/background-services.md",  # a worker that must survive handles the failure inside ExecuteAsync
     "a live claim held by another delivery means retry later": "skills/messaging.md",  # EF.Data.Outbox two-state inbox claim (in-progress lease -> completed with the effect)
     "Compose interpolates only from `.env`": "support/compose-deployment.md",  # DockerCompose deployment owner (.env.base + images.env -> generated .env); iac/cicd/schema point here
-    "Generate no rule-object layer": "skills/domain-model.md",  # rules live on the aggregate (Valid/Transition, DomainResult.Combine); entity/structure-validator templates point here
+    "is the union content (`object`), never the success value": "support/ef-packages-reference.md",  # Result surface; others link
+    "Only `ValidationError` (invalid input) is 400": "support/ef-packages-reference.md",  # Error categories, infra-failure rule
+    "Shared-framework packages get no reference (NU1510)": "skills/package-dependencies.md",
+    "`--filter` keeps MSTest syntax": "skills/testing.md",  # MTP invocation
+    "OpenApiSpecVersion.OpenApi3_1": "skills/api.md",
+    "Generate no rule-object layer": "skills/domain-model.md",  # rules live on the aggregate (Valid/Transition, Result.Combine); entity/structure-validator templates point here
     "Never generate a parallel `docs/tech-design.md`": "templates/tech-design-template.md",  # docs/tech-design.html is the only design doc; diagrams doc carries source-plus-SVG rules only
     "start only that lane's stores, and CI runs the assembly once per declared lane": "templates/test-templates-integration.md",  # test lane switch; aspire/e2e templates point to section Lane switch
     "a prerequisite that is present but fails to start": "skills/testing.md",  # prerequisite rule: missing -> Inconclusive with enabling command, present-but-failing -> red; others point
@@ -235,7 +240,7 @@ are pointers.
   412 policy stays in [skills/data-persistence.md](../skills/data-persistence.md).
 - Read hedging registration: [skills/resilience.md](../skills/resilience.md) section Hedging.
 - Outbox claim/dispatch and inbox claim states: [skills/messaging.md](../skills/messaging.md).
-- TickerQ cron declaration, top-level jobs plus `UseTickerQ()`, and scheduler health: [skills/background-services.md](../skills/background-services.md).
+- Scheduler job registration, `BackgroundService` failure, and scheduler health: [skills/background-services.md](../skills/background-services.md).
 - `DockerCompose` deployment (file layout, service rules, Caddy edge, secrets, OpenObserve, VPS deploy workflow):
   [support/compose-deployment.md](../support/compose-deployment.md). Bicep stays in [skills/iac.md](../skills/iac.md); the
   generic release contract stays in [skills/cicd.md](../skills/cicd.md).

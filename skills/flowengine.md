@@ -175,7 +175,7 @@ Something must invoke each workflow. Canonical patterns in [../templates/floweng
 
 - **Service Bus subscriber in `{Project}.Functions`** - `includeFunctionApp: true`, an integration event starts a workflow.
 - **Inline call from a service** - an in-process command.
-- **TickerQ recurring job in `{Project}.Scheduler`** - `includeScheduler: true`, a cron starts it.
+- **Scheduled job in `{Project}.Scheduler`** - `includeScheduler: true`, a cron starts it.
 
 `IWorkflowTrigger` is an app-level facade over `IFlowEngine`, not an FE interface. Generate it in `{Project}.Application.Services`.
 
