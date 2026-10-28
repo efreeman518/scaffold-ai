@@ -153,7 +153,7 @@ When a third-party library (scheduler, queue, dashboard, job runner) uses EF-bac
 
 1. **Identify the schema owner.** The app owns third-party operational schema through an app-owned migration context applied by the migrator host (see [data-persistence-advanced.md](data-persistence-advanced.md) -> Third-Party Operational Store Schemas). If the library is instead auto-creating tables at startup, that is the defect - disable it and add the migration target.
 2. **Do not conflate startup success with schema presence.** Many libraries start without error even when their backing tables are missing - failures appear later during seeding, first job execution, or dashboard queries, and are easily misread as connection or configuration issues.
-3. **Verify the schema directly.** Query `INFORMATION_SCHEMA.TABLES` or the database tool of your choice to confirm the expected tables exist before investigating application-level failures. Then confirm the migrator ran (its history table, e.g. `Scheduler.__EFMigrationsHistory_TickerQ`, has rows) and that the host's startup validation is wired.
+3. **Verify the schema directly.** Query `INFORMATION_SCHEMA.TABLES` or the database tool of your choice to confirm the expected tables exist before investigating application-level failures. Then confirm the migrator ran (its history table, e.g. `scheduler.__EFMigrationsHistory_Scheduler`, has rows) and that the host's startup validation is wired.
 4. **Record the schema ownership model** in `HANDOFF.md` and `.scaffold/resource-implementation.yaml` so future sessions do not re-diagnose the same issue.
 
 ---
@@ -175,18 +175,18 @@ When a third-party library (scheduler, queue, dashboard, job runner) uses EF-bac
 
 **Symptom:** Browser console reports `Your mono runtime and class libraries are out of sync` and names `System.Private.CoreLib.dll`.
 
-**Likely root cause:** Mixed browserwasm output. The target `bin/<configuration>/<tfm>-browserwasm` was rebuilt, but target `obj/<configuration>/<tfm>-browserwasm` still contains stale WebCIL/runtime intermediates.
+**Likely root cause:** Mixed browserwasm output. The target `bin/<configuration>/$(LatestStableTfm)-browserwasm` was rebuilt, but target `obj/<configuration>/$(LatestStableTfm)-browserwasm` still contains stale WebCIL/runtime intermediates.
 
 **Fix:**
 1. Delete both target directories:
    ```powershell
-   Remove-Item -Recurse -Force src/UI/{Project}.Uno/bin/Debug/{tfm}-browserwasm
-   Remove-Item -Recurse -Force src/UI/{Project}.Uno/obj/Debug/{tfm}-browserwasm
+   Remove-Item -Recurse -Force src/UI/{Project}.Uno/bin/Debug/$(LatestStableTfm)-browserwasm
+   Remove-Item -Recurse -Force src/UI/{Project}.Uno/obj/Debug/$(LatestStableTfm)-browserwasm
    ```
 2. Restore/build the Uno project:
    ```powershell
    dotnet restore src/UI/{Project}.Uno/{Project}.Uno.csproj -p:BuildAllUnoTargets=true -p:EnableUnoWasm=true
-   dotnet build src/UI/{Project}.Uno/{Project}.Uno.csproj -p:TargetFrameworkOverride={tfm}-browserwasm -p:EnableUnoWasm=true --no-restore -m:1
+   dotnet build src/UI/{Project}.Uno/{Project}.Uno.csproj -p:TargetFrameworkOverride=$(LatestStableTfm)-browserwasm -p:EnableUnoWasm=true --no-restore -m:1
    ```
 
 Do not switch renderers, change launch ports, or rewrite app startup before ruling this out.
@@ -261,7 +261,7 @@ For phase gates and validation commands, see [execution-gates.md](execution-gate
 | `DbContextOptions must be DbContextOptions<T>` in tests | Multiple contexts sharing non-generic `DbContextOptions` constructor | Build typed options per context via `new DbContextOptionsBuilder<T>().UseInMemoryDatabase(name).Options` |
 | `CS9035` required member `AuditId` not set | `DbContextBase` declares `required` members; `new` operator enforces at compile time | In WAF-based tests the package base (`EfWebApplicationFactoryBase`, EF.IntegrationTesting) already creates contexts via reflection; for hand-built fixtures construct via object initializer - see [test-templates-integration.md](../templates/test-templates-integration.md) |
 | Create returns 201 but validation test expects 400 | DTO fields not applied to entity after create | Call `entity.Update(...)` after factory create |
-| Create/Update NullReferenceException in tests | `UpdateFromDto` not mocked | Mock `repoTrxn.UpdateFromDto(...)` to return `DomainResult<T>.Success(entity)` |
+| Create/Update NullReferenceException in tests | `UpdateFromDto` not mocked | Mock `repoTrxn.UpdateFromDto(...)` to return the entity (`Result<T>`) |
 | `CS1929` ReturnsAsync type mismatch on search mock | Query repo interface returns `PagedResponse<EntityDto>` but test uses `PagedResponse<Entity>` | Change mock to use DTO type - repos project to DTOs via `QueryPageProjectionAsync` |
 | Manual Skip/Take/Count in query repo | Not using `QueryPageProjectionAsync` from RepositoryBase | Replace with `QueryPageProjectionAsync` + mapper projector + `BuildFilter`/`BuildOrderBy` methods |
 | Schema changes not reflected in TestContainer | Previous schema persists | `EnsureDeletedAsync()` before `EnsureCreatedAsync()` |
@@ -269,15 +269,15 @@ For phase gates and validation commands, see [execution-gates.md](execution-gate
 | Aspire/DCP produces no console output and every named resource immediately reports `FailedToStart` without an exit code | Orchestrator failed before launching an application process; this is distinct from an app crash | Bound the startup, dump named-resource state, and verify that no process/log directory was created. A conditional mitigation may retry one fresh host once for this exact state and then report it unavailable; include the upstream condition and removal criterion. Any exit code, unhealthy started resource, or different exception remains red. Never classify a generic timeout alone as unavailable. |
 | Azure Aspire SQL graph fails while the SQL parent is healthy and a child database health probe runs before database creation | Child-resource readiness ordering in the orchestrator/integration, not an application assertion | Capture parent and child resource state plus the first probe error, reproduce on the current stable integration, and keep the lane blocked explicitly. Do not weaken database readiness, add sleeps, or roll back packages unless the alternate version changes the reproduction. |
 | Recurrence/expiry/retention test changes counts between identical runs | Expected window uses `TimeProvider.System`, so the boundary moves during the test | Inject a fixed `TimeProvider` into the handler/service and derive both setup data and expected results from that instant. Keep startup timeout measurement monotonic and separate from business time. |
-| Mobile/browser UI tests pass by script but do not run from Visual Studio | IDE profile does not enable/serialize the heavy lanes or own their local host lifecycle | Select the checked-in `tests/{App}.runsettings` profile when provided. It sets `MaxCpuCount=1` and explicitly enables mobile; the mobile assembly host may build the default APK and own loopback Appium, while the explicit runner still owns emulator/device preflight. |
+| Mobile/browser UI tests pass by script but do not run from Visual Studio | IDE profile does not enable/serialize the heavy lanes or own their local host lifecycle | Enable the lanes through the environment or `--test-parameter` ([../skills/testing.md](../skills/testing.md) section Mobile Tier Opt-In); the explicit runner owns emulator/device preflight. |
 | ProblemDetails stack traces leak in CI | Debug diagnostics enabled in all builds | Wrap diagnostic customization in `#if DEBUG` |
 | StructureValidator not found | Missing static validator namespace import | Add `using {Namespace}.Application.Services.Validation;` |
 | WASM build `DirectoryNotFoundException` (`unoresizetizer`) | Resizetizer manifest-path issue | See fix snippet in `skills/ui-uno-platforms.md` -> *UnoSplashScreen WASM Build Failure* |
-| WASM browser reports mono runtime/class libraries out of sync | Target `obj/<config>/<tfm>-browserwasm` contains stale WebCIL/runtime intermediates after only `bin` was rebuilt | Delete both target `bin` and target `obj`; restore/build with `TargetFrameworkOverride=<tfm>-browserwasm` and `-m:1` |
+| WASM browser reports mono runtime/class libraries out of sync | Target `obj/<config>/$(LatestStableTfm)-browserwasm` contains stale WebCIL/runtime intermediates after only `bin` was rebuilt | Delete both target `bin` and target `obj`; restore/build with `TargetFrameworkOverride=$(LatestStableTfm)-browserwasm` and `-m:1` |
 | WasmUI tests look dead in Test Explorer | Harness requires `{APP}_WASM_TESTS_ENABLED=true` instead of default-on false-only opt-out | Treat only `{APP}_WASM_TESTS_ENABLED=false` as opt-out; missing Docker is `Assert.Inconclusive`, Docker present starts Aspire |
 | WasmUI startup hangs with no useful failure | Long steps lack per-step timeouts/progress logs and browser diagnostics | Add bounded startup steps plus console/page error/request/HTML/script/canvas/body/bridge-state diagnostics |
-| WasmUI passes locally but fails under VS coverage/profiler | Test runner profiler env vars leak into child `dotnet restore` / `dotnet build` | Clear `CORECLR_*`, `COR_*`, and Coverlet profiler vars for child processes; set profiling disabled flags |
-| `NotSupportedException` deserializing `Result<T>` in tests | `Result<T>` lacks parameterless constructor | Use `JsonDocument` parsing instead of `ReadFromJsonAsync<Result<T>>()`. Search endpoints serialize just the `PagedResponse<T>` value, not the wrapper. |
+| WasmUI passes locally but fails under VS coverage/profiler | Test runner profiler env vars leak into child `dotnet restore` / `dotnet build` | Clear `CORECLR_*`, `COR_*` and coverage profiler vars for child processes; set profiling disabled flags |
+| `NotSupportedException` deserializing `Result<T>` in tests | Endpoints serialize the success value, never the `Result<T>` union | Read the DTO (`DefaultResponse<T>`, `PagedResponse<T>`), or a `ProblemDetails` on failure |
 | Aspire dashboard never opens / blank terminal | Missing `Properties/launchSettings.json` in AppHost | Create launchSettings.json with OTLP endpoints - see [aspire.md](../skills/aspire.md) -> Preflight |
 | `MSB4057` "GetTargetPath" target missing | Uno.Sdk project referenced directly from AppHost | Remove the direct Uno ProjectReference/AddProject and register the ASP.NET Core `{Project}.Uno.WasmHost` wrapper instead |
 | Functions storage/messaging clients refuse `127.0.0.1:10000/10001/10002` | `local.settings.json` fallbacks (`UseDevelopmentStorage=true`, empty Service Bus strings) beat Aspire-injected env values; Azurite under Aspire uses dynamic ports | Give Functions its own `.WithReference(...)` / host storage wiring and resolve shared client connection strings env-first before `local.settings.json` fallbacks. See [function-app.md](../skills/function-app.md) -> Aspire Integration and [aspire.md](../skills/aspire.md) -> Azure Service Bus Topics and Subscriptions. |

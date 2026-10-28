@@ -152,11 +152,9 @@ jobs:
         with:
           global-json-file: global.json
 
-      # Emit this step when the solution includes a Uno/WASM head (add `android` when Android is in
-      # scope) - see skills/ui-uno-platforms.md section CI Requirements. Without it the fast lane
-      # skips a compile surface the deploy builds, breaking Non-Negotiable 12. Omit the step for a
-      # solution with no WASM/Uno project. Ephemeral hosted runners only: a persistent self-hosted
-      # runner preflights workloads and fails with the install command instead of installing them.
+      # Emit only for a Uno/WASM head (add `android` when in scope; skills/ui-uno-platforms.md
+      # section CI Requirements), or the fast lane skips a deploy compile surface (Non-Negotiable 12).
+      # Hosted runners only: a self-hosted runner preflights workloads and fails with the install command.
       - name: Install required workloads
         run: dotnet workload install wasm-tools
 
@@ -171,30 +169,32 @@ jobs:
             echo "::warning::High-severity vulnerable packages detected. Verify each is documented in .scaffold/INSTRUCTION-GAPS.md."
           fi
 
-      - run: dotnet build {SolutionName}.slnx --no-restore --configuration Release
+      - run: dotnet build {SolutionName}.slnx --no-restore --configuration Release -m:1
 
       # Fast tiers: always run, no Docker, no gate. Emit one step per fast-tier project this
       # scaffold generated - every generated fast tier runs, or PR CI understates coverage.
-      # Target specific test projects to avoid "No test matches" noise from unrelated projects
-      - run: dotnet test tests/Test.Unit/Test.Unit.csproj --no-build --configuration Release --blame-hang --blame-hang-timeout 5m
+      # Every test step adds --report-trx --results-directory tests/TestResults/<project>
+      # (MTP options: skills/testing.md section Test Platform and Dependencies).
+      - run: >
+          dotnet test --project tests/Test.Unit/Test.Unit.csproj --no-build --configuration Release
+          --hangdump --hangdump-timeout 5m --report-trx --results-directory tests/TestResults/Test.Unit
       # Test.UI (UI / Presentation categories) - emit only when UI model/presentation coverage exists.
-      - run: dotnet test tests/Test.UI/Test.UI.csproj --no-build --configuration Release
-      - run: dotnet test tests/Test.Endpoints/Test.Endpoints.csproj --no-build --configuration Release
-      - run: dotnet test tests/Test.Architecture/Test.Architecture.csproj --no-build --configuration Release
+      - run: dotnet test --project tests/Test.UI/Test.UI.csproj --no-build --configuration Release
+      - run: dotnet test --project tests/Test.Endpoints/Test.Endpoints.csproj --no-build --configuration Release
+      - run: dotnet test --project tests/Test.Architecture/Test.Architecture.csproj --no-build --configuration Release
 
       # Docker-backed tiers: manual dispatch only.
       - if: ${{ github.event_name == 'workflow_dispatch' && inputs.includeIntegration == true }}
-        run: dotnet test tests/Test.Integration/Test.Integration.csproj --no-build --configuration Release
+        run: dotnet test --project tests/Test.Integration/Test.Integration.csproj --no-build --configuration Release
       - if: ${{ github.event_name == 'workflow_dispatch' && inputs.includeAspireMesh == true }}
-        run: dotnet test tests/Test.Aspire/Test.Aspire.csproj --no-build --configuration Release -m:1
+        run: dotnet test --project tests/Test.Aspire/Test.Aspire.csproj --no-build --configuration Release
       - if: ${{ github.event_name == 'workflow_dispatch' && inputs.includeE2E == true }}
-        run: dotnet test tests/Test.E2E/Test.E2E.csproj --no-build --configuration Release
+        run: dotnet test --project tests/Test.E2E/Test.E2E.csproj --no-build --configuration Release
 
       # Perf / quality tiers: manual dispatch only. NOTE the runner per tier.
       - if: ${{ github.event_name == 'workflow_dispatch' && inputs.includeLoad == true }}
-        run: dotnet test tests/Test.Load/Test.Load.csproj --no-build --configuration Release --filter "TestCategory=Load"
-      # Test.Benchmarks uses BenchmarkDotNet [Benchmark], not [TestMethod] - `dotnet test`
-      # discovers nothing (silent no-op). Run the console host instead.
+        run: dotnet test --project tests/Test.Load/Test.Load.csproj --no-build --configuration Release --filter "TestCategory=Load"
+      # Test.Benchmarks is a BenchmarkDotNet console, not a test app: run it.
       - if: ${{ github.event_name == 'workflow_dispatch' && inputs.includeBenchmarks == true }}
         run: dotnet run --project tests/Test.Benchmarks/Test.Benchmarks.csproj --configuration Release
       # Test.Mutation runs via the Stryker local tool, not `dotnet test`.
@@ -206,7 +206,7 @@ jobs:
 
 Workflow evidence rules:
 
-- Run the complete `Test.Unit` project unfiltered under both a step/job timeout and `--blame-hang`; category filters are diagnostics, not acceptance.
+- Run the complete `Test.Unit` project unfiltered under both a step/job timeout and `--hangdump` (`Microsoft.Testing.Extensions.HangDump`); category filters are diagnostics, not acceptance.
 - A persistent self-hosted runner is shared infrastructure. Preflight required SDK workloads and fail with the exact install command; CI must not install/remove workloads, edit machine PATH, or mutate global tooling there. Installation steps are limited to disposable hosted runners.
 - External CLI lookup/deploy steps capture exit code and stderr, fail on nonzero, and only parse output after success. Never turn a failed image/resource lookup into an empty fallback value.
 - Cross-platform text-contract tests normalize CRLF before parsing or accept `\r?\n` explicitly while preserving the semantic assertion.
@@ -219,7 +219,7 @@ For a live Aspire/Compose mesh, capture container state, port mappings, and scop
 
 For every configured EF provider, CI runs the non-destructive `has-pending-model-changes` or provider-parity verifier. Baseline regeneration is not a normal CI repair action and must not be implemented through a workflow that edits/deletes itself or pushes a cleanup branch.
 
-The self-modifying prohibition is general, not EF-specific: **routine maintenance is never a workflow that modifies workflows.** Action bumps, cleanups, and one-time repairs land as ordinary PR edits to the workflow files. Two consumer repos have independently burned double-digit commit counts on one-shot updater/cleanup workflows that never triggered reliably (eight trigger variations in one case) and then had to be removed by hand.
+The self-modifying prohibition is general, not EF-specific: **routine maintenance is never a workflow that modifies workflows.** Action bumps, cleanups, and one-time repairs land as ordinary PR edits to the workflow files; one-shot updater workflows trigger unreliably and end up removed by hand.
 
 ### Runner Disk for Container-Backed Test Tiers
 
@@ -248,7 +248,7 @@ Fast tiers run automatically on PRs; everything else is a default-off `workflow_
 toggle (only emitted for tiers this scaffold generated). The trigger column maps each
 category to its `inputs.*` switch.
 
-Treat Aspire, Playwright, and WasmUI projects as resource-heavy. Keep their workflow steps/jobs non-overlapping, and use `-m:1` for every solution-wide or heavy-project `dotnet test` command. Keep `-m:1` on the solution `dotnet build` too: it guards the static-web-assets race (one web project built twice with different global properties; AppHost `GlobalPropertiesToRemove` plus test projects' `AdditionalProperties` yield one instance per project), and parallelizing is worth it only if measured faster on the hosted runner (TaskFlow measured no gain). The scheduled/manual acceptance lane must also run the unfiltered solution command `dotnet test {SolutionName}.slnx --no-build -m:1`; filtered fast tiers do not prove scaffold acceptance.
+Treat Aspire, Playwright, and WasmUI projects as resource-heavy: keep their steps/jobs non-overlapping, and pass `--max-parallel-test-modules 1` to every solution-wide `dotnet test`. Build the solution with `-m:1`: it guards the static-web-assets race (one web project built twice with different global properties; AppHost `GlobalPropertiesToRemove` plus test projects' `AdditionalProperties` yield one instance per project), and parallelizing is worth it only if measured faster on the hosted runner (TaskFlow measured no gain). The scheduled/manual acceptance lane also runs the unfiltered solution gate ([../support/execution-gates.md](../support/execution-gates.md)); filtered fast tiers do not prove scaffold acceptance.
 
 | Category | Trigger | Prerequisite / notes |
 |---|---|---|
@@ -277,14 +277,15 @@ playwright:
   steps:
     - uses: actions/checkout@<latest-stable-sha>
     - uses: actions/setup-dotnet@<latest-stable-sha>
+      with: { global-json-file: global.json }
     # This job builds the solution on a fresh runner, so it needs the same workload step as the
     # main job when the solution includes a Uno/WASM head.
     - run: dotnet workload install wasm-tools
     - run: dotnet build {SolutionName}.slnx --configuration Release -m:1
     - name: Install Playwright browsers
-      run: pwsh tests/Test.PlaywrightUI/bin/Release/$(TargetFramework)/playwright.ps1 install --with-deps
+      run: pwsh tests/Test.PlaywrightUI/bin/Release/$(LatestStableTfm)/playwright.ps1 install --with-deps
     - name: Run Playwright tests
-      run: dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --no-build --configuration Release -m:1
+      run: dotnet test --project tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --no-build --configuration Release
 ```
 
 For PR-time runs, gate `Test.PlaywrightUI` to nightly to keep PR loops fast.
@@ -628,8 +629,8 @@ For `scaffoldMode: lite`:
 - [ ] `ci.yml` runs every generated fast tier (`Unit`, `UI`/`Presentation`, `Endpoint`, `Architecture`) on PR with no Docker and no `if:` gate; a generated fast-tier project with no step is a coverage gap, not a choice
 - [ ] every compile surface the deploy builds also compiles in the fast lane (Non-Negotiable 12): a solution with a Uno/WASM head installs `wasm-tools` before build on the hosted runner, or the workflow names the required manual build explicitly
 - [ ] `ci.yml` declares a `workflow_dispatch` boolean (default false) for every manual tier it references, and emits one only for tiers this scaffold generated; every `inputs.*` referenced in an `if:` is declared
-- [ ] heavy tiers carry the `workflow_dispatch && inputs.<x>` gate, do not overlap, and use `-m:1`; Benchmarks use `dotnet run` and Mutation uses `dotnet stryker` (never `dotnet test`); disk reclaim covers Integration/Aspire/E2E
-- [ ] scheduled/manual acceptance provisions generated prerequisites, then runs unfiltered `dotnet test {SolutionName}.slnx --no-build -m:1`; filtered fast tiers remain diagnostic lanes, not acceptance
+- [ ] heavy tiers carry the `workflow_dispatch && inputs.<x>` gate, do not overlap, and build with `-m:1`; Benchmarks use `dotnet run` and Mutation uses `dotnet stryker` (never `dotnet test`); disk reclaim covers Integration/Aspire/E2E
+- [ ] scheduled/manual acceptance provisions generated prerequisites, then runs unfiltered `dotnet test --solution {SolutionName}.slnx --no-build --max-parallel-test-modules 1`; filtered fast tiers remain diagnostic lanes, not acceptance
 - [ ] `ci.yml` cancels superseded runs, skips draft PR work, and includes `ready_for_review`; deployment queues with `cancel-in-progress: false`
 - [ ] no redundant main-push CI retests an already gated merge candidate; any post-merge trigger performs distinct work
 - [ ] mesh failure diagnostics are captured before teardown, target-step gated, non-fatal, and secret-safe

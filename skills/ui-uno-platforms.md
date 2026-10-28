@@ -133,11 +133,11 @@ After any rebuild, `WasmAppHost` serves a new `package_<hash>/` directory. The o
 
 ### Serve Fresh WASM Output
 
-A standalone WASM server (the one Playwright targets) must serve static assets from the **current** `bin/<config>/net{X}.0-browserwasm/wwwroot` output, not a stale `bin/<config>/browser-wasm/wwwroot` folder left by an older Uno/SDK build. When both exist, builds and test runs disagree about which assets are live and Playwright loads yesterday's app. Build the WASM target explicitly before browser tests, then point the server at the fresh output:
+A standalone WASM server (the one Playwright targets) must serve static assets from the **current** `bin/<config>/$(LatestStableTfm)-browserwasm/wwwroot` output, not a stale `bin/<config>/browser-wasm/wwwroot` folder left by an older Uno/SDK build; with both present, Playwright loads yesterday's app. Build the WASM target explicitly before browser tests, then point the server at the fresh output:
 
 ```powershell
 dotnet restore src/UI/{Project}.Uno/{Project}.Uno.csproj -p:BuildAllUnoTargets=true -p:EnableUnoWasm=true
-dotnet build src/UI/{Project}.Uno/{Project}.Uno.csproj -p:TargetFrameworkOverride=net{X}.0-browserwasm -p:EnableUnoWasm=true --no-restore -m:1
+dotnet build src/UI/{Project}.Uno/{Project}.Uno.csproj -p:TargetFrameworkOverride=$(LatestStableTfm)-browserwasm -p:EnableUnoWasm=true --no-restore -m:1
 ```
 
 If a `browser-wasm/` sibling lingers, delete it so it cannot win asset resolution. The local test stack script ([../templates/local-test-stack-template.md](../templates/local-test-stack-template.md)) does this build step for you.
@@ -147,13 +147,13 @@ If a `browser-wasm/` sibling lingers, delete it so it cannot win asset resolutio
 When a test fixture rebuilds Uno WASM, clean both target-specific output roots before the build:
 
 ```text
-src/UI/{Project}.Uno/bin/<configuration>/net{X}.0-browserwasm
-src/UI/{Project}.Uno/obj/<configuration>/net{X}.0-browserwasm
+src/UI/{Project}.Uno/bin/<configuration>/$(LatestStableTfm)-browserwasm
+src/UI/{Project}.Uno/obj/<configuration>/$(LatestStableTfm)-browserwasm
 ```
 
 Cleaning only `bin/` can leave stale WebCIL/runtime intermediates in `obj/`, which surfaces at runtime as the WASM mono-runtime / class-library mismatch - see [../support/troubleshooting.md](../support/troubleshooting.md) section WASM Runtime/Class Library Mismatch for the symptom string and full clean/restore/build fix. Suspect stale mixed WASM output first: clean both folders, then restore/build with `TargetFrameworkOverride`; do not switch renderers or rewrite startup code until this is ruled out.
 
-After a test-owned clean rebuild succeeds, write a stamp file inside the fresh target output, for example `bin/Debug/net{X}.0-browserwasm/.{app}-wasm-test-build.stamp`. Freshness checks must require that stamp plus current source timestamps. This prevents Test Explorer from silently accepting an old developer build that happens to have `index.html`.
+After a test-owned clean rebuild succeeds, write a stamp file inside the fresh target output, for example `bin/Debug/$(LatestStableTfm)-browserwasm/.{app}-wasm-test-build.stamp`. Freshness checks must require that stamp plus current source timestamps. This prevents Test Explorer from silently accepting an old developer build that happens to have `index.html`.
 
 ### Child Dotnet Build Environment
 
@@ -180,7 +180,7 @@ Deployment and deployment-shaped tests stage a clean `dotnet publish -c Release`
 
 Staging and lookup must use forward slashes plus case-correct paths so Windows cannot hide a Linux deployment failure. Fail the artifact-producing job when expected files are absent, and make artifact upload use `if-no-files-found: error`.
 
-The same clean-first rule binds any manual "republish and re-check" loop: `dotnet publish` does not clean prior output, so repeated publishes accumulate hashed `_framework` assemblies and `dotnet.*.js` boot scripts, and the Uno bootstrap keeps loading whichever it was first built against - the browser renders old code no matter what the source says. Delete `bin/<Config>/<tfm>-browserwasm/publish` before each publish and assert exactly one `dotnet.*.js` and one application assembly in `_framework/` before trusting what the browser shows. A pixel-identical screenshot after a change that must move layout is evidence the pipeline is stuck, not evidence the change did nothing.
+The same clean-first rule binds any manual "republish and re-check" loop: `dotnet publish` does not clean prior output, so repeated publishes accumulate hashed `_framework` assemblies and `dotnet.*.js` boot scripts, and the Uno bootstrap keeps loading whichever it was first built against - the browser renders old code no matter what the source says. Delete `bin/<Config>/$(LatestStableTfm)-browserwasm/publish` before each publish and assert exactly one `dotnet.*.js` and one application assembly in `_framework/` before trusting what the browser shows. A pixel-identical screenshot after a change that must move layout is evidence the pipeline is stuck, not evidence the change did nothing.
 
 Static hosting rules:
 
@@ -309,7 +309,7 @@ Example: check for `window.__TAURI__` or `navigator.userAgentData` rather than p
 
 ## .NET for Android - Build & Deploy Rules
 
-These rules apply when targeting any `<tfm>-android` Uno, MAUI, or bare .NET for Android target (where `<tfm>` is the project's pinned .NET TFM).
+These rules apply when targeting any `$(LatestStableTfm)-android` Uno, MAUI, or bare .NET for Android target.
 
 ### Android SDK Discovery (Windows)
 
@@ -357,7 +357,7 @@ If the app crashes before app code runs, collect logcat and classify the failure
 
 Hard-won rules for the install path - a test harness or setup script should encode these:
 
-- **Pick the current APK, not a stale one.** A build can leave multiple signed APKs: the root `bin/Debug/{tfm}-android/{package-id}-Signed.apk` and per-RID copies under `bin/Debug/{tfm}-android/{rid}/`. Stale RID-folder APKs can advertise an old launch activity and silently install yesterday's build. Prefer the **root `{tfm}-android` signed APK when it is the newest**; fall back to a RID-folder APK only when it is genuinely newer (compare write times). Default local RID for the emulator is `android-x64`.
+- **Pick the current APK, not a stale one.** A build can leave multiple signed APKs: the root `bin/Debug/$(LatestStableTfm)-android/{package-id}-Signed.apk` and per-RID copies under `bin/Debug/$(LatestStableTfm)-android/{rid}/`. Stale RID-folder APKs can advertise an old launch activity. Prefer the **root signed APK when it is the newest**; fall back to a RID-folder APK only when it is genuinely newer (compare write times). Default local RID for the emulator is `android-x64`.
 - **Embedded assemblies for sideload.** Manual `adb install` needs a complete APK (`EmbedAssembliesIntoApk=true`, above). That makes the APK much larger - plan emulator storage accordingly (next bullet).
 - **`INSTALL_FAILED_INSUFFICIENT_STORAGE` is usually the AVD, not the APK.** The fix is the emulator's data partition, not the APK path. Use an AVD with at least a 10 GB data partition and wipe emulator data once. Do not chase APK-path theories when this is the error.
 - **Install once per test process.** Install the app one time per run; do not reinstall before every test. Use Appium's reset behaviour or explicit `pm clear <package-id>` for fresh-onboarding state, not a reinstall loop.

@@ -11,6 +11,8 @@
 
 Owned by [../skills/testing.md](../skills/testing.md) section Test Naming Convention. `Given_When_Then` is the
 default; `<Subject>_<Condition>_<Outcome>` applies when a named member or structural fact is under test.
+Result API: [../support/ef-packages-reference.md](../support/ef-packages-reference.md) section Domain Layer.
+Success: `GetValueOrThrow()`; failure: `Assert.IsInstanceOfType<ValidationError>(result.Value)`.
 
 ---
 
@@ -26,13 +28,10 @@ public class {Entity}Tests
     [TestMethod]
     public void Given_ValidInput_When_EntityCreated_Then_ReturnsSuccess()
     {
-        // Arrange & Act
         var result = {Entity}.Create(Guid.NewGuid(), "Valid Name");
 
-        // Assert
-        Assert.IsTrue(result.IsSuccess);
-        Assert.IsNotNull(result.Value);
-        Assert.AreEqual("Valid Name", result.Value.Name);
+        Assert.IsTrue(result.IsSuccess, result.ToString());
+        Assert.AreEqual("Valid Name", result.GetValueOrThrow().Name);
     }
 
     [TestMethod]
@@ -40,53 +39,42 @@ public class {Entity}Tests
     [DataRow("")]
     public void Given_EmptyName_When_EntityCreated_Then_ReturnsDomainFailure(string? name)
     {
-        // Arrange & Act
         var result = {Entity}.Create(Guid.NewGuid(), name!);
 
-        // Assert
-        Assert.IsTrue(result.IsFailure);
-        Assert.Contains("name", result.ErrorMessage!, StringComparison.OrdinalIgnoreCase);
+        var error = Assert.IsInstanceOfType<ValidationError>(result.Value);
+        Assert.Contains("name", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [TestMethod]
     public void Given_ExistingEntity_When_Updated_Then_ReturnsUpdatedValues()
     {
-        // Arrange
-        var entity = {Entity}.Create(Guid.NewGuid(), "Original").Value!;
+        var entity = {Entity}.Create(Guid.NewGuid(), "Original").GetValueOrThrow();
 
-        // Act
         var result = entity.Update(name: "Updated");
 
-        // Assert
         Assert.IsTrue(result.IsSuccess);
-        Assert.AreEqual("Updated", result.Value!.Name);
+        Assert.AreEqual("Updated", result.GetValueOrThrow().Name);
     }
 
     [TestMethod]
     public void Given_NullUpdate_When_Updated_Then_OriginalValuesPreserved()
     {
-        // Arrange
-        var entity = {Entity}.Create(Guid.NewGuid(), "Original").Value!;
+        var entity = {Entity}.Create(Guid.NewGuid(), "Original").GetValueOrThrow();
 
-        // Act
         var result = entity.Update(name: null);
 
-        // Assert
         Assert.IsTrue(result.IsSuccess);
-        Assert.AreEqual("Original", result.Value!.Name);
+        Assert.AreEqual("Original", result.GetValueOrThrow().Name);
     }
 
     [TestMethod]
     public void Given_ParentEntity_When_ChildAdded_Then_CollectionContainsChild()
     {
-        // Arrange
-        var entity = {Entity}.Create(Guid.NewGuid(), "Parent").Value!;
-        var child = {ChildEntity}.Create(Guid.NewGuid(), "Child").Value!;
+        var entity = {Entity}.Create(Guid.NewGuid(), "Parent").GetValueOrThrow();
+        var child = {ChildEntity}.Create(Guid.NewGuid(), "Child").GetValueOrThrow();
 
-        // Act
         var result = entity.Add{ChildEntity}(child);
 
-        // Assert
         Assert.IsTrue(result.IsSuccess);
         Assert.AreEqual(1, entity.{ChildEntities}.Count);
     }
@@ -94,15 +82,12 @@ public class {Entity}Tests
     [TestMethod]
     public void Given_DuplicateChild_When_ChildAdded_Then_IdempotentReturnsExisting()
     {
-        // Arrange
-        var entity = {Entity}.Create(Guid.NewGuid(), "Parent").Value!;
-        var child = {ChildEntity}.Create(Guid.NewGuid(), "Child").Value!;
+        var entity = {Entity}.Create(Guid.NewGuid(), "Parent").GetValueOrThrow();
+        var child = {ChildEntity}.Create(Guid.NewGuid(), "Child").GetValueOrThrow();
         entity.Add{ChildEntity}(child);
 
-        // Act - add same child again
         var result = entity.Add{ChildEntity}(child);
 
-        // Assert - idempotent
         Assert.IsTrue(result.IsSuccess);
         Assert.AreEqual(1, entity.{ChildEntities}.Count);
     }
@@ -113,7 +98,7 @@ public class {Entity}Tests
 
 ---
 
-## Domain Rule Test## Transition Tests
+## Transition Tests
 
 ### File: `tests/Test.Unit/Domain/{Entity}StatusTransitionTests.cs`
 
@@ -144,14 +129,14 @@ public class {Entity}StatusTransitionTests
 
         var result = entity.Transition(target);
 
-        Assert.IsTrue(result.IsFailure);
+        Assert.IsInstanceOfType<RuleError>(result.Value);
         Assert.AreEqual(current, entity.Status);
     }
 
     // Reaches the starting status only through allowed transitions.
     private static {Entity} CreateAt({Entity}Status status)
     {
-        var entity = {Entity}.Create(Guid.NewGuid(), "Transition sample").Value!;
+        var entity = {Entity}.Create(Guid.NewGuid(), "Transition sample").GetValueOrThrow();
         {Entity}Status[] path = status switch
         {
             {Entity}Status.Open => [],
@@ -167,7 +152,7 @@ public class {Entity}StatusTransitionTests
 
 ---
 
-on (Phase 5a)
+## Builder Activation (Phase 5a)
 
 After entity `Create()` is implemented, activate the builder in `tests/Test.Support/Builders/{Entity}Builder.cs`:
 
@@ -176,11 +161,7 @@ After entity `Create()` is implemented, activate the builder in `tests/Test.Supp
 public {Entity} Build() => null!;
 
 // With the activated version:
-public {Entity} Build()
-{
-    var result = {Entity}.Create(_tenantId, _name);
-    return result.Value!;
-}
+public {Entity} Build() => {Entity}.Create(_tenantId, _name).GetValueOrThrow();
 ```
 
 This must happen in Phase 5a **after** entity logic is implemented, not before.

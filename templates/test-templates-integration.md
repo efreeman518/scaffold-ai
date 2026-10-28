@@ -452,7 +452,7 @@ public class {Entity}RepositoryIntegrationTests
 
         var repo = new {Entity}RepositoryTrxn(db);
         var sync = repo.UpdateFromDto(loaded, dto, RelatedDeleteBehavior.RelationshipAndEntity);
-        Assert.IsTrue(sync.IsSuccess, $"UpdateFromDto failed: {sync.ErrorMessage}");
+        Assert.IsTrue(sync.IsSuccess, sync.ToString());
 
         // Inserts the navigation-added child. Throws here if the ValueGeneratedNever baseline is missing.
         await db.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins);

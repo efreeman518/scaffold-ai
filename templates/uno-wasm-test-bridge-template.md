@@ -162,9 +162,9 @@ When the app needs API, Gateway, SQL, Redis, storage, or auth, generate an AppHo
 Required fixture behavior:
 
 - Use the package `AspireTestHostContext` (EF.IntegrationTesting.Aspire, [test-templates-aspire.md](test-templates-aspire.md)); it owns the Docker preflight, the cumulative startup budget and the diagnostics. Explicit `{APP}_WASM_TESTS_ENABLED=false` or missing Docker is inconclusive; Docker success makes later toolchain/AppHost/resource/browser failures red with diagnostics.
-- Clean both `bin/<configuration>/<tfm>-browserwasm` and `obj/<configuration>/<tfm>-browserwasm` before a test-owned rebuild.
+- Clean both `bin` and `obj` `<configuration>/$(LatestStableTfm)-browserwasm` before a test-owned rebuild.
 - Restore with `BuildAllUnoTargets=true` and `EnableUnoWasm=true`.
-- Build one target at a time with `TargetFrameworkOverride=<tfm>-browserwasm`, `EnableUnoWasm=true`, `--no-restore`, and `-m:1`. Do not use `-f`.
+- Build one target at a time with `TargetFrameworkOverride=$(LatestStableTfm)-browserwasm`, `EnableUnoWasm=true`, `--no-restore`, and `-m:1`. Do not use `-f`.
 - Clear coverage/profiler environment variables for child `dotnet` commands; set profiling disabled flags and `MSBUILDDISABLENODEREUSE=1`.
 - Write a test-owned stamp file after a successful clean rebuild. Freshness checks require that stamp so old developer builds are not silently accepted.
 - Start the Aspire AppHost in testing mode. Keep required backing resources live. Disable only optional hosts such as scheduler, admin, external mappers, notifications, or other non-test-critical processes.
@@ -177,7 +177,7 @@ Required fixture behavior:
 - Start one `{APP}_WASM_STARTUP_TIMEOUT_SECONDS` budget before clean/restore. Restore, build, AppHost create/build/start, named health waits, endpoint resolution, Gateway auth warm-up, and browser launch consume its remaining time. Per-step caps may fail sooner but never reset the budget. Default at least 1800 s for a cold first build.
 - Stop/dispose the Aspire graph in assembly cleanup. If explicit Docker cleanup is needed, scope it to this test run only.
 - Reset the static base URL during assembly cleanup.
-- Run `dotnet build` or `dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj -m:1` before handoff. Namespace mismatches between wrapper tests and shared runner types are scaffold defects, not runtime issues.
+- Run `dotnet build tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj -m:1` before handoff. Namespace mismatches between wrapper tests and shared runner types are scaffold defects, not runtime issues.
 
 Generated assembly:
 
@@ -239,7 +239,7 @@ Node/TypeScript runner rules:
 /// The shared WasmAppHost fixture starts Aspire, restores/builds browserwasm, and resolves
 /// dynamic endpoints. The test asserts on published state and saves a screenshot artifact.
 /// Manual run (Docker must be running; local stack script is optional):
-///   dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --filter TestCategory=WasmUI -m:1
+///   dotnet test --project tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --filter TestCategory=WasmUI
 /// </summary>
 [TestClass]
 [TestCategory("WasmUI")]

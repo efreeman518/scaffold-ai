@@ -154,7 +154,7 @@ This table is the single source of truth. Phase 2 records the selected tiers (Qu
 - The mesh preflight helper shape is in [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md) (Opt-out + preflight). Mirror it for `WasmUI`; mobile uses generated runner plus method-level default-off preflight.
 - **AppHost-backed WasmUI is real mesh UI.** If the Uno WASM app depends on API, Gateway, SQL, Redis, storage, or auth, the `WasmUI` fixture starts the Aspire AppHost in testing mode, keeps required resources live, disables only optional hosts, and resolves Gateway/UI URLs from named endpoints. Do not generate standalone browser tests against guessed local ports for that case.
 - **One startup budget, then subordinate step caps.** Full rule: [One Startup Budget](#one-startup-budget).
-- **Serialize full-stack projects.** `Test.Aspire` and `Test.PlaywrightUI`/`WasmUI` are resource-heavy and may build or boot overlapping AppHost/container/UI graphs. Full-solution acceptance uses unfiltered `dotnet test <solution>.slnx --no-build -m:1`; CI keeps their steps/jobs non-overlapping and adds `-m:1` to any solution-wide test command. `[DoNotParallelize]` still protects classes inside each assembly.
+- **Serialize full-stack projects.** `Test.Aspire` and `Test.PlaywrightUI`/`WasmUI` are resource-heavy and may build or boot overlapping AppHost/container/UI graphs. Full-solution acceptance builds serially, then runs unfiltered with one module at a time (gate command: [../support/execution-gates.md](../support/execution-gates.md)); CI keeps their steps/jobs non-overlapping. `[DoNotParallelize]` still protects classes inside each assembly.
 
 ### One Startup Budget
 
@@ -175,7 +175,7 @@ Mobile needs an emulator/device, Appium + UiAutomator2, and a built platform APK
 
 - **`{APP}_MOBILE_TESTS_ENABLED` is an enable flag, not an opt-out.** Only a case-insensitive `true` (or `1`/`yes`) activates the tier. Unset or false makes each test self-mark `Assert.Inconclusive` with a message saying the tier is opt-in and how to enable it - **never a silent pass.** A skipped-as-passed mobile test reads as green coverage that never ran. MSTest serializes `Inconclusive` to TRX as `outcome="NotExecuted"`, so the healthy default-off result is **0 passed / N not-executed, each carrying an Inconclusive message** - success, not failure. Keep `[TestCategory("MobileUI")]` on every test so a lane can also exclude it by filter.
 - **Explicit mobile lane fails fast.** `tests/Test.Mobile/run-mobile-tests.ps1` owns Android restore/build, emulator readiness, Appium readiness, setting `{APP}_MOBILE_TESTS_ENABLED=true`, and TRX output. Once that runner activates the tier, a missing or broken APK, emulator/device, Appium, or UiAutomator2 is red, not `Assert.Inconclusive`. Default `dotnet test` without the enable flag remains dependency-free inconclusive.
-- **Optional IDE mobile profile.** A generated `tests/{App}.runsettings` may explicitly enable mobile tests for Visual Studio/Test Explorer and set `MaxCpuCount=1`. Its assembly host may build the default Android artifact only when no app path was supplied, start only a loopback Appium endpoint, and stop only the process it owns. A configured missing artifact or an unavailable non-loopback Appium endpoint fails instead of silently falling back. Selecting this run-settings file is an explicit mobile-lane activation; it does not change ordinary CLI defaults.
+- **Optional IDE activation.** Settings read the environment, then `TestContext.Properties` (`--test-parameter`), so a developer enables mobile in Test Explorer by setting `{APP}_MOBILE_TESTS_ENABLED=true` in the IDE test environment. Once enabled, the assembly host may build the default Android artifact only when no app path was supplied, start only a loopback Appium endpoint, and stop only the process it owns. A configured missing artifact or an unavailable non-loopback Appium endpoint fails instead of silently falling back.
 
 ### Container Runtime (Docker) for Mesh / Component Tiers
 
@@ -208,7 +208,7 @@ tests/
   Test.Mutation/
 ```
 
-When any of `Test.Aspire`, the `WasmUI` bridge tier, or `Test.Mobile` is in scope, generate re-runnable operator tooling: `eng/test/start-local-test-stack.ps1` (process-env only - no permanent PATH edits), `.vscode/tasks.json`, and `tests/Test.Mobile/run-mobile-tests.ps1` when mobile exists. The stack script builds WASM, installs Playwright browsers, starts Aspire AppHost, waits endpoints, and prints rerun commands. The mobile runner owns Android build, emulator/Appium readiness, enable flag, `dotnet test`, and TRX output. Full shape: [../templates/local-test-stack-template.md](../templates/local-test-stack-template.md). Aspire-backed tiers use the shared host pattern in [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md); missing selected-lane tooling and host failures are red after Docker succeeds.
+When any of `Test.Aspire`, the `WasmUI` bridge tier, or `Test.Mobile` is in scope, generate the re-runnable operator tooling in [../templates/local-test-stack-template.md](../templates/local-test-stack-template.md): `eng/test/start-local-test-stack.ps1` (process-env only), `.vscode/tasks.json`, and `tests/Test.Mobile/run-mobile-tests.ps1` when mobile exists. Aspire-backed tiers use the shared host pattern in [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md); missing selected-lane tooling and host failures are red after Docker succeeds.
 
 > A nested `Test.Integration.{Project}.FlowEngine` project also exists when `includeFlowEngine: true` - a deliberate exception to the flat `Test.<X>` peer naming, because it is a distinct workflow-definition guard suite with its own template ([flowengine-test-template.md](../templates/flowengine-test-template.md)) and no shared fixtures.
 
@@ -260,11 +260,14 @@ The integration surface is two separate projects, never one mixed assembly:
 - **`Test.Integration` (component)** - one class vs one real store, instantiated directly against a standalone Testcontainer (`DbContainerFixture` plus one fixture per other selected store, started in parallel by `IntegrationTestSetup`). No HTTP, no `AppHost`/`Aspire.Hosting.Testing` reference. See [../templates/test-templates-integration.md](../templates/test-templates-integration.md).
 - **`Test.Aspire` (mesh)** - any test needing `CreateHttpClient(...)`, multiple Aspire resources, `WaitForResourceHealthyAsync`, or `DistributedApplicationTestingBuilder`: the full production AppHost graph over HTTP, started lazily by `AspireTestHost.EnsureStartedAsync` and torn down by `AspireMeshLifecycle`. See [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md).
 
-Keeping them in separate assemblies means the fast component tier never pays the ~60-90 s graph boot; the mesh boots once per run, only when a mesh test executes. Do **not** reintroduce a single `Test.Integration` that piggybacks component tests on a shared `AspireTestHost`.
+Separate assemblies keep the ~60-90 s graph boot out of the component tier; the mesh boots once per run, only when a mesh test executes.
 
-## Dependencies
+## Test Platform and Dependencies
 
-- MSTest: `MSTest.TestFramework`, `MSTest.TestAdapter`
+Microsoft.Testing.Platform (MTP) is the runner, selected in `global.json` ([solution-structure.md](solution-structure.md) section `global.json`).
+
+- **Test projects are executables.** `tests/Directory.Build.props` sets `<OutputType>Exe</OutputType>` and `<EnableMSTestRunner>true</EnableMSTestRunner>` once, keyed on `$(MSBuildProjectName)` (`IsTestProject` is undefined there) to skip `Test.Support` and `Test.Benchmarks`. Projects reference `MSTest`, which brings `Microsoft.Testing.Extensions.CodeCoverage` and `.TrxReport`; no test SDK, collector, or run-settings file.
+- **Invocation.** `dotnet test --project <csproj>` or `--solution {SolutionName}.slnx` with MTP options: `--results-directory tests/TestResults/<project>`, `--report-trx`, `--coverage --coverage-output-format cobertura`, `--max-parallel-test-modules 1`, `--hangdump --hangdump-timeout <t>` (`Microsoft.Testing.Extensions.HangDump`), `--test-parameter key=value`. `--filter` keeps MSTest syntax. VSTest and MSBuild switches (`--logger`, `--collect`, `--blame-hang`, `-m:1`) reach the test app and fail it: build with `-m:1`, then test `--no-build`.
 - Mocks: `Moq`
 - Endpoint/E2E harness: `Microsoft.AspNetCore.Mvc.Testing`
 - Architecture: EF.Testing.Architecture
@@ -277,19 +280,7 @@ Keep versions centralized in `Directory.Packages.props`.
 
 ## Assertion Policy
 
-**Do not use FluentAssertions.** Version 8+ requires a commercial license. Do not add it as a NuGet reference under any circumstance. If `nuget.config` contains a `<package pattern="FluentAssertions" />` allowlist entry, remove it - its presence is a license-policy violation waiting to happen.
-
-Allowed options:
-
-| Option | Package | License |
-|---|---|---|
-| MSTest built-ins (default) | none | MIT |
-| Shouldly | `Shouldly` | MIT |
-| `AssertionExtensions` in Test.Support | none | n/a |
-
-The project-local `AssertionExtensions` class (in `tests/Test.Support/AssertionExtensions.cs`) provides `.Should()` syntax via `global using` in `tests/Test.Unit/GlobalUsings.cs`. Use it; do not import FluentAssertions to get the same syntax.
-
-Prefer specific MSTest asserts over generic `Assert.IsTrue`.
+**Do not use FluentAssertions**: it requires a commercial license (GR-04). Never reference it, and delete any `<package pattern="FluentAssertions" />` allowlist entry in `nuget.config`. Allowed: MSTest built-ins (default), `Shouldly` (MIT), or the project-local `tests/Test.Support/AssertionExtensions.cs`, which provides `.Should()` syntax through a `global using` in `tests/Test.Unit/GlobalUsings.cs`. Prefer specific MSTest asserts over generic `Assert.IsTrue`.
 
 ## Categories and Command Split
 
@@ -305,21 +296,16 @@ Category boundaries that matter:
 ```powershell
 # Canonical "all normal tests" - excludes Load. Use explicit false opt-outs for heavy
 # lanes not provisioned on this machine. Optional LiveAI also performs its canonical provider preflight.
-dotnet test .\{SolutionName}.slnx --filter "TestCategory!=Load" -m:1
+dotnet build .\{SolutionName}.slnx -m:1
+dotnet test --solution .\{SolutionName}.slnx --no-build --filter "TestCategory!=Load" --max-parallel-test-modules 1
 
-# Scoped runs
-dotnet test --filter "TestCategory=Unit"
-dotnet test --filter "TestCategory=UI"
-dotnet test --filter "TestCategory=Presentation"
-dotnet test --filter "TestCategory=Endpoint"
-dotnet test --filter "TestCategory=Integration"
-dotnet test tests/Test.Aspire/Test.Aspire.csproj --filter "TestCategory=Aspire" -m:1
-dotnet test --filter "TestCategory=E2E"
-dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --filter "TestCategory=PlaywrightUI" -m:1
-dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --filter "TestCategory=WasmUI" -m:1
-dotnet test --filter "TestCategory=MobileUI"
-dotnet test --filter "TestCategory=LiveAI"        # optional-provider smoke; absent provider may be inconclusive per ai-integration.md
-dotnet test tests/Test.Mutation/Test.Mutation.csproj --filter "TestCategory=Mutation"
+# Scoped runs (after the serial build)
+dotnet test --no-build --filter "TestCategory=Unit"      # also UI, Presentation, Endpoint, Integration, E2E, MobileUI
+dotnet test --project tests/Test.Aspire/Test.Aspire.csproj --no-build --filter "TestCategory=Aspire"
+dotnet test --project tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --no-build --filter "TestCategory=PlaywrightUI"
+dotnet test --project tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --no-build --filter "TestCategory=WasmUI"
+dotnet test --no-build --filter "TestCategory=LiveAI"    # optional-provider smoke; absent provider may be inconclusive per ai-integration.md
+dotnet test --project tests/Test.Mutation/Test.Mutation.csproj --no-build --filter "TestCategory=Mutation"
 ```
 
 > `Test.Benchmarks` uses BenchmarkDotNet `[Benchmark]`, not `[TestMethod]`, so `dotnet test` discovers nothing there - it never pollutes the `TestCategory!=Load` run. `Test.Mutation` samples are ordinary fast MSTest and may run under the canonical filter; Stryker itself is the separate runner.
@@ -361,7 +347,7 @@ Apply the readiness check only to infrastructure-dependent tests so unrelated te
 
 ### Unit (Test.Unit)
 
-Cover domain invariants, lifecycle transitions, service success/failure/not-found paths, mapper consistency.
+Cover domain invariants, lifecycle transitions, service success/failure/not-found paths, mapper consistency. Read results per [../support/ef-packages-reference.md](../support/ef-packages-reference.md) section Domain Layer. Success: `Assert.IsTrue(result.IsSuccess, result.ToString())` then `result.GetValueOrThrow()`; failure: `Assert.IsInstanceOfType<NotFoundError>(result.Value)` (any `Error` subtype, then its `Message` / `Code`). In a namespace ending `.Unit`, `Unit` binds to the namespace: write `EF.Domain.Contracts.Unit`, or use `Result.Ok()` / `var`.
 
 **Mapper Projection <-> ToDto agreement.** Every mapper with both an EF-translatable `Projection` expression and a `ToDto` method needs a pin test that asserts both produce equivalent DTOs for the same entity. This catches the silent divergence where `Projection` (used by `Search`/`Get` query paths) omits a field or flattens a value object differently than `ToDto` (used by `Create`/`Update` response paths). Watch especially for owned types (`DateRange`, `Money`) - the projection's flat property access often disagrees with `ToDto`'s nested record construction.
 
@@ -438,7 +424,7 @@ The Aspire mesh host lives in `Test.Aspire` - see [../templates/test-templates-a
 
 When the Aspire mesh test needs to verify that a message flowed (an event was published, a webhook was processed), **assert against a persistent downstream effect** - an inbox or projection row in the database, an audit row, a read-model document - by polling it, never by receiving from the queue or topic. Shape: `OutboxMeshTests` in [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md).
 
-**Why.** Broker delivery under `DistributedApplicationTestingBuilder` is timing-sensitive (the Service Bus emulator's topic->subscription routing and Functions queue triggers are best-effort), and a consumed test message is lost to the real consumer. Verifying via the downstream artifact is robust against this class of tooling gap *and* exercises more of the production path (the message handler actually ran end-to-end). When the downstream effect is genuinely unavailable (no consumer wired in this test scope), `Assert.Inconclusive` naming the unmet prerequisite - which consumer is missing and how to wire it - rather than asserting against the bus and accepting flakes. Never `[Ignore]` it (see [Never Silently Pass](#never-silently-pass-applies-to-every-tier)): `Inconclusive` serializes to TRX as `outcome="NotExecuted"` so the gap stays counted, and the standing deferral is recorded in `HANDOFF.md` section Deferred External Dependencies.
+**Why.** Broker delivery under `DistributedApplicationTestingBuilder` is timing-sensitive (the Service Bus emulator's topic->subscription routing and Functions queue triggers are best-effort), and a consumed test message is lost to the real consumer. Verifying via the downstream artifact is robust against this class of tooling gap *and* exercises more of the production path (the message handler actually ran end-to-end). When the downstream effect is genuinely unavailable (no consumer wired in this test scope), `Assert.Inconclusive` naming the unmet prerequisite - which consumer is missing and how to wire it - rather than asserting against the bus and accepting flakes ([Never Silently Pass](#never-silently-pass-applies-to-every-tier)).
 
 ### Lazy Aspire Fixture Startup (canonical for `Test.Aspire`)
 
@@ -506,9 +492,6 @@ The Docker/deadline/wait/diagnostic/cleanup mechanics live in [../templates/test
 ## Pitfalls
 
 - Horizontal slicing of tests across an entity (write all unit tests, then all endpoint tests, then all integration tests) - breaks the red/green/refactor loop and lets unverified entities accumulate. Slice vertically: one entity, all its tiers, green, next entity.
-- Marking a test `Assert.Inconclusive` without recording the deferral in `HANDOFF.md` section Deferred External Dependencies - turns silent gaps into invisible debt that never returns to green.
-- Aborting an `[AssemblyInitialize]` when infrastructure fails to start - hides individual diagnostics. Use the assembly-initializer safety pattern: Docker-unavailable dependents are inconclusive; post-preflight startup failures fail the dependent tests red.
-- Adding FluentAssertions or another commercial-licensed assertion package - violates the assertion baseline (**GR-04**). Use MSTest built-in assertions plus the approved options in this skill.
 - Sharing a single Aspire fixture across assemblies - couples startup costs and obscures which assembly owns which env vars; create one fixture per assembly that needs it.
 - Skipping the `<summary>` on a `[TestClass]` - test classes without scope/tier/quirks notes accumulate dead weight nobody can re-evaluate.
 

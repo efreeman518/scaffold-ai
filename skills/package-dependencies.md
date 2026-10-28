@@ -29,7 +29,7 @@ These two repos define the canonical contract surface for all modes. In `local` 
 
 In instruction docs:
 
-- Use the `<latest-stable>` placeholder in xml/json snippets (e.g., `Sdk="Aspire.AppHost.Sdk/<latest-stable>"`, `<TargetFramework>$(LatestStableTfm)</TargetFramework>`).
+- Use the `<latest-stable>` placeholder in xml/json snippets (e.g., `Sdk="Aspire.AppHost.Sdk/<latest-stable>"`). `$(LatestStableTfm)` is the only target-framework token, paths and platform targets included (`bin/Debug/$(LatestStableTfm)-browserwasm`); the validator rejects other spellings.
 - Do **not** write a hard-coded `Version="<copied-version>"` or target framework into a template - it goes stale silently and contradicts this rule on every PR diff.
 - Do **not** cite dependency versions in prose either. Describe current behavior as present truth - the baseline tracks latest, so the current API is the only one that matters.
 - Do **not** add version-history or backwards-compat framing ("resolved in X", "pre-X bug", "obsolete in X", "verified <date>", "regression guard for the old behavior"). State what the API does now; drop how it got there. ("Legacy" is fine only when it names a non-version concept - the `.sln` format, the `datetime` SQL type - never a package version.)
@@ -101,8 +101,6 @@ When a pattern recurs three or more times and no pre-approved package covers it 
 3. Cover it with a unit test that pins the contract.
 4. Record the decision in `HANDOFF.md` so future sessions do not re-litigate the package-vs-extension trade-off.
 
-The goal is a small, owned dependency surface - every package added is one the team commits to tracking for CVEs, license changes, and major-version breakage.
-
 ## Feed + Version Rules (Mandatory)
 
 ### When `packageStrategy: feed` or `hybrid` (feed-supplied layers only)
@@ -138,6 +136,8 @@ Apply this only when an approved dependency has no maintained package for every 
 
 > **CPM + floating versions = NU1011.** When `ManagePackageVersionsCentrally=true`, every `<PackageVersion>` entry must use an exact version (e.g. `Version="<latest-stable>"` resolved at scaffold time). Wildcard/floating versions (e.g. `1.0.*`, `*`) are prohibited and cause restore to fail with NU1011. To use floating versions, set `ManagePackageVersionsCentrally=false` and add `Version="*"` directly to each `<PackageReference>`. This rule applies regardless of `packageStrategy`.
 
+> **Shared-framework packages get no reference (NU1510).** Reference none of `Microsoft.Extensions.Caching.Abstractions`, `.Configuration.Abstractions`, `.DependencyInjection.Abstractions`, `.Diagnostics.Abstractions`, `.FileProviders.Abstractions`, `.Hosting.Abstractions`, `.Logging.Abstractions`, `Microsoft.Extensions.Options`, `Microsoft.Extensions.Primitives`, `System.ComponentModel.Annotations`: the shared framework carries them. Fix any other NU1510 by deleting the reference, never by suppressing it.
+
 > **Every `<PackageVersion>` row maps to a real, referenced feed package.** A central version belongs in `Directory.Packages.props` only when the package exists on a configured feed **and** at least one project consumes it via `<PackageReference>`. Do not pre-seed rows from the contract map ([../support/ef-packages-reference.md](../support/ef-packages-reference.md)) for names no project pulls as a package, and never add a row for a layer consumed via `<ProjectReference>` (see the local-mode rule above). Resolve versions by restoring against the configured feed at scaffold time - never guess or invent a version string. These exact rows are latest-at-scaffold snapshots (CPM forbids floating - see NU1011 rule above); on an intentional dependency refresh, re-resolve `<packagePrefix>.*` to the current feed latest rather than hand-editing pins. Remove orphan `<PackageVersion>` rows when no project references them.
 
 ---
@@ -155,7 +155,7 @@ Which project references which `<packagePrefix>.*` package, matching the TaskFlo
 | `{App}.Application.Services` | EF.Common, EF.Common.Contracts | Services, `{Entity}StructureValidator` over `EntityDtoRules` |
 | `{App}.Application.Cqrs` | EF.CQRS, EF.Common.Contracts, EF.Data.Contracts | Only when `applicationStyle` is `cqrs` or `switch` |
 | `{App}.Application.MessageHandlers` | EF.BackgroundServices, EF.Audit.Contracts | Internal-bus handlers, `IntegrationEventConsumerBase` consumers (EF.Messaging.Contracts through Application.Contracts) |
-| `{App}.Infrastructure.Data` | EF.Data, EF.Data.Contracts, EF.Common.Contracts, EF.Domain.Contracts; EF.Data.PostgreSql and/or EF.Data.SqlServer per provider arm; EF.Data.Encryption, EF.Data.Outbox, EF.Audit.Data when enabled | DbContexts, configurations, outbox/inbox model |
+| `{App}.Infrastructure.Data` | EF.Data, EF.Data.Contracts, EF.Common.Contracts, EF.Domain.Contracts; EF.Data.PostgreSql and/or EF.Data.SqlServer per provider arm; EF.Data.Encryption, EF.Data.Outbox, EF.Audit.Data, EF.Data.Scheduling when enabled | DbContexts, configurations, outbox/inbox model |
 | `{App}.Infrastructure.Repositories` | EF.Data, EF.Data.Contracts, EF.Audit.Contracts | Repositories and updaters |
 | `{App}.Infrastructure.Caching` | EF.Cache | `AddTypedCache` and the shared Redis connection |
 | `{App}.Infrastructure.Storage` | EF.Storage, EF.Storage.Contracts, EF.Table, EF.Audit.AzureTable (Azure lane) | Blob/Table repositories, Azure Table audit sink |
@@ -165,7 +165,7 @@ Which project references which `<packagePrefix>.*` package, matching the TaskFlo
 | `{App}.Bootstrapper` | EF.Host, EF.AspNetCore, EF.AspNetCore.DataProtection, EF.Data, EF.Common, EF.BackgroundServices; EF.Messaging (Service Bus arm), EF.Storage / EF.Storage.S3 / EF.CosmosDb per store, EF.AI when enabled | Shared host registration |
 | `{App}.Api` | EF.AspNetCore, EF.Auth, EF.Common; EF.RateLimiting.Redis (brings EF.RateLimiting) or EF.RateLimiting; EF.Grpc when gRPC is enabled | HTTP concerns |
 | `{App}.Gateway` | EF.Gateway (brings EF.Auth), EF.RateLimiting | YARP transforms, edge limiter |
-| `{App}.Scheduler` | EF.BackgroundServices, EF.BackgroundServices.TickerQ | Direct reference: the TickerQ source generator flows only to a project that references the package |
+| `{App}.Scheduler` | EF.BackgroundServices, EF.Data.Scheduling | Scheduled jobs ([../support/ef-packages-optional.md](../support/ef-packages-optional.md#scheduling-efdatascheduling)) |
 | `{App}.Functions` | EF.Messaging.Functions | Service Bus triggers |
 | `{App}.DatabaseMigrator` | EF.Data | Migration runner |
 | `{App}.Blazor` | EF.Http.Resilience | Read hedging on the UI read client |
@@ -225,14 +225,7 @@ Critical invariants:
 
 ### `EF.Domain.Contracts` (results and events)
 
-```csharp
-public record DomainError(string Error, string? Code = null);
-```
-
-`DomainResult` / `DomainResult<T>`:
-- success/failure states
-- `Errors: IReadOnlyList<DomainError>`
-- map/bind/match/tap helpers for railway flow
+`Result<T>` is the one result type, a union of `T` and the closed `Error` subtypes (`Result<Unit>` when there is no value); API and idioms: [../support/ef-packages-reference.md](../support/ef-packages-reference.md) section Domain Layer.
 
 Also available: `IDomainEvent` / `IHasDomainEvents` (EF.Domain.Contracts), `DomainEventContainer` and `DomainException` (EF.Domain), and the one `MaskAttribute` (EF.Domain.Contracts) for audit and serialization redaction.
 
@@ -272,7 +265,6 @@ Other key types:
 
 ### `EF.Common.Contracts`
 
-- `Result` / `Result<T>` (same shape as domain result, `Errors: IReadOnlyList<DomainError>`)
 - `IRequestContext<TAuditIdType, TTenantIdType>`
 - `RequestContext<...>` implementation - constructor order is `(correlationId, auditId, tenantId, roles)`
 - `PagedResponse<T>` - properties: `PageSize` (int), `PageIndex` (int), `Total` (int), `Data` (IReadOnlyList&lt;T&gt;)
@@ -287,7 +279,6 @@ Other key types:
 
 ### `EF.Common`
 
-- `ResultExtensions.ToResult(...)` for domain->application conversion
 - expression/predicate helpers for EF-safe composition
 - `ExceptionClassifier` and `ValidationException` (`EF.Common.Exceptions`)
 - `StrictEnum` and the `GetRequiredEnum` / `GetEnum` configuration readers
@@ -304,8 +295,8 @@ Add when `applicationStyle` is `cqrs` or `switch`.
 | `IQuery<TResponse>` | Read request marker (`EF.CQRS.Abstractions`) |
 | `IRequestHandler<in TRequest,TResponse>` | Single request handler contract (`EF.CQRS.Abstractions`) |
 | `IRequestValidator<TRequest>` | Optional request validator contract |
-| `RequestValidationResult` | Validator result with one or more errors |
-| `IValidationFailureResponseFactory<out TResponse>` | `CreateFailure(IReadOnlyCollection<DomainError>)` converts validation errors to the app response shape |
+| `RequestValidationResult` | Validator result carrying `ValidationIssue`s |
+| `IValidationFailureResponseFactory<out TResponse>` | `CreateFailure(ValidationError)`; every `Result<T>` response gets `FailableValidationResponseFactory<T>` automatically |
 | `ValidationRequestHandlerDecorator<TRequest,TResponse>` | Decorates handlers with validation before execution |
 | `AddDecoratedRequestHandler<TRequest,TResponse,THandler>()` | Registers the handler wrapped in validation and logging decorators (`DecoratedRequestHandlerOptions`) |
 
@@ -416,7 +407,6 @@ Durable, JSON-defined workflow orchestration engine. Add only when the requireme
 
 - `Refit` / `Refit.HttpClientFactory` (typed clients; `RefitCallHelper` in EF.UI.Refit)
 - `Microsoft.Extensions.Http.Resilience` (ServiceDefaults standard handler; EF.Http.Resilience builds on it)
-- `TickerQ.EntityFrameworkCore` (the scheduler's `TickerQDbContext` in the migration-owning data project) and `TickerQ.Dashboard` (when the dashboard is enabled); `TickerQ` itself arrives through EF.BackgroundServices.TickerQ
 
 Pattern reference: [external-api.md](external-api.md)
 
@@ -430,14 +420,14 @@ Pattern reference: [external-api.md](external-api.md)
 - [ ] For `packageStrategy: local`/`hybrid`: every layer in `localPackageLayers` has a corresponding `src/Packages/<packagePrefix>.<Layer>` project planned with `IsPackable=true` and `<PackageId>=<packagePrefix>.<Layer>`
 - [ ] `dotnet restore` exits 0 before Phase 4 (with `NUGET_AUTH_TOKEN` set when `feed`/`hybrid`)
 - [ ] `Directory.Packages.props` owns versions
-- [ ] `global.json` pins SDK with roll-forward policy
+- [ ] `global.json` matches [solution-structure.md](solution-structure.md) section `global.json`; no NU1510 reference or suppression
 - [ ] EF Core runtime/provider, Design, Tools when referenced, and repo-local `dotnet-ef` are patch-aligned; `dotnet tool restore` succeeds
 - [ ] Referenced `Testcontainers.*` packages were refreshed together and each consuming test project compiled; unrelated package families were not forced to share a version
 - [ ] Correct package placement across Domain/Data/Application/Infrastructure hosts
 - [ ] Latest stable versions resolved successfully
 - [ ] `dotnet restore` re-runs cleanly after projects are generated
 - [ ] `EntityBase.Id` behavior preserved (`Guid.CreateVersion7()`)
-- [ ] Domain (`DomainResult`) and application (`Result`) result types are not mixed across layer boundaries; both expose `Errors` / `Match` failure as `IReadOnlyList<DomainError>`
+- [ ] Every operation returns EF.Domain.Contracts `Result<T>` (`Result<Unit>` when valueless) with `Error` subtype failures; no second result type
 - [ ] Internal message bus namespaces are correct
 - [ ] If `applicationStyle` is `cqrs` or `switch`: `<packagePrefix>.CQRS` is sourced by feed or local project, and no MediatR/dispatcher package was added
 - [ ] Azure client factories and package-required DI wiring are registered
@@ -446,7 +436,6 @@ Pattern reference: [external-api.md](external-api.md)
 ## Pitfalls
 
 - Adding a package outside the allowlist without recording the decision in `.scaffold/DESIGN-DECISIONS.md` (**GR-04**) - drift compounds: each undocumented dependency makes the next one easier to slip in, and license/security review has no audit trail.
-- Hard-coding a package version in instructions, templates, or `Directory.Packages.props` examples - violates the latest-stable rule (**GR-08**). Use `<latest-stable>` placeholders and let scaffold-time resolution pin the version.
 - Adding MediatR or a similar dispatcher when `applicationStyle` is `cqrs` or `switch` - the scaffold ships `<packagePrefix>.CQRS` for exactly that role; layering MediatR on top fragments the request pipeline.
 - Pinning a private-feed PAT into `nuget.config` instead of `%NUGET_AUTH_TOKEN%` / `$NUGET_AUTH_TOKEN` - leaks the credential into source control on the next push.
 - Skipping `dotnet restore` verification after generating `src/Packages/<packagePrefix>.*` projects in `local`/`hybrid` mode - the first hint of a missing layer otherwise surfaces as a build error mid-Phase-5 with no easy diff to read.

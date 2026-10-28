@@ -15,7 +15,7 @@ Run from the generated app root:
 ```powershell
 dotnet restore
 dotnet build .\{SolutionName}.slnx -m:1
-dotnet test .\{SolutionName}.slnx --no-build -m:1
+dotnet test --solution .\{SolutionName}.slnx --no-build --max-parallel-test-modules 1
 ```
 
 All three must exit 0. The test command is unfiltered and serial so Aspire, Playwright, and WASM full-stack projects cannot boot overlapping graphs. Then walk the **Completion Criteria** below.
@@ -84,7 +84,7 @@ Write-Output 'NotImplementedException scan clean.'
 ```powershell
 $ErrorActionPreference = 'Stop'
 $tokens = '\{Project\}|\{ProjectName\}|\{SolutionName\}|\{Org\}|\{Host\}|\{Gateway\}|\{App\}|\{APP\}|' +
-          '\{entity-route\}|\{child-entities\}|\{EntityPlural\}|<packagePrefix>|<packagePrefix>|<target-dotnet-major>'
+          '\{entity-route\}|\{child-entities\}|\{EntityPlural\}|<packagePrefix>|<target-dotnet-major>|<latest-stable>|\$\(LatestStableTfm\)'
 $hits = Get-ChildItem src, tests -Recurse -Include *.cs,*.json,*.csproj,*.props,*.xaml,*.razor,*.ts,*.tsx,*.yml,*.yaml,*.bicep |
     Where-Object { $_.FullName -notmatch '[\\/](bin|obj|node_modules|dist)[\\/]' } |
     Select-String -Pattern $tokens -CaseSensitive
@@ -109,7 +109,7 @@ Get-ChildItem src, tests -Recurse -Filter *.cs |
 
 ## Completion Criteria
 
-- [ ] `dotnet restore`, serial `dotnet build .\{SolutionName}.slnx -m:1`, and unfiltered serial `dotnet test .\{SolutionName}.slnx --no-build -m:1` pass. No filtered fast-tier run substitutes for this acceptance gate; no test assembly aborts in `[AssemblyInitialize]`.
+- [ ] The three Required Commands pass. No filtered fast-tier run substitutes for this acceptance gate; no test assembly aborts in `[AssemblyInitialize]`.
 - [ ] Every `[Ignore]` or `Assert.Inconclusive` result is named in `HANDOFF.md` section Scaffold Acceptance with its unblocking step. Required Aspire-backed full-stack infrastructure uses inconclusive only for an explicit opt-out or failed Docker preflight; container/AppHost/start/readiness/browser failures are red with resource diagnostics. Optional LiveAI follows [../skills/ai-integration.md](../skills/ai-integration.md) section Optional Live-Provider Classification.
 - [ ] Shared `<packagePrefix>.*` layers resolve according to `packageStrategy`: feed/hybrid feed layers restore from configured private feed (`NUGET_AUTH_TOKEN` or credential provider); local/hybrid local layers exist under `src/Packages/<packagePrefix>.*` and are consumed via `<ProjectReference>`.
 - [ ] `.scaffold/resource-implementation.yaml` declares `migrationLifecycle` and every configured `databaseProviders` entry. Each provider passes its non-destructive pending-model-change/parity gate; baseline regeneration occurred only under the recorded `unreleased-resettable` reset/backup guard.
@@ -128,15 +128,15 @@ Get-ChildItem src, tests -Recurse -Filter *.cs |
 - [ ] **Every UI host starts cleanly - Aspire-registered AND standalone:**
   - Blazor (when enabled): standalone `dotnet run` reaches `Application started` + root URL renders; when added to AppHost, the resource reaches Running and a Refit call returns data (or typed empty state).
   - React/Vite (when enabled): `npm run lint` + `npm run build` pass; standalone Vite root renders; when added to AppHost, the resource reaches Running on its current dynamic URL and one Gateway/API-backed page loads.
-  - Uno (when enabled): the selected platform target (`<tfm>-browserwasm` / `<tfm>-android` / `<tfm>-ios`) builds through `TargetFrameworkOverride` and launches where local tooling supports it; browserwasm validation cleans both target `bin` and target `obj` before rebuild; before Android/iOS package builds, restore with `-p:BuildAllUnoTargets=true`; when added to AppHost, the ASP.NET Core WASM wrapper resource reaches Running.
+  - Uno (when enabled): the selected platform target (`$(LatestStableTfm)-browserwasm` / `$(LatestStableTfm)-android` / `$(LatestStableTfm)-ios`) builds through `TargetFrameworkOverride` and launches where local tooling supports it; browserwasm validation cleans both target `bin` and target `obj` before rebuild; before Android/iOS package builds, restore with `-p:BuildAllUnoTargets=true`; when added to AppHost, the ASP.NET Core WASM wrapper resource reaches Running.
   - Uno published browser-WASM (when enabled): deployment stages clean `Release` publish output, validates real `index.html` plus exactly one current app assembly, preserves host-owned files, and passes cache/encoding/content-type/asset-404 tests on Linux-safe paths.
   - Uno `WasmUI` (when generated): at least one `TestCategory=WasmUI` smoke runs. Only explicit `{APP}_WASM_TESTS_ENABLED=false` or failed Docker preflight may mark it `Assert.Inconclusive`; Docker success makes missing tooling, AppHost/resource/readiness, and browser failures red with diagnostics.
   - Backend connectivity from UI: at least one entity list page loads against the Gateway/API without console exceptions (empty or typed-empty state acceptable for secondary surfaces).
 - [ ] **Primary-actor vertical slice runs end-to-end with seeded data (not just green unit tests).** With the AppHost booted and the Development seeder run, the primary actor's main flow works through the actual UI: the primary list/detail surface shows the seeded records (not an empty list), and one primary-actor action (create/submit/the core domain verb) completes against the running stack. UI interactivity is live (Blazor: interactive render mode opted in, not static SSR; Uno: commands fire and chrome renders).
   Cite a named test run, not an impression. With a UI enabled, the browser suite drives the real stack (it self-hosts the AppHost and resolves the resource URLs):
-  `dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --filter "TestCategory=PlaywrightUI" -m:1`.
+  `dotnet test --project tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --filter "TestCategory=PlaywrightUI"`.
   For `api-only` scaffolds with no UI, the equivalent is the multi-endpoint workflow tier against a real database:
-  `dotnet test tests/Test.E2E/Test.E2E.csproj --filter "TestCategory=E2E" -m:1`.
+  `dotnet test --project tests/Test.E2E/Test.E2E.csproj --filter "TestCategory=E2E"`.
   Record the exact command, its exit code, and the passing/inconclusive counts in `HANDOFF.md`. A green unit run, or the unfiltered acceptance run alone, does not satisfy this criterion - name the filtered run that exercised the primary flow.
 - [ ] If `applicationStyle: switch`, both `Application:Style=Service` and `Application:Style=Cqrs` have at least one endpoint-mode smoke test. The two modes expose the same route templates and response envelopes.
 - [ ] No generated source file outside the **scaffold-skipped surface** contains `throw new NotImplementedException`. The skipped surface is limited to: (a) `NoOp*` fallback stubs in `Infrastructure.Stubs/` (or equivalent) registered via `TryAddSingleton`/`TryAddScoped` for entities the scaffold contracts but does not activate, and (b) override methods on `<packagePrefix>.*` repository/storage base types that are only reachable through those `NoOp*` stubs. Per [../ai/contract-scaffolding.md](../ai/contract-scaffolding.md), even these stubs should prefer safe defaults (`Result.Success`, empty collections, completed `Task`) - throwing is permitted only when no safe default exists for the return shape. Mechanical check: section Mechanical Scans, Scan 1.

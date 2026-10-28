@@ -42,13 +42,9 @@ Assert:
 
 ## Deterministic Test Output Location
 
-- Required: every test project writes results to `tests/TestResults`, never the caller's CWD or the repo root. A fixed location keeps CI artifact upload paths, local reruns, and cleanup pointing at one folder no matter where `dotnet test` runs from. `.gitignore` already keeps `TestResults/` out of commits.
-- In the test-scoped `tests/Directory.Build.props` (create it with an `<Import>` of the parent `Directory.Build.props` via `GetPathOfFileAbove` when absent), set `<VSTestResultsDirectory>$(MSBuildThisFileDirectory)TestResults</VSTestResultsDirectory>` in an unconditional PropertyGroup. Do not gate it on `IsTestProject`: the test SDK defines that property after `Directory.Build.props` is evaluated, so the condition is always false there. The property is inert for non-test projects under `tests/`.
-- `$(MSBuildThisFileDirectory)` resolves to the props file's own absolute directory, so every test project writes to the same `tests/TestResults`. `VSTestResultsDirectory` is the property the VSTest MSBuild task maps to `--results-directory`.
-- When the repo opts into Microsoft.Testing.Platform (`global.json` `test.runner`), VSTest properties do not apply: pass `--results-directory tests/TestResults` explicitly, or append `--results-directory $(MSBuildThisFileDirectory)TestResults` to `TestingPlatformCommandLineArguments` in the same props file.
-- CI passes no competing `--results-directory` and uploads from `tests/TestResults/**`; producer and uploader must use the same resolved path (section Uno WASM: Browser Diagnostics).
-- Scripts that run a subset (mobile, browser, live-provider) write under `tests/TestResults/<suite>/`, not a per-project `TestResults` folder.
-- Caveat: a raw `dotnet vstest <dll>` call bypasses MSBuild and honors only its own `--ResultsDirectory` flag.
+- Required: results land in `tests/TestResults/<project>` (one folder per test project or suite), never the caller's CWD, the repo root, or a per-project `TestResults/`. A fixed location keeps CI uploads, local reruns, and cleanup on one folder. `.gitignore` keeps `TestResults/` out of commits.
+- Every `dotnet test` call passes `--results-directory tests/TestResults/<project>`; a solution run passes `tests/TestResults` with `--results-directory-layout per-module`. Runner options: [testing.md](testing.md) section Test Platform and Dependencies.
+- CI uploads from `tests/TestResults/**`; producer and uploader resolve the same path (section Uno WASM: Browser Diagnostics). Scripts that run a subset (mobile, browser, live-provider) write under `tests/TestResults/<suite>/`.
 
 ## Test Speed
 
@@ -71,10 +67,6 @@ Scale-gated: only when measured private boots dominate an endpoint suite that ru
 - Clear process-wide caches on return through a production API (the `Invalidate` that key rotation also needs) with its own production-path test, never by reflection.
 - Hosted services are stripped in the test host; a test that needs one invokes its handler directly.
 - Proof: the full suite green on two consecutive runs, with wall time and private-boot count recorded before and after, plus one mutation check per rule (remove slot clearing, half-allowance retirement, or rental release and confirm a test fails).
-
-## Optional Extras
-
-- Coverage settings via `coverlet.runsettings` for stable CI behavior.
 
 ## Release Matrix
 
@@ -193,7 +185,7 @@ When `Test.PlaywrightUI` is a C# MSTest project that drives an existing TypeScri
 - **Gate on the CLI being installed.** Check the explicit false opt-out before startup, then `IsInstalled` (`File.Exists(cliPath)`); an unrestored suite is `Inconclusive` with its `npm ci` command (testing.md prerequisite rule).
 - **Do not use `--reporter=line` in captured child-process runs.** Its carriage-return progress output can hide the real failure in TRX/stdout capture. Use the default reporter, `list`, or `dot`.
 - **Use latest stable `@playwright/test`** for generated Node suites. Older versions can add Node 26 `DEP0205 module.register()` deprecation noise to already-noisy browser output.
-- **Build the wrapper project as a gate.** Namespace mismatches between wrapper tests and `TypeScriptPlaywrightRunner.cs` are scaffold defects. `dotnet build` or `dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj -m:1` must catch them before handoff.
+- **Build the wrapper project as a gate.** Namespace mismatches between wrapper tests and `TypeScriptPlaywrightRunner.cs` are scaffold defects. `dotnet build tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj -m:1` must catch them before handoff.
 - **Register the C# wrapper in the `.slnx`.** A `Test.PlaywrightUI` project with a .NET wrapper must be in the solution file or `dotnet test` over the solution silently skips it - the suite passes by being invisible. The TypeScript-only projects (React/Uno) are still run by their own Playwright config; only the .NET wrapper needs `.slnx` registration.
 
 ### Browser synchronization and lookup contract
@@ -275,7 +267,7 @@ TypeScript Uno tests that try list CRUD by text/role selectors are structurally 
 
 When the WASM app needs API, Gateway, SQL, Redis, storage, auth, or other Aspire resources, the `WasmUI` harness must start the AppHost graph. Do not treat it as a standalone browser-only suite, and do not require an external `{APP}_WASM_BASE_URL` for the default path. The harness starts Aspire in testing mode with `DistributedApplicationTestingBuilder.CreateAsync<Projects.{App}_AppHost>()`, disables only optional hosts, waits for required resources to become healthy, warms up auth through the real Gateway, and resolves UI/Gateway URLs from named Aspire endpoints. Use `CreateHttpClient(resource, "http")` for endpoint discovery and probes; never assume fixed local ports during a test run.
 
-Build the WASM assets before browser navigation with `TargetFrameworkOverride=<tfm>-browserwasm` and `EnableUnoWasm=true`, then pass the dynamic Gateway endpoint to the browser through a test-only query parameter such as `{app}TestGatewayBaseUrl`. Without that override, a scaffolded app can accidentally call a fixed dev gateway port while Aspire assigned a dynamic port.
+Build the WASM assets before browser navigation with `TargetFrameworkOverride=$(LatestStableTfm)-browserwasm` and `EnableUnoWasm=true`, then pass the dynamic Gateway endpoint to the browser through a test-only query parameter such as `{app}TestGatewayBaseUrl`. Without that override, a scaffolded app can accidentally call a fixed dev gateway port while Aspire assigned a dynamic port.
 
 The `WasmUI` harness runs under the single `{APP}_WASM_STARTUP_TIMEOUT_SECONDS` deadline defined in [testing.md - One Startup Budget](testing.md#one-startup-budget); the host lock and WASM restore/build consume it like every other step.
 
@@ -322,7 +314,7 @@ Increase late-lifecycle assertions to `60000` when page loads occur after severa
 
 - Use Playwright mobile viewports against Uno WASM for fast responsive checks on Windows.
 - Use Android emulator UI smoke tests only for native startup, native surface, first-viewport accessibility, and one reliable text-entry smoke. Do not drive deep CRUD, search persistence, child collections, or long-scroll Skia forms with Appium/UiAutomator2; cover those in API, integration, unit, and Playwright lanes.
-- When the repo uses MSTest, scaffold mobile native smoke tests as MSTest + Appium (`Test.Mobile`) instead of introducing NUnit. The enable flag, default-off behavior, fail-fast runner, and IDE run-settings profile are canonical in [testing.md - Mobile Tier Opt-In](testing.md#mobile-tier-opt-in-default-off).
+- When the repo uses MSTest, scaffold mobile native smoke tests as MSTest + Appium (`Test.Mobile`) instead of introducing NUnit. The enable flag, default-off behavior, fail-fast runner, and IDE activation are canonical in [testing.md - Mobile Tier Opt-In](testing.md#mobile-tier-opt-in-default-off).
 - Generate `tests/Test.Mobile/run-mobile-tests.ps1`; its Android restore/build uses `-p:BuildAllUnoTargets=true`.
 - Test methods must not start Appium, start an Android Emulator, or build APKs. They connect to the prepared device/server, use method-level `[Timeout]`, and capture a screenshot on failure.
 - Set each method, assembly, and lane timeout above the maximum inner startup budget plus assertion and cleanup time. An Appium startup allowance of 240 seconds cannot sit inside a 180-second test timeout.

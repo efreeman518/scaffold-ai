@@ -33,10 +33,10 @@ public void Setup()
     _tenantBoundaryMock.Setup(t => t.EnsureTenantBoundary(
             It.IsAny<Guid?>(), It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<Guid?>(),
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>()))
-        .Returns(Result.Success());
+        .Returns(Result.Ok());
     _tenantBoundaryMock.Setup(t => t.PreventTenantChange(
             It.IsAny<Guid?>(), It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<Guid>()))
-        .Returns(Result.Success());
+        .Returns(Result.Ok());
 }
 
 private {Entity}Service CreateService(
@@ -67,7 +67,6 @@ public class {Entity}ServiceTests
     [TestMethod]
     public async Task Given_ValidDto_When_CreateAsync_Then_ReturnsSuccessResult()
     {
-        // Arrange
         var forgedTenantId = Guid.NewGuid();
         var dto = new {Entity}Dto
         {
@@ -79,39 +78,33 @@ public class {Entity}ServiceTests
         _repoTrxnMock.Setup(r => r.Create(ref It.Ref<{Entity}>.IsAny));
         _repoTrxnMock.Setup(r => r.UpdateFromDto(It.IsAny<{Entity}>(), It.IsAny<{Entity}Dto>(), It.IsAny<RelatedDeleteBehavior>()))
             .Returns(({Entity} entity, {Entity}Dto _, RelatedDeleteBehavior _) =>
-                DomainResult<{Entity}>.Success(entity));
+                new Result<{Entity}>(entity));
         _repoTrxnMock.Setup(r => r.SaveChangesAsync(It.IsAny<OptimisticConcurrencyWinner>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
         var service = CreateService();
 
-        // Act
         var result = await service.CreateAsync(request);
 
-        // Assert
-        Assert.IsTrue(result.IsSuccess);
-        Assert.IsNotNull(result.Value?.Item);
-        Assert.AreEqual(dto.Name, result.Value.Item.Name);
+        Assert.IsTrue(result.IsSuccess, result.ToString());
+        var item = result.GetValueOrThrow().Item!;
+        Assert.AreEqual(dto.Name, item.Name);
         Assert.AreEqual(TestConstants.TenantId, dto.TenantId);
-        Assert.AreEqual(TestConstants.TenantId, result.Value.Item.TenantId);
-        Assert.AreNotEqual(forgedTenantId, result.Value.Item.TenantId);
+        Assert.AreEqual(TestConstants.TenantId, item.TenantId);
     }
 
     [TestMethod]
     public async Task Given_EmptyPayloadTenant_When_CreateAsync_Then_StampsBeforeValidation()
     {
-        // Arrange
         var dto = new {Entity}Dto { Name = "Test {Entity}", TenantId = Guid.Empty };
         _repoTrxnMock.Setup(r => r.Create(ref It.Ref<{Entity}>.IsAny));
         _repoTrxnMock.Setup(r => r.UpdateFromDto(It.IsAny<{Entity}>(), dto, It.IsAny<RelatedDeleteBehavior>()))
             .Returns(({Entity} entity, {Entity}Dto _, RelatedDeleteBehavior _) =>
-                DomainResult<{Entity}>.Success(entity));
+                new Result<{Entity}>(entity));
         _repoTrxnMock.Setup(r => r.SaveChangesAsync(It.IsAny<OptimisticConcurrencyWinner>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
 
-        // Act
         var result = await CreateService().CreateAsync(new() { Item = dto });
 
-        // Assert
         Assert.IsTrue(result.IsSuccess);
         Assert.AreEqual(TestConstants.TenantId, dto.TenantId);
     }
@@ -119,17 +112,14 @@ public class {Entity}ServiceTests
     [TestMethod]
     public async Task Given_EmptyPayloadTenantAndMissingEntity_When_UpdateAsync_Then_StampsBeforeLookup()
     {
-        // Arrange
         var dto = new {Entity}Dto { Id = Guid.NewGuid(), Name = "Test", TenantId = Guid.Empty };
         _repoTrxnMock.Setup(r => r.Get{Entity}Async(dto.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(({Entity}?)null);
         var service = CreateService();
 
-        // Act
         var result = await service.UpdateAsync(new() { Item = dto }, expectedVersion: 1);
 
-        // Assert
-        Assert.IsTrue(result.IsFailure);
+        Assert.IsInstanceOfType<NotFoundError>(result.Value);
         Assert.AreEqual(TestConstants.TenantId, dto.TenantId);
         _repoTrxnMock.Verify(r => r.Get{Entity}Async(dto.Id, true, It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -139,10 +129,9 @@ public class {Entity}ServiceTests
     [DataRow(true)]
     public async Task Given_UntrustedTenant_When_UpdateAsync_Then_PreservesContextTenant(bool useEmptyTenant)
     {
-        // Arrange
         var entityId = Guid.NewGuid();
         var payloadTenantId = useEmptyTenant ? Guid.Empty : Guid.NewGuid();
-        var entity = {Entity}.Create(TestConstants.TenantId, "Before").Value!;
+        var entity = {Entity}.Create(TestConstants.TenantId, "Before").GetValueOrThrow();
         var dto = new {Entity}Dto
         {
             Id = entityId,
@@ -153,31 +142,25 @@ public class {Entity}ServiceTests
         _repoTrxnMock.Setup(r => r.Get{Entity}Async(entityId, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(entity);
         _repoTrxnMock.Setup(r => r.UpdateFromDto(entity, dto, RelatedDeleteBehavior.RelationshipAndEntity))
-            .Returns(DomainResult<{Entity}>.Success(entity));
+            .Returns(new Result<{Entity}>(entity));
         _repoTrxnMock.Setup(r => r.SaveChangesAsync(It.IsAny<OptimisticConcurrencyWinner>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
-        // Act
         var result = await CreateService().UpdateAsync(new() { Item = dto }, entity.Version);
 
-        // Assert
         Assert.IsTrue(result.IsSuccess);
         Assert.AreEqual(TestConstants.TenantId, dto.TenantId);
-        Assert.AreEqual(TestConstants.TenantId, result.Value!.Item.TenantId);
-        Assert.AreNotEqual(payloadTenantId, result.Value.Item.TenantId);
+        Assert.AreEqual(TestConstants.TenantId, result.GetValueOrThrow().Item!.TenantId);
     }
 
     [TestMethod]
     public async Task Given_MissingContextTenant_When_CreateAsync_Then_RejectsPayloadFallback()
     {
-        // Arrange
         _requestContextMock.Setup(x => x.TenantId).Returns((Guid?)null);
         var dto = new {Entity}Dto { Name = "Forged", TenantId = Guid.NewGuid() };
 
-        // Act
         var result = await CreateService().CreateAsync(new() { Item = dto });
 
-        // Assert
-        Assert.IsTrue(result.IsFailure);
+        Assert.IsFalse(result.IsSuccess);
         Assert.AreEqual(Guid.Empty, dto.TenantId);
         _repoTrxnMock.Verify(r => r.Create(ref It.Ref<{Entity}>.IsAny), Times.Never);
         _repoTrxnMock.Verify(r => r.UpdateFromDto(
@@ -189,19 +172,16 @@ public class {Entity}ServiceTests
     [TestMethod]
     public async Task Given_ExistingEntity_When_DeleteAsync_Then_ReturnsSuccessAndCallsDelete()
     {
-        // Arrange
         var entityId = Guid.NewGuid();
-        var entity = {Entity}.Create(TestConstants.TenantId, "ToDelete").Value!;
+        var entity = {Entity}.Create(TestConstants.TenantId, "ToDelete").GetValueOrThrow();
         _repoTrxnMock.Setup(r => r.Get{Entity}Async(entityId, false, It.IsAny<CancellationToken>()))
             .ReturnsAsync(entity);
         _repoTrxnMock.Setup(r => r.SaveChangesAsync(It.IsAny<OptimisticConcurrencyWinner>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(0);
         var service = CreateService();
 
-        // Act
         var result = await service.DeleteAsync(entityId, entity.Version);
 
-        // Assert
         Assert.IsTrue(result.IsSuccess);
         _repoTrxnMock.Verify(r => r.Delete(entity), Times.Once);
     }
@@ -209,9 +189,8 @@ public class {Entity}ServiceTests
     [TestMethod]
     public async Task Given_StaleIfMatch_When_DeleteAsync_Then_ThrowsPreconditionFailedBeforeDelete()
     {
-        // Arrange
         var entityId = Guid.NewGuid();
-        var entity = {Entity}.Create(TestConstants.TenantId, "Stale").Value!;
+        var entity = {Entity}.Create(TestConstants.TenantId, "Stale").GetValueOrThrow();
         _repoTrxnMock.Setup(r => r.Get{Entity}Async(entityId, false, It.IsAny<CancellationToken>()))
             .ReturnsAsync(entity);
 
@@ -224,20 +203,15 @@ public class {Entity}ServiceTests
     [TestMethod]
     public async Task Given_ExistingEntity_When_GetAsync_Then_ReturnsMappedDto()
     {
-        // Arrange
         var entityId = Guid.NewGuid();
-        var entity = {Entity}.Create(TestConstants.TenantId, "GetTest").Value!;
+        var entity = {Entity}.Create(TestConstants.TenantId, "GetTest").GetValueOrThrow();
         _repoTrxnMock.Setup(r => r.Get{Entity}Async(entityId, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(entity);
         var service = CreateService();
 
-        // Act
         var result = await service.GetAsync(entityId);
 
-        // Assert
-        Assert.IsTrue(result.IsSuccess);
-        Assert.IsNotNull(result.Value?.Item);
-        Assert.AreEqual("GetTest", result.Value.Item.Name);
+        Assert.AreEqual("GetTest", result.GetValueOrThrow().Item!.Name);
     }
 }
 ```
@@ -283,8 +257,7 @@ public class {EventName}HandlerTests
     [TestMethod]
     public async Task Given_ValidEvent_When_HandleAsync_Then_SideEffectAppliedAndSaved()
     {
-        // Arrange
-        var entity = {Entity}.Create(TestConstants.TenantId, "Before").Value!;
+        var entity = {Entity}.Create(TestConstants.TenantId, "Before").GetValueOrThrow();
         var message = new {EventName}(entity.Id.Value, TestConstants.TenantId, "Detail");
         _repoTrxnMock.Setup(r => r.Get{Entity}Async(entity.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(entity);
@@ -292,10 +265,8 @@ public class {EventName}HandlerTests
                 It.IsAny<OptimisticConcurrencyWinner>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(1);
 
-        // Act
         await CreateHandler().HandleAsync(message, TestContext.CancellationToken);
 
-        // Assert
         _repoTrxnMock.Verify(r => r.SaveChangesAsync(
             It.IsAny<OptimisticConcurrencyWinner>(), It.IsAny<CancellationToken>()), Times.Once);
         // Assert the specific state change the handler owns, not just that a save happened.
@@ -305,13 +276,12 @@ public class {EventName}HandlerTests
     public async Task Given_SameEventDeliveredTwice_When_HandleAsync_Then_SideEffectAppliedOnce()
     {
         // Arrange - at-least-once delivery means the bus WILL redeliver on retry.
-        var entity = {Entity}.Create(TestConstants.TenantId, "Before").Value!;
+        var entity = {Entity}.Create(TestConstants.TenantId, "Before").GetValueOrThrow();
         var message = new {EventName}(entity.Id.Value, TestConstants.TenantId, "Detail");
         _repoTrxnMock.Setup(r => r.Get{Entity}Async(entity.Id, true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(entity);
         var handler = CreateHandler();
 
-        // Act
         await handler.HandleAsync(message, TestContext.CancellationToken);
         await handler.HandleAsync(message, TestContext.CancellationToken);
 
@@ -331,7 +301,6 @@ public class {EventName}HandlerTests
         // Act - a throw here would fail the handler forever on every redelivery.
         await CreateHandler().HandleAsync(message, TestContext.CancellationToken);
 
-        // Assert
         _repoTrxnMock.Verify(r => r.SaveChangesAsync(
             It.IsAny<OptimisticConcurrencyWinner>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -361,14 +330,11 @@ public class {Entity}MapperTests
     [TestMethod]
     public void Given_ValidEntity_When_MappedToDto_Then_AllPropertiesMapped()
     {
-        // Arrange
         var tenantId = Guid.NewGuid();
-        var entity = {Entity}.Create(tenantId, "Test Name").Value!;
+        var entity = {Entity}.Create(tenantId, "Test Name").GetValueOrThrow();
 
-        // Act
         var dto = entity.ToDto();
 
-        // Assert
         Assert.AreEqual(entity.Id, dto.Id);
         Assert.AreEqual(entity.Name, dto.Name);
         Assert.AreEqual(entity.TenantId, dto.TenantId);
@@ -380,14 +346,11 @@ public class {Entity}MapperTests
     [TestCategory("Unit")]
     public void {Entity}_CompiledProjection_AgreesWith_ToDto()
     {
-        // Arrange
         var entity = new {Entity}Builder().Build();
 
-        // Act
         var fromCompiled = {Entity}Mapper.Projection.Compile()(entity);
         var fromToDto = entity.ToDto();
 
-        // Assert
         Assert.AreEqual(fromToDto.Id, fromCompiled.Id);
         Assert.AreEqual(fromToDto.Name, fromCompiled.Name);
         Assert.AreEqual(fromToDto.TenantId, fromCompiled.TenantId);
@@ -398,18 +361,15 @@ public class {Entity}MapperTests
     [TestCategory("Unit")]
     public void {Entity}_InlinedChildren_AgreeWith_ChildMappers()
     {
-        // Arrange
         var entity = new {Entity}Builder().Build();
         var child = new {ChildEntity}Builder()
             .With{Entity}Id(entity.Id)
             .Build();
         entity.{ChildEntities}.Add(child);
 
-        // Act
         var fullDto = entity.ToDto();
         var expectedChild = entity.{ChildEntities}.Single().ToDto();
 
-        // Assert
         Assert.AreEqual(1, fullDto.{ChildEntities}.Count);
         Assert.AreEqual(expectedChild.Id, fullDto.{ChildEntities}[0].Id);
         Assert.AreEqual(expectedChild.{Entity}Id, fullDto.{ChildEntities}[0].{Entity}Id);
@@ -417,21 +377,17 @@ public class {Entity}MapperTests
     }
 
     [TestMethod]
-    public void Given_ValidDto_When_MappedToEntity_Then_ReturnsValidDomainResult()
+    public void Given_ValidDto_When_MappedToEntity_Then_ReturnsTenantStampedEntity()
     {
-        // Arrange
         var payloadTenantId = Guid.NewGuid();
         var authoritativeTenantId = Guid.NewGuid();
         var dto = new {Entity}Dto { Name = "From DTO", TenantId = payloadTenantId };
 
-        // Act
         var result = dto.ToEntity(authoritativeTenantId);
 
-        // Assert
-        Assert.IsTrue(result.IsSuccess);
-        Assert.AreEqual(dto.Name, result.Value!.Name);
-        Assert.AreEqual(authoritativeTenantId, result.Value!.TenantId);
-        Assert.AreNotEqual(payloadTenantId, result.Value!.TenantId);
+        var entity = result.GetValueOrThrow();
+        Assert.AreEqual(dto.Name, entity.Name);
+        Assert.AreEqual(authoritativeTenantId, entity.TenantId);
     }
 }
 ```

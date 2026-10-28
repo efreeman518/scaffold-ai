@@ -343,9 +343,9 @@ Rules:
 
 - Use MSTest if the scaffold's test stack is MSTest. Do not introduce NUnit only for mobile smoke tests.
 - Test methods must not start Appium, start an Android Emulator, or build APKs. They only connect to the prepared device/server.
-- Default `dotnet test tests/Test.Mobile/Test.Mobile.csproj --filter TestCategory=MobileUI` with `{APP}_MOBILE_TESTS_ENABLED` unset/false must return `Assert.Inconclusive` without touching Appium or emulator.
+- Default `dotnet test --project tests/Test.Mobile/Test.Mobile.csproj --filter TestCategory=MobileUI` with `{APP}_MOBILE_TESTS_ENABLED` unset/false must return `Assert.Inconclusive` without touching Appium or emulator.
 - `run-mobile-tests.ps1` owns Android restore/build, emulator readiness, Appium readiness, `{APP}_MOBILE_TESTS_ENABLED=true`, `dotnet test`, and TRX output. Explicit runner lanes fail fast red if APK, emulator/device, Appium, or UiAutomator2 is missing/broken.
-- When explicitly selected with `--settings tests/{App}.runsettings` or in Visual Studio, assembly initialization outside test methods may build the default APK and own an unavailable loopback Appium process. It must not start or choose an emulator/device, use an explicit remote server, or affect ordinary CLI acceptance.
+- Once explicitly enabled (IDE activation: [../skills/testing.md](../skills/testing.md) section Mobile Tier Opt-In), assembly initialization may build the default APK and own an unavailable loopback Appium process. It must not start or choose an emulator/device or use an explicit remote server.
 - Android local runs require Appium CLI/server and the UiAutomator2 driver.
 - The runner builds the Android package from a full Uno restore graph:
 
@@ -498,7 +498,7 @@ dotnet tool restore
 
 ### File: `tests/Test.Mutation/stryker-config.json`
 
-Replace `{TargetFramework}` with the concrete TFM generated for the solution.
+Replace `$(LatestStableTfm)` with the concrete TFM generated for the solution.
 
 ```json
 {
@@ -506,7 +506,7 @@ Replace `{TargetFramework}` with the concrete TFM generated for the solution.
     "solution": "../../{SolutionName}.slnx",
     "project": "{Project}.Domain.Model.csproj",
     "configuration": "Debug",
-    "target-framework": "{TargetFramework}",
+    "target-framework": "$(LatestStableTfm)",
     "mutation-level": "Standard",
     "test-case-filter": "TestCategory=Mutation",
     "reporters": [
@@ -542,7 +542,7 @@ namespace Test.Mutation.Domain;
 /// Run the suite from repo root:
 /// <code>
 /// dotnet tool restore
-/// dotnet test tests/Test.Mutation/Test.Mutation.csproj
+/// dotnet test --project tests/Test.Mutation/Test.Mutation.csproj
 /// </code>
 /// Then run Stryker from tests/Test.Mutation:
 /// <code>
@@ -561,8 +561,7 @@ public class {Entity}MutationSamples
 
         var result = {Entity}.Create(TestConstants.DefaultTenantId, name);
 
-        Assert.IsTrue(result.IsSuccess);
-        Assert.AreEqual(name, result.Value!.Name);
+        Assert.AreEqual(name, result.GetValueOrThrow().Name);
     }
 
     [TestMethod]
@@ -572,9 +571,8 @@ public class {Entity}MutationSamples
 
         var result = {Entity}.Create(TestConstants.DefaultTenantId, name);
 
-        Assert.IsTrue(result.IsFailure);
         StringAssert.Contains(
-            string.Join(";", result.Errors),
+            Assert.IsInstanceOfType<ValidationError>(result.Value).Message,
             $"Name must be at least {DomainConstants.RULE_DEFAULT_NAME_LENGTH_MIN} characters.");
     }
 }
@@ -583,7 +581,7 @@ public class {Entity}MutationSamples
 Run commands:
 
 ```powershell
-dotnet test tests/Test.Mutation/Test.Mutation.csproj
+dotnet test --project tests/Test.Mutation/Test.Mutation.csproj
 ```
 
 From `tests/Test.Mutation`:
@@ -604,9 +602,9 @@ The Integration (`Test.Integration` component), Aspire (`Test.Aspire` mesh), and
 - [test-templates-aspire.md](test-templates-aspire.md) - mesh: `AspireTestHost` (lazy) + `AspireMeshLifecycle`, `OutboxMeshTests`, Azure-arm audit pipelines.
 - [test-templates-e2e.md](test-templates-e2e.md) - `DbApiFactory`, `{Entity}WorkflowTests` (full CRUD + paged search + child-aggregate workflows against the lane's database).
 
-Phase 5d treats these tiers as **regression scope**, not generation scope: run them as part of the final quality gate (`dotnet test --filter "TestCategory=Integration|TestCategory=E2E" -m:1`) but do not re-generate fixtures here. If a sub-phase skipped its tier earlier (e.g., `api-only` scaffold), load the matching template on-demand and back-fill.
+Phase 5d treats these tiers as **regression scope**, not generation scope: run them as part of the final quality gate (`dotnet test --no-build --filter "TestCategory=Integration|TestCategory=E2E" --max-parallel-test-modules 1`) but do not re-generate fixtures here. If a sub-phase skipped its tier earlier (e.g., `api-only` scaffold), load the matching template on-demand and back-fill.
 
-> **Docker requirement:** Integration / E2E tiers need Docker Desktop running (Testcontainers + Azurite). In CI, run them with `--filter "TestCategory=Integration|TestCategory=E2E"` separately from unit/endpoint tests so a missing daemon fails fast instead of cascading.
+> **Docker requirement:** Integration / E2E tiers need a container runtime (Testcontainers + Azurite). CI runs them apart from unit/endpoint tests so a missing daemon fails fast instead of cascading.
 
 ---
 
@@ -615,7 +613,8 @@ Phase 5d treats these tiers as **regression scope**, not generation scope: run t
 After writing quality gate tests, run the full suite to verify no regressions from 5a/5b/5c/5d:
 
 ```powershell
-dotnet test -m:1
+dotnet build -m:1
+dotnet test --no-build --max-parallel-test-modules 1
 ```
 
 Profile gates:

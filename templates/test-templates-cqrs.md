@@ -2,7 +2,7 @@
 
 ## Handler Unit Test
 
-Use the feature namespace for command/query types and validators: `{Project}.Application.Cqrs.Features.{EntityPlural}`.
+Command/query types and validators live in `{Project}.Application.Cqrs.Features.{EntityPlural}`.
 
 ```csharp
 [TestMethod]
@@ -15,7 +15,7 @@ public async Task Given_InvalidCommand_When_HandlerRuns_Then_ReturnsFailure()
 
     var result = await _handler.HandleAsync(command);
 
-    Assert.IsTrue(result.IsFailure);
+    Assert.IsInstanceOfType<ValidationError>(result.Value);
 }
 ```
 
@@ -31,7 +31,7 @@ Add handler and validator tests that prove:
 
 ## Validation Decorator Test
 
-Test that invalid commands return a failed `Result` and do not call the inner handler.
+Invalid commands return a `ValidationError` and never reach the inner handler.
 
 ## Architecture Test
 

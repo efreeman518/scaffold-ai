@@ -188,7 +188,7 @@ Also **remove the line `*.e2e`** from the stock template. It targets a legacy Vi
 
 Note: `.scaffold/` is a **tracked** directory - it holds the Phase 1/2/3 artifacts (`domain-specification.yaml`, `resource-implementation.yaml`, `UBIQUITOUS-LANGUAGE.md`, `DESIGN-DECISIONS.md`, `implementation-plan.md`) plus `INSTRUCTION-GAPS.md` and, when the spec opts in, the generated `ontology/` projection. Do not add `.scaffold/` to `.gitignore`.
 
-Failure mode is **invisible locally** (files on disk, build green) and surfaces only on a fresh clone or CI runner. The operator-setup post-generation step runs a `git ls-files` check to catch the same class of bug for any future scaffold folder whose name collides with a stock ignore pattern - see [../support/operator-setup.md](../support/operator-setup.md) section Tracked-Source Validation.
+Failure mode is **invisible locally** (files on disk, build green) and surfaces only on a fresh clone or CI runner; the `git ls-files` check ([../support/operator-setup.md](../support/operator-setup.md) section Tracked-Source Validation) catches any scaffold folder a stock ignore pattern hides.
 
 **`.editorconfig`** - pinned tab/space + `end_of_line = lf` (belt-and-suspenders with `.gitattributes`). It must also **make an explicit decision on analyzer diagnostics it cannot fully code-gen away** - a formatting-only editorconfig lets package defaults (MSTest, EF, etc.) leak through at `info` severity, producing silent IDE-only debt that never fails the build. For each such diagnostic, pick one policy and state it intentionally. For `MSTEST0049` (flow the `TestContext` token, generated per the [testing.md](testing.md) Cancellation-Token discipline), the default is **enforce** - it matches the app's zero-warnings expectation and can never silently accumulate:
 
@@ -253,29 +253,26 @@ Do not keep both formats in active use.
 
 ### `global.json`
 
-- Pin to latest stable installed SDK.
-- Keep `rollForward` as `latestFeature`.
+- Pin the latest stable installed SDK (from `dotnet --list-sdks` at scaffold time) with `rollForward: latestFeature`.
+- `test.runner` selects Microsoft.Testing.Platform for `dotnet test` ([testing.md](testing.md) section Test Platform and Dependencies).
 
 ```json
 {
-  "sdk": {
-    "version": "<latest-installed-stable-sdk>",
-    "rollForward": "latestFeature"
-  }
+  "sdk": { "version": "<latest-installed-stable-sdk>", "rollForward": "latestFeature" },
+  "test": { "runner": "Microsoft.Testing.Platform" }
 }
 ```
-
-Resolve `<latest-installed-stable-sdk>` from `dotnet --list-sdks` at scaffold time (do not hard-code).
 
 ### `Directory.Packages.props`
 
 - `ManagePackageVersionsCentrally=true`.
 - No package versions in project-level `<PackageReference>` entries.
 - Update package versions centrally only.
+- No shared-framework package rows (NU1510 rule in [package-dependencies.md](package-dependencies.md)).
 
 ### `.csproj` Conventions
 
-- Target the latest stable TFM supported by the pinned SDK.
+- Target the latest stable TFM supported by the pinned SDK, set once in `Directory.Build.props`. The TFM selects the C# language version; no project overrides it.
 - Enable `ImplicitUsings` and `Nullable`.
 - API/Gateway use `Microsoft.NET.Sdk.Web`; library projects use `Microsoft.NET.Sdk`.
 - A host that maps minimal-API endpoints sets `<EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>`: request delegates are generated at build time instead of compiled on every start, which cuts production cold start and every test host boot. Turning it on in an existing host is a production change: require zero generator diagnostics, an endpoint-metadata dump identical before and after apart from generated-code markers (such as `DisableCookieRedirectMetadata`, read only by cookie auth), and an unchanged OpenAPI snapshot.
@@ -319,7 +316,7 @@ Criterion: wrap when the provider's surface is provider-shaped, transport-couple
 
 Default scaffold and TaskFlow keep `Application.Cqrs` referencing shared `Application.Models` and `Application.Mappers` so service and CQRS styles share one contract. A CQRS-only vertical slice may move feature-specific models, mappers, projections, and adapters under `Application.Cqrs/Features/{Entity}` and then trim unused shared project references.
 
-Adjust optional dependencies per enabled features without inverting layer direction. The `+ external packages whose interface is the contract` clause on the application rows is the deliberate direct-reference exception (see Infrastructure Naming Rules -> Wrap vs. Direct Reference): a library like FusionCache whose own interface is already the abstraction is referenced straight from the application layer, so the application project takes that package reference and no Infrastructure wrapper exists. Wrapped integrations (repositories, Refit APIs, messaging adapters) keep their package references in the Infrastructure implementation project, not in the application layer.
+Adjust optional dependencies per enabled features without inverting layer direction. The `+ external packages whose interface is the contract` clause on the application rows is the direct-reference exception (Wrap vs. Direct Reference); wrapped integrations (repositories, Refit APIs, messaging adapters) keep their package references in the Infrastructure implementation project.
 
 ---
 
@@ -335,8 +332,7 @@ Use this repo as the **authoritative source of truth** for all EF.* types, APIs,
 |---|---|---|
 | `EntityBase` | EF.Domain | Base entity with `Id` (init, V7 GUID) and `long Version` (concurrency token) |
 | `AuditableBase<T>` | EF.Domain | EntityBase + audit properties (rarely used when AuditInterceptor is active) |
-| `DomainResult<T>` | EF.Domain.Contracts | Railway-oriented domain operation result |
-| `Result` / `Result<T>` | EF.Common.Contracts | Application-layer operation results |
+| `Result<T>`, `Error` | EF.Domain.Contracts | The one result type, a union of `T` and `Error` ([ef-packages-reference.md](../support/ef-packages-reference.md)) |
 | `RepositoryBase<TCtx,TAudit,TTenant>` | EF.Data | Base repository with CRUD + concurrency |
 | `DbContextBase` | EF.Data | Base context - tenant filter, audit fields, `Version` increment; generated writes use `SaveChangesAsync(OptimisticConcurrencyWinner, ct)` |
 | `IRequestContext<TAuditIdType, TTenantIdType>` | EF.Common.Contracts | Tenant, Roles, CorrelationId, AuditId (NO `.UserId`) |
@@ -351,7 +347,7 @@ Use this repo as the **authoritative source of truth** for all EF.* types, APIs,
 - [ ] `dotnet build {SolutionName}.slnx` succeeds from repo root
 - [ ] Repo-root `Directory.Build.props` controls shared build settings
 - [ ] Repo-root `Directory.Packages.props` controls package versions
-- [ ] Repo-root `global.json` uses `latestFeature` roll-forward
+- [ ] Repo-root `global.json` uses `latestFeature` roll-forward and the Microsoft.Testing.Platform test runner
 - [ ] When generated, repo-root `nuget.config` includes required public/private feeds
 - [ ] Domain projects do not reference Application/Infrastructure
 - [ ] Host projects depend on Bootstrapper instead of duplicating shared DI wiring

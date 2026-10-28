@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Generates** | `eng/test/start-local-test-stack.ps1`, `tests/Test.Mobile/run-mobile-tests.ps1` and optional `tests/{App}.runsettings` when mobile exists, `.vscode/tasks.json` entries (optional) |
+| **Generates** | `eng/test/start-local-test-stack.ps1`, `tests/Test.Mobile/run-mobile-tests.ps1` when mobile exists, `.vscode/tasks.json` entries (optional) |
 | **Requires** | Aspire AppHost; Uno WASM and/or Android targets when those test tiers are generated |
 | **Phase** | 5c/5d - generate once the host(s) and the `WasmUI` / `Test.Mobile` / `Test.Aspire` tiers exist |
 | **Protocol** | Operator tooling. The script mutates **process** environment only - it never edits machine/user PATH. |
@@ -11,7 +11,7 @@
 
 ## Generate only for selected capabilities
 
-This script and its `.vscode/tasks.json` entries are **derived from the early Phase 2 capability pick** (see [Capability-Gated Test Tiers](../skills/testing.md#capability-gated-test-tiers-the-early-decision-drives-the-rest)). Emit only the branches and tasks for tiers that were actually generated: no Uno -> no WASM/mobile branches; no `useAspire` -> no AppHost branch. An `api-only` scaffold needs none of this - skip the script entirely. A filtered command may support fast iteration, but final acceptance remains unfiltered and serial: `dotnet test .\{SolutionName}.slnx --no-build -m:1`. The `-Skip*` switches below toggle *within* the set of branches that exist; they are not a substitute for omitting unselected capabilities at generation time.
+This script and its `.vscode/tasks.json` entries are **derived from the early Phase 2 capability pick** (see [Capability-Gated Test Tiers](../skills/testing.md#capability-gated-test-tiers-the-early-decision-drives-the-rest)). Emit only the branches and tasks for tiers that were actually generated: no Uno -> no WASM/mobile branches; no `useAspire` -> no AppHost branch. An `api-only` scaffold needs none of this - skip the script entirely. A filtered command may support fast iteration, but final acceptance remains unfiltered and serial ([../support/execution-gates.md](../support/execution-gates.md)). The `-Skip*` switches below toggle *within* the set of branches that exist; they are not a substitute for omitting unselected capabilities at generation time.
 
 ## Why one script
 
@@ -41,7 +41,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path "$PSScriptRoot/../..").Path
-$tfm  = 'net{X}.0'   # the solution's pinned TFM
+$tfm  = '$(LatestStableTfm)'   # the solution's pinned TFM
 $configuration = 'Debug'
 $wasmTfm = "$tfm-browserwasm"
 $wasmProject = Join-Path $repo "src/UI/{Project}.Uno/{Project}.Uno.csproj"
@@ -167,9 +167,9 @@ Write-Host @"
   Mobile:   use tests/Test.Mobile/run-mobile-tests.ps1 (Android gateway from emulator: http://10.0.2.2:$GatewayPort/)
 
   Rerun individual tiers:
-    dotnet test .\{SolutionName}.slnx -m:1
-    dotnet test tests/Test.Aspire/Test.Aspire.csproj -m:1 --filter TestCategory=Aspire
-    dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj -m:1 --filter TestCategory=WasmUI
+    dotnet test --solution .\{SolutionName}.slnx --max-parallel-test-modules 1
+    dotnet test --project tests/Test.Aspire/Test.Aspire.csproj --filter TestCategory=Aspire
+    dotnet test --project tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --filter TestCategory=WasmUI
     powershell -NoProfile -File tests/Test.Mobile/run-mobile-tests.ps1 -SkipBuild
 "@ -ForegroundColor Green
 ```
@@ -186,11 +186,11 @@ Generate into `.vscode/tasks.json` so Test Explorer users have one-click stack c
   "tasks": [
     { "label": "Start local test stack", "type": "shell", "command": "pwsh -File eng/test/start-local-test-stack.ps1" },
     { "label": "Build WASM", "type": "shell", "command": "pwsh -File eng/test/start-local-test-stack.ps1 -SkipAspire -SkipMobile" },
-    { "label": "Install Playwright Chromium", "type": "shell", "command": "pwsh tests/Test.PlaywrightUI/bin/Debug/net{X}.0/playwright.ps1 install chromium" },
+    { "label": "Install Playwright Chromium", "type": "shell", "command": "pwsh tests/Test.PlaywrightUI/bin/Debug/$(LatestStableTfm)/playwright.ps1 install chromium" },
     { "label": "Test: Mobile with build", "type": "shell", "command": "powershell -NoProfile -File tests/Test.Mobile/run-mobile-tests.ps1" },
-    { "label": "Test: full serial acceptance", "type": "shell", "command": "dotnet test .\\{SolutionName}.slnx -m:1", "group": { "kind": "test", "isDefault": true } },
-    { "label": "Test: Aspire", "type": "shell", "command": "dotnet test tests/Test.Aspire/Test.Aspire.csproj -m:1 --filter TestCategory=Aspire" },
-    { "label": "Test: WASM", "type": "shell", "command": "dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj -m:1 --filter TestCategory=WasmUI" },
+    { "label": "Test: full serial acceptance", "type": "shell", "command": "dotnet test --solution .\\{SolutionName}.slnx --max-parallel-test-modules 1", "group": { "kind": "test", "isDefault": true } },
+    { "label": "Test: Aspire", "type": "shell", "command": "dotnet test --project tests/Test.Aspire/Test.Aspire.csproj --filter TestCategory=Aspire" },
+    { "label": "Test: WASM", "type": "shell", "command": "dotnet test --project tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --filter TestCategory=WasmUI" },
     { "label": "Test: Mobile", "type": "shell", "command": "powershell -NoProfile -File tests/Test.Mobile/run-mobile-tests.ps1 -SkipBuild" }
   ]
 }
@@ -205,21 +205,17 @@ This runner owns the full explicit Android lane end-to-end. Test methods only co
 - **Build** the Android package with `-p:BuildAllUnoTargets=true` and the `-android` TFM override.
 - **Visible emulator (`-VisibleEmulator`).** A cold boot can take 10-15 min. Use a long boot timeout and print an "emulator booting visibly" status line so the wait is not read as a hang.
 - **One scoped launch retry.** For the known transient Android launch failure only (exact `Cannot start` plus `never started`): force-stop the app, recreate the session, retry once. No broad retries. (Doctrine: `../skills/testing-quality.md` section Uno Mobile: Test Split.)
-- Set `{APP}_MOBILE_TESTS_ENABLED=true`, run `dotnet test`, write TRX.
+- Set `{APP}_MOBILE_TESTS_ENABLED=true`, run `dotnet test --project tests/Test.Mobile/Test.Mobile.csproj --report-trx --results-directory tests/TestResults/Mobile`.
 
-## Optional Visual Studio/Test Explorer profile
+## Optional Test Explorer activation
 
-When the developer wants the selected mobile/browser suites runnable directly from Test Explorer, generate `tests/{App}.runsettings` as an explicit IDE profile:
+Setting `{APP}_MOBILE_TESTS_ENABLED=true` and the loopback Appium URL in the IDE test environment is the explicit opt-in ([../skills/testing.md](../skills/testing.md) section Mobile Tier Opt-In). `Test.Mobile` sets `<MSTestParallelizeAssembly>false</MSTestParallelizeAssembly>`. Its `[AssemblyInitialize]`/`[AssemblyCleanup]` lifecycle:
 
-- set `<MaxCpuCount>1</MaxCpuCount>` so browser and mobile hosts do not compete for shared emulator, Appium, ports, or build outputs;
-- set `{APP}_MOBILE_TESTS_ENABLED=true` and the loopback Appium URL as test-run parameters;
-- add mobile `[AssemblyInitialize]`/`[AssemblyCleanup]` lifecycle that builds the default Android package only when no explicit app path was supplied, starts Appium only for an unavailable loopback endpoint, and stops only the process it started;
-- resolve relative artifact and screenshot paths against the repository root so CLI and Test Explorer agree;
-- fail on an explicitly configured missing artifact or unavailable non-loopback Appium server;
-- keep emulator/device discovery and startup in the explicit runner. The assembly host may build the APK and own loopback Appium, but it must not silently choose or boot a device.
-- set method, assembly, and lane deadlines above the maximum Appium startup allowance plus assertion and cleanup time. Never configure an inner startup wait longer than its enclosing test timeout.
-
-Do not auto-select this profile for ordinary CLI acceptance. Passing `--settings tests/{App}.runsettings` or selecting it in Visual Studio is the explicit opt-in that accepts the heavy prerequisites.
+- builds the default Android package only when no explicit app path was supplied, starts Appium only for an unavailable loopback endpoint, and stops only the process it started;
+- resolves relative artifact and screenshot paths against the repository root so CLI and Test Explorer agree;
+- fails on an explicitly configured missing artifact or unavailable non-loopback Appium server;
+- leaves emulator/device discovery and startup to the explicit runner;
+- keeps method, assembly, and lane deadlines above the maximum Appium startup allowance plus assertion and cleanup time; no inner startup wait exceeds its enclosing test timeout.
 
 ## Verification
 
@@ -227,6 +223,6 @@ Do not auto-select this profile for ordinary CLI acceptance. Passing `--settings
 - [ ] script mutates **process** env only (no `setx`, no machine/user PATH edits).
 - [ ] `tests/Test.Mobile/run-mobile-tests.ps1` exists when mobile tier exists.
 - [ ] Mobile runner meets the responsibilities in section Mobile runner (`run-mobile-tests.ps1`): resource probe with exact paths, SDK discovery + `ANDROID_HOME`/`ANDROID_SDK_ROOT` export, Android build, visible cold-boot handling, one scoped launch retry, `{APP}_MOBILE_TESTS_ENABLED=true`, `dotnet test`, TRX.
-- [ ] When the IDE profile is requested, `tests/{App}.runsettings` serializes hosts, explicitly enables mobile, and its assembly lifecycle owns only default-package build plus loopback Appium startup/cleanup.
+- [ ] Once mobile is enabled, its assembly lifecycle owns only default-package build plus loopback Appium startup/cleanup.
 - [ ] script prints exact endpoints per-tier rerun commands, including mobile runner command.
 - [ ] `.vscode/tasks.json` entries exist for: start stack, build WASM, install Playwright, run full serial acceptance, run Aspire/WASM, run Mobile via `run-mobile-tests.ps1`.

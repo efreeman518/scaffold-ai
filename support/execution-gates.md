@@ -100,7 +100,7 @@ Commands:
 ```powershell
 dotnet build
 dotnet test --filter "TestCategory=Unit"
-dotnet test --filter "TestCategory=LiveAI" -m:1 # only when a live provider is intentionally available
+dotnet test --filter "TestCategory=LiveAI" # live provider only
 ```
 
 Scaffold migration (follow the lifecycle recorded in `.scaffold/resource-implementation.yaml`; see [data-persistence-advanced.md](data-persistence-advanced.md) section Migration lifecycle and provider parity):
@@ -241,12 +241,12 @@ Run only the targets selected in `.scaffold/resource-implementation.yaml`. Keep 
 For Uno WASM, clean both target `bin` and target `obj` before a validation rebuild. If `WasmUI` tests are generated, run one smoke test before marking the UI validated:
 
 ```powershell
-dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --filter TestCategory=WasmUI -m:1
+dotnet test --project tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --filter TestCategory=WasmUI
 ```
 
 The `WasmUI` harness is default-on. It starts Aspire in testing mode when Docker is present and classifies `Assert.Inconclusive` versus red by the prerequisite rule ([../skills/testing.md](../skills/testing.md#never-silently-pass-applies-to-every-tier)); `{APP}_WASM_TESTS_ENABLED=false` is its opt-out, and AppHost/resource/browser startup failures are red with diagnostics.
 
-If targeting Android (`<tfm>-android`):
+Android target (`$(LatestStableTfm)-android`):
 - [ ] Android Studio or SDK command-line tools installed with Platform-Tools, Emulator, one recent platform, and one AVD
 - [ ] Android SDK path resolved (see `skills/ui-uno-platforms.md` section Android SDK Discovery)
 - [ ] Android restore/build uses `dotnet restore ... -p:BuildAllUnoTargets=true` followed by `dotnet build ... -p:TargetFrameworkOverride=$(LatestStableTfm)-android --no-restore`
@@ -254,11 +254,11 @@ If targeting Android (`<tfm>-android`):
 - [ ] `<EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>`, `<AndroidEnableAssemblyCompression>false</AndroidEnableAssemblyCompression>`, and `.so` uncompressed file extension settings are set if manual ADB/Appium sideloading is used
 - [ ] Emulator host networking uses `10.0.2.2` for local backend calls (see `skills/ui-uno-platforms.md` section Emulator Host Networking)
 - [ ] MSTest/Appium mobile smoke passes when native Android UI testing is in scope: `powershell -NoProfile -File tests/Test.Mobile/run-mobile-tests.ps1`
-- [ ] **Final green rule (mobile in scope):** do not declare green until the visible mobile suite passes on its own with mobile enabled (runner sets `{APP}_MOBILE_TESTS_ENABLED=true`), and then the unfiltered serial solution run exits 0 (`dotnet test .\{SolutionName}.slnx --no-build -m:1`). Two separate passing runs, in that order. This is the canonical mobile completion gate; other files point here rather than restating it.
+- [ ] **Final green rule (mobile in scope):** do not declare green until the visible mobile suite passes on its own with mobile enabled (runner sets `{APP}_MOBILE_TESTS_ENABLED=true`), and then the 5d acceptance command exits 0. Two separate passing runs, in that order. This is the canonical mobile completion gate; other files point here rather than restating it.
 
-> **Starter-library escape hatch:** If the repo currently contains only a single-TFM starter library or shell-contract scaffold instead of a real Uno multi-target app, Phase 5c for Uno must be recorded as **blocked**. `NETSDK1139` on `<tfm>-browserwasm` is expected in that scenario and is evidence that Uno scaffolding is still missing - not an environment glitch. Do not debug/workaround it; record the status as `blocked - Uno multi-target not yet created` and move on.
+> **Starter-library escape hatch:** If the repo currently contains only a single-TFM starter library or shell-contract scaffold instead of a real Uno multi-target app, Phase 5c for Uno must be recorded as **blocked**. `NETSDK1139` on `$(LatestStableTfm)-browserwasm` is expected in that scenario and is evidence that Uno scaffolding is still missing - not an environment glitch. Do not debug/workaround it; record the status as `blocked - Uno multi-target not yet created` and move on.
 
-If targeting iOS (`<tfm>-ios`):
+iOS target (`$(LatestStableTfm)-ios`):
 - [ ] Windows compile gate status recorded
 - [ ] Simulator/device UI test gate recorded as `blocked - macOS required` unless a Mac host or macOS CI runner is available
 
@@ -359,9 +359,9 @@ For the Aspire-registered arm, take `$ui` from the React resource's dashboard UR
 
 Uno UI startup (post-build, in addition to the platform-target checks above):
 
-- [ ] Fast headless UI tests pass when UI model/presentation coverage exists: `dotnet test tests/Test.UI/Test.UI.csproj --filter "TestCategory=UI|TestCategory=Presentation"`
+- [ ] Fast headless UI tests pass when UI model/presentation coverage exists: `dotnet test --project tests/Test.UI/Test.UI.csproj --filter "TestCategory=UI|TestCategory=Presentation"`
 
-- [ ] **Standalone clean start:** the selected Uno target (`<tfm>-browserwasm` / `<tfm>-android` / `<tfm>-ios`) launches or builds to the available local gate and renders the shell with no WASM load errors / no Android startup crashes / no compile failures
+- [ ] **Standalone clean start:** the selected Uno target (`$(LatestStableTfm)-browserwasm`, `-android` or `-ios`) launches or builds to the available local gate and renders the shell with no WASM load errors / no Android startup crashes / no compile failures
 - [ ] **Aspire-registered clean start (when an Uno host is added to AppHost):** AppHost registers the ASP.NET Core WASM wrapper host, not the Uno SDK project; the resource reaches Running and serves its entry point without exception
 - [ ] At least one entity list page loads against the Gateway/API (empty or seeded data - both valid), proving the Kiota/Refit client resolves the configured backend URL
 
@@ -398,16 +398,16 @@ Required profile gate (full regression):
 Commands:
 
 ```powershell
-dotnet test .\{SolutionName}.slnx --no-build -m:1
+dotnet test --solution .\{SolutionName}.slnx --no-build --max-parallel-test-modules 1
 ```
 
-This acceptance command is deliberately unfiltered. `Test.Aspire`, `Test.PlaywrightUI`, and `WasmUI` are resource-heavy and share host/container/build surfaces, so `-m:1` is required. Required-infrastructure explicit opt-outs and Docker-unavailable preflight may be inconclusive; selected-lane startup/readiness failures remain red with diagnostics. Optional LiveAI follows [../skills/ai-integration.md](../skills/ai-integration.md) section Optional Live-Provider Classification.
+This acceptance command is deliberately unfiltered and serial: `Test.Aspire`, `Test.PlaywrightUI` and `WasmUI` share host, container and build surfaces. Required-infrastructure explicit opt-outs and Docker-unavailable preflight may be inconclusive; selected-lane startup/readiness failures remain red with diagnostics. Optional LiveAI follows [../skills/ai-integration.md](../skills/ai-integration.md) section Optional Live-Provider Classification.
 
 Run mutation test prerequisites from repo root when the project exists:
 
 ```powershell
 dotnet tool restore
-dotnet test tests/Test.Mutation/Test.Mutation.csproj
+dotnet test --project tests/Test.Mutation/Test.Mutation.csproj
 ```
 
 Then run Stryker from `tests/Test.Mutation`:
@@ -557,7 +557,7 @@ Must pass before merge:
 ```powershell
 dotnet restore
 dotnet build .\{SolutionName}.slnx -m:1
-dotnet test .\{SolutionName}.slnx --no-build -m:1
+dotnet test --solution .\{SolutionName}.slnx --no-build --max-parallel-test-modules 1
 ```
 
 Plus a manual walk-through of [final-scaffold-checklist.md](final-scaffold-checklist.md) covering: solution structure shape, no-op stub coverage, host startup smoke checks, and HANDOFF.md completeness.

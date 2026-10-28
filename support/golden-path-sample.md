@@ -434,19 +434,17 @@ After Phases 1-3, developer reviews the YAML artifacts (`.scaffold/domain-specif
 After Phase 4:
 
 ```powershell
-dotnet restore
 dotnet build
 ```
 
 After the final enabled Phase 5 sub-phase:
 
 ```powershell
-dotnet restore
 dotnet build
-dotnet test .\{SolutionName}.slnx --no-build -m:1
+dotnet test --solution .\{SolutionName}.slnx --no-build --max-parallel-test-modules 1
 ```
 
-Then walk through `support/final-scaffold-checklist.md`.
+Then walk `support/final-scaffold-checklist.md`.
 
 ---
 

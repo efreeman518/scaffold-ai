@@ -171,7 +171,7 @@ public class {Entity}ApiService(
 
 ### Service Rules
 
-- Use **primary constructor** injection (C# 12+)
+- Use **primary constructor** injection
 - All methods return `ValueTask` or `ValueTask<T>`
 - Always accept `CancellationToken ct` as the last parameter
 - Return `IImmutableList<T>` (never `List<T>` or `IEnumerable<T>`)

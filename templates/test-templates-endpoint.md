@@ -218,7 +218,6 @@ public class {Entity}EndpointsTests : EndpointTestBase
     [TestMethod]
     public async Task Given_ValidPayload_When_PostEntity_Then_Returns201()
     {
-        // Arrange
         using var client = await GetHttpClient();
         var tenantId = Guid.NewGuid();
         var createDto = new DefaultRequest<{Entity}Dto>
@@ -226,10 +225,8 @@ public class {Entity}EndpointsTests : EndpointTestBase
             Item = new {Entity}Dto { Name = "NewEntity", TenantId = tenantId }
         };
 
-        // Act
         var response = await client.PostAsJsonAsync($"v1/tenant/{tenantId}/{entities}", createDto);
 
-        // Assert
         Assert.AreEqual(HttpStatusCode.Created, response.StatusCode);
         var created = await response.Content.ReadFromJsonAsync<DefaultResponse<{Entity}Dto>>();
         Assert.IsNotNull(created?.Item);
@@ -240,26 +237,21 @@ public class {Entity}EndpointsTests : EndpointTestBase
     [TestMethod]
     public async Task Given_NonExistentId_When_GetEntity_Then_Returns404()
     {
-        // Arrange
         using var client = await GetHttpClient();
         var tenantId = Guid.NewGuid();
         var nonExistentId = Guid.NewGuid();
 
-        // Act
         var response = await client.GetAsync($"v1/tenant/{tenantId}/{entities}/{nonExistentId}");
 
-        // Assert
         Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
-        var problemDetails = await response.Content.ReadFromJsonAsync<ProblemDetails>();
-        Assert.IsNotNull(problemDetails);
-        Assert.AreEqual(404, problemDetails.Status);
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        Assert.AreEqual("not_found", problem!.Extensions["code"]?.ToString());
     }
 
     [TestCategory("Endpoint")]
     [TestMethod]
     public async Task Given_ExistingEntities_When_SearchWithFilter_Then_ReturnsFilteredPage()
     {
-        // Arrange
         using var client = await GetHttpClient();
         var tenantId = Guid.NewGuid();
 
@@ -275,7 +267,6 @@ public class {Entity}EndpointsTests : EndpointTestBase
         await client.PostAsJsonAsync($"v1/tenant/{tenantId}/{entities}", create1);
         await client.PostAsJsonAsync($"v1/tenant/{tenantId}/{entities}", create2);
 
-        // Act
         var searchRequest = new SearchRequest<{Entity}SearchFilter>
         {
             PageIndex = 1,
@@ -285,7 +276,6 @@ public class {Entity}EndpointsTests : EndpointTestBase
         var response = await client.PostAsJsonAsync(
             $"v1/tenant/{tenantId}/{entities}/search", searchRequest);
 
-        // Assert
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         var page = await response.Content.ReadFromJsonAsync<PagedResponse<{Entity}Dto>>();
         Assert.IsNotNull(page);
@@ -297,7 +287,6 @@ public class {Entity}EndpointsTests : EndpointTestBase
     [TestMethod]
     public async Task Given_FullCrudCycle_When_AllOperationsExecuted_Then_AllSucceed()
     {
-        // Arrange
         using var client = await GetHttpClient();
         var tenantId = Guid.NewGuid();
 
@@ -353,7 +342,6 @@ public class {Entity}EndpointsTests : EndpointTestBase
     [TestMethod]
     public async Task Given_EmptyDatabase_When_SearchExecuted_Then_ReturnsEmptyPage()
     {
-        // Arrange
         using var client = await GetHttpClient();
         var tenantId = Guid.NewGuid();
         var searchRequest = new SearchRequest<{Entity}SearchFilter>
@@ -363,16 +351,16 @@ public class {Entity}EndpointsTests : EndpointTestBase
             Filter = new {Entity}SearchFilter()
         };
 
-        // Act
         var response = await client.PostAsJsonAsync($"v1/tenant/{tenantId}/{entities}/search", searchRequest);
 
-        // Assert
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         var page = await response.Content.ReadFromJsonAsync<PagedResponse<{Entity}Dto>>();
         Assert.IsNotNull(page);
     }
 }
 ```
+
+A failed `Result` answers by its `Error` subtype ([../support/ef-packages-reference.md](../support/ef-packages-reference.md) section Domain Layer); assert status and `extensions.code`: missing target 404, tenant boundary 403, `RuleError` 422 with the app code, `ValidationError` 400 with `extensions.errors` naming each `field`, constraint conflict 409, unexpected failure 500 with no detail.
 
 ---
 
@@ -559,13 +547,10 @@ public sealed class HealthProbeContractTests
     [TestMethod]
     public async Task Given_HealthyProcess_When_LivenessProbed_Then_ReturnsHealthy()
     {
-        // Arrange
         using var client = _factory.CreateClient();
 
-        // Act
         using var response = await client.GetAsync("/healthz/live", TestContext.CancellationToken);
 
-        // Assert
         Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
         Assert.AreEqual("Healthy",
             await response.Content.ReadAsStringAsync(TestContext.CancellationToken));
@@ -584,7 +569,6 @@ public sealed class HealthProbeContractTests
                     tags: ["ready"])));
         using var client = factory.CreateClient();
 
-        // Act
         using var ready = await client.GetAsync("/healthz/ready", TestContext.CancellationToken);
         using var live = await client.GetAsync("/healthz/live", TestContext.CancellationToken);
 
@@ -598,10 +582,8 @@ public sealed class HealthProbeContractTests
     [TestMethod]
     public async Task Given_ReadinessProbe_When_Get_Then_MappedAndAnonymous()
     {
-        // Arrange
         using var client = _factory.CreateClient();
 
-        // Act
         using var response = await client.GetAsync("/healthz/ready", TestContext.CancellationToken);
 
         // Assert - mapped (not 404) and anonymous (not 401); its health value is asserted above.
@@ -612,13 +594,10 @@ public sealed class HealthProbeContractTests
     [TestMethod]
     public async Task Given_OperatorAggregate_When_Get_Then_MappedAndAnonymous()
     {
-        // Arrange
         using var client = _factory.CreateClient();
 
-        // Act
         using var response = await client.GetAsync("/healthz", TestContext.CancellationToken);
 
-        // Assert
         Assert.AreNotEqual(HttpStatusCode.NotFound, response.StatusCode);
         Assert.AreNotEqual(HttpStatusCode.Unauthorized, response.StatusCode);
     }

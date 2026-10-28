@@ -337,8 +337,8 @@ namespace Test.Aspire;
 /// The durable-messaging mesh: an HTTP create stages an outbox row, the dispatcher publishes it, and every
 /// consumer bound to the event records its inbox row once. Mesh tier (Aspire.Hosting.Testing) - API,
 /// dispatcher/consumer host, broker, and database in one graph; the inbox rows are the downstream effect.
-/// Manual run (Docker must be running):
-///   dotnet test tests/Test.Aspire/Test.Aspire.csproj --filter TestCategory=Aspire -m:1
+/// Manual run (Docker running):
+///   dotnet test --project tests/Test.Aspire/Test.Aspire.csproj --filter TestCategory=Aspire
 /// Set {APP}_RUN_ASPIRE_TESTS=false to skip the mesh tier (e.g. in fast CI lanes).
 /// </summary>
 [TestClass]
