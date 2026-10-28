@@ -125,6 +125,10 @@ CANARIES = {
     "a prerequisite that is present but fails to start": "skills/testing.md",  # prerequisite rule: missing -> Inconclusive with enabling command, present-but-failing -> red; others point
     "cb.Properties<decimal>().HavePrecision(18, 4)": "templates/ef-configuration-template.md",  # provider-neutral scalar conventions (decimal, UTC temporals); data-layer-wiring/data-persistence/SKILL point to section Model Conventions
     "diagram-{NN}.{mmd,svg}": "support/tech-design-diagrams.md",  # diagram source+SVG naming under docs/diagrams/; the template's file table points here
+    "switches over the closed type with no discard arm": "skills/messaging.md",  # closed domain-event hierarchy, exhaustive VersionOf, golden wire-format test; entity-template points here
+    "`src/` never reads `DateTime`/`DateTimeOffset`": "skills/domain-model.md",  # clock rule (now parameter, DB.Clock, injected TimeProvider); testing/quality templates point to section Clock
+    "public static bool MapsToFailureResult(Exception ex)": "skills/data-persistence.md",  # SaveFailure shape lives beside ConcurrencyRetry; service/CQRS templates point here
+    "`ComplexProperty(...).ToJson()` breaks InMemory query compilation": "templates/ef-configuration-template.md",  # JSON value-object baseline; data-persistence-advanced points here
 }
 roots = ["skills", "patterns", "ai", "support", "schemas", "profiles", "templates"]
 files = [p for r in roots for p in pathlib.Path(r).rglob("*.md")]

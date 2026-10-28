@@ -204,7 +204,7 @@ internal sealed class {Entity}VectorizationHandler : IMessageHandler<{Entity}Cre
             {Property1} = evt.{Property1},
             {Property2} = evt.{Property2},
             {Property2}Vector = embedding.Value.ToFloats(),
-            LastModified = DateTimeOffset.UtcNow,
+            LastModified = _clock.GetUtcNow(),
             TenantId = evt.TenantId?.ToString()
         }, ct);
     }

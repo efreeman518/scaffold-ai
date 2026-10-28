@@ -15,7 +15,7 @@ Use Table Storage for low-cost, high-volume key-value access where queries are p
 3. `RowKey` is unique within partition and supports required ordering.
 4. Access data through repository abstractions (`ITableRepository` wrappers).
 5. Use named `TableServiceClient` registration via `IAzureClientFactory`.
-6. For timeline/audit streams, define retention, archival, and replay expectations explicitly.
+6. For timeline/audit streams, define retention, archival, and replay expectations.
 
 ### Entity Pattern
 
@@ -29,7 +29,7 @@ public class {Entity}TableEntity : Azure.Data.Tables.ITableEntity
 
     public string Name { get; set; } = null!;
     public string Status { get; set; } = "Active";
-    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTimeOffset CreatedUtc { get; set; }   // set from TimeProvider
 }
 ```
 
@@ -45,7 +45,7 @@ public class {Entity}TableEntity : Azure.Data.Tables.ITableEntity
 Use inverse ticks for newest-first ordering:
 
 ```csharp
-var rowKey = $"{DateTime.MaxValue.Ticks - DateTime.UtcNow.Ticks:D19}_{Guid.NewGuid()}";
+var rowKey = $"{DateTimeOffset.MaxValue.UtcTicks - clock.GetUtcNow().UtcTicks:D19}_{Guid.NewGuid()}";
 ```
 
 ### Repository Contract
@@ -76,10 +76,7 @@ public class {Project}TableRepositorySettings : TableRepositorySettingsBase { }
 
 `TableRepositorySettingsBase` requires `TableServiceClientName`.
 
-`TableUpdateMode` usage:
-
-- `Merge` for partial updates,
-- `Replace` for full entity overwrite.
+`TableUpdateMode`: `Merge` for partial updates, `Replace` for full overwrite.
 
 ### Configuration
 

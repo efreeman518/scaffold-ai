@@ -63,7 +63,7 @@ public class DesignTimeDbContextFactoryQuery : IDesignTimeDbContextFactory<{Proj
 
 ## JSON Columns (`ToJson()`) Troubleshooting
 
-`ToJson()` with owned types is the preferred pattern for structured data stored in JSON columns. EF Core may still fail to generate migrations for complex graphs with nested collections or dictionaries.
+Baseline mapping (`OwnsOne(...).ToJson()`): [../templates/ef-configuration-template.md](../templates/ef-configuration-template.md) section JSON Column Mapping with `ToJson()`. EF Core may still fail to generate migrations for complex graphs with nested collections or dictionaries.
 
 Projection trap: materializing a primitive collection inside a `ToJson()`-owned type via `.ToList()` NREs in the SQL Server shaper at shaper-build time (even on empty tables), while translating fine on Npgsql - write `new List<T>(x.Items)` instead of `x.Items.ToList()` in projections, and cover the projection on the deployed provider (see [testing.md](../skills/testing.md)).
 

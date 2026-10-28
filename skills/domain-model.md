@@ -193,7 +193,11 @@ A rule lives on the aggregate method that changes the guarded state: `Valid()` f
 
 ## Domain Services
 
-Use a domain service only when a business rule spans multiple aggregates and does not belong naturally to one entity. Domain services stay pure domain logic: no database calls, no HTTP clients, no email, no queues, no clock reads unless passed in as values. Application services load aggregates, call entity/domain-service methods, save changes, and trigger infrastructure side effects.
+Use a domain service only when a business rule spans multiple aggregates and does not belong naturally to one entity. Domain services stay pure domain logic: no database calls, no HTTP clients, no email, no queues, no clock reads (section Clock). Application services load aggregates, call entity/domain-service methods, save changes, and trigger infrastructure side effects.
+
+## Clock
+
+`src/` never reads `DateTime`/`DateTimeOffset` `.UtcNow`, `.Now` or `.Today`; time comes from a `TimeProvider`. A domain method that stamps a time takes `DateTimeOffset now` (`Transition(target, now)`); a mark-modified helper whose value the save stamp overwrites reads no clock (it moves the value one tick). Repositories and updaters read the DbContext clock (`DB.Clock.GetUtcNow()`), also as a query parameter, not database server time. Services, CQRS handlers, Functions, scheduler handlers and UI inject `TimeProvider` (each host registers `TimeProvider.System`). Tests pin time with `FakeTimeProvider` or a fixed `now` ([testing.md](testing.md)); `NoAmbientClockTests` ([test-templates-quality.md](../templates/test-templates-quality.md)) fails any ambient read.
 
 ## Result Pattern
 
@@ -212,25 +216,20 @@ After generating domain entities, confirm:
 - [ ] Child collections use `ICollection<T>` with controlled mutation methods (`Add/Remove`) on the entity
 - [ ] `Remove*()` provides both entity and Guid overloads (desired-state pattern - always returns Success)
 - [ ] `Add*()` checks for duplicates and returns `Success(existing)` if already present (idempotent)
-- [ ] Concurrency uses the inherited `Version` (mapped by `RegisterVersionConcurrencyTokens`, not in entity)
+- [ ] Concurrency uses the inherited `Version`, not an entity property
 - [ ] No infrastructure concerns (no EF attributes, no `DbContext`, no DTOs)
 - [ ] Value objects are immutable, validate through factory methods returning `Result<T>`, and stay domain-side while DTOs flatten their fields
 - [ ] Entity factory folds each VO's `Create()` failure issues into the aggregate `Valid()` error list (one pass, no short-circuit); a non-validating `From()` handles EF/materialization - see [entity-template.md](../templates/entity-template.md)
-- [ ] `Valid()` uses `DomainConstants` for length/range limits, not magic numbers
-- [ ] `DomainConstants.cs` exists in `Domain.Shared/Constants/` with all validation limits
+- [ ] `Valid()` uses `Domain.Shared/Constants/DomainConstants.cs` for length/range limits, not magic numbers
 - [ ] Shared entities (Tag, etc.) are `sealed class` with `IEquatable<T>` and `Normalize` helper
 - [ ] Cross-references: Entity properties align with [data-mapping-template.md](../templates/data-mapping-template.md), EF config covers all relationships per [ef-configuration-template.md](../templates/ef-configuration-template.md)
 
 ## Pitfalls
 
 - Anemic entities (only auto-properties; all behavior pushed to services) - defeats the rich domain model and lets services drift into god classes. Encapsulate invariants on the entity; expose mutation via named methods returning `Result<T>`.
-- Public constructors on entities - bypasses validation and the `Result<T>` failure path. All creation goes through static `Create()`.
-- Public setters - the entity loses control over which transitions are valid. Use `private set` and a named mutation method per state change.
 - Using an enum where a closed value-object set is the right model (e.g., shipping address, money amount, schedule expression) - enums collapse business meaning to a label; value objects keep behavior and equality with the data.
 - Exposing value objects directly through DTOs by default - couples API contracts to domain internals. Flatten fields at the boundary and reconstruct value objects in mappers/application code.
-- Magic numbers for length/range limits - drift across `Valid()`, EF configuration, and DTO validation is inevitable. Use `DomainConstants` so every layer reads the same source.
 - EF attributes or `DbContext` references inside the domain layer - reverses the dependency direction (`GR-12` authority map). Configuration belongs in `Infrastructure.Data` configurations.
-- Letting a child-collection mutation surface bypass the entity's `Add*()` / `Remove*()` methods - silently violates invariants. The repository's updater should call entity methods, not mutate collections directly.
 
 ---
 

@@ -32,8 +32,6 @@ public readonly record struct {Entity}Id(Guid Value) : IDomainId<{Entity}Id>
 // public readonly record struct {OtherEntity}Id(Guid Value) : IDomainId<{OtherEntity}Id> { ... }
 ```
 
-> `TenantId` follows the same pattern and is typically shared across the solution (defined once in a shared project or package).
-
 ---
 
 ## File: Domain/Model/Entities/{Entity}.cs
@@ -46,7 +44,7 @@ public readonly record struct {Entity}Id(Guid Value) : IDomainId<{Entity}Id>
 >
 > **Timestamps:** an entity that exposes `CreatedAtUtc` / `ModifiedAtUtc` implements `ITimestampedEntity` with `{ get; private set; }` properties; `DbContextBase` stamps them through the change tracker. **Do NOT inherit `AuditableBase<T>`** unless `CreatedBy` / `ModifiedBy` must live on the entity itself; the audit trail comes from the `AuditInterceptor`.
 >
-> **Domain events `[MESSAGING]`:** when the entity publishes integration events, it implements `IHasDomainEvents` over a private `DomainEventContainer` (EF.Domain) and raises each event from the factory or domain method that caused it. The EF.Data.Outbox staging interceptor drains `DomainEvents` in the same `SaveChanges` ([../skills/messaging.md](../skills/messaging.md) section Transactional Producer: Outbox). Event records live in `Domain.Shared` and implement `IDomainEvent` (a tenant-owned event carries its `TenantId`).
+> **Domain events `[MESSAGING]`:** when the entity publishes integration events, it implements `IHasDomainEvents` over a private `DomainEventContainer` (EF.Domain) and raises each event from the factory or domain method that caused it. The EF.Data.Outbox staging interceptor drains `DomainEvents` in the same `SaveChanges` ([../skills/messaging.md](../skills/messaging.md) section Transactional Producer: Outbox). Event records live in `Domain.Shared` and derive from the closed base (same skill, section Event Boundary Rule): `public record {Entity}CreatedEvent(Guid {Entity}Id, Guid TenantId, string Name) : {Project}DomainEvent;`.
 
 ```csharp
 using Domain.Shared;
@@ -197,7 +195,6 @@ private Result<{Entity}> Valid()
 > {ChildEntity}.Create(TenantId.Value, Id.Value, body);
 > ```
 > These `.Value` unwraps are domain/post-materialization code. Do not copy this pattern into EF-translated predicates (`Where`, `Any`, `ListAsync`, search `QuerySpec`). In database predicates, build the typed ID outside the expression and compare the whole property, for example `e.TenantId == tenantId`.
-> **Optional DomainGuard:** `DomainGuard.NotEmpty(tenantId, nameof(tenantId))` can replace the manual empty-check in `Valid()` for brevity.
 
 ## Critical domain-method rules
 
@@ -219,15 +216,15 @@ public Result<{Entity}> Update(string? name = null)
 
 ### Lifecycle status is a guarded `Transition`, never a settable `Update` field
 
-When the domain spec declares a `stateMachine` for an entity, the status is **not** a parameter on `Update()`. Expose a dedicated `Transition(target)` that enforces allowed moves and keeps dependent fields aligned (e.g. a completion timestamp). A free-form `Update(status, ...)` lets callers jump to any state and bypass the lifecycle. Use an explicit transition matrix inside the aggregate; no separate rule class.
+When the domain spec declares a `stateMachine` for an entity, the status is **not** a parameter on `Update()`. Expose a dedicated `Transition(target)` that enforces allowed moves and keeps dependent fields aligned (a completion timestamp from the caller's `now`). A free-form `Update(status, ...)` lets callers jump to any state and bypass the lifecycle. Use an explicit transition matrix inside the aggregate; no separate rule class.
 
 ```csharp
-public Result<{Entity}> Transition({Entity}Status target)
+public Result<{Entity}> Transition({Entity}Status target, DateTimeOffset now)
 {
     if (!IsValidTransition(Status, target))  // a rule on a valid request: RuleError, 422
         return new RuleError($"Cannot transition from {Status} to {target}.", "{entity}.status_transition");
     Status = target;
-    if (target == {Entity}Status.Completed) CompletedDate = DateTimeOffset.UtcNow;
+    if (target == {Entity}Status.Completed) CompletedDate = now;   // no ambient clock (domain-model.md section Clock)
     return this;
 }
 

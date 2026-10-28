@@ -126,7 +126,7 @@ internal class {Entity}Service(
         if (validation.TryGetValue(out Error? validationError)) return validationError;
 
         // Concrete If-Match runs once (412); `*` (null) retries, 409 when exhausted.
-        var result = await ConcurrencyRetry.RunAsync(repoTrxn, expectedVersion,
+        var result = await ConcurrencyRetry.RunAsync(repoTrxn, expectedVersion, nameof({Entity}), dto.Id!.Value,
             attemptCt => UpdateOnceAsync(dto, authoritativeTenantId, expectedVersion, attemptCt), ct);
         if (result is DefaultResponse<{Entity}Dto> { Item: not null }) await InvalidateAsync(authoritativeTenantId, dto.Id!.Value, ct);
         return result;
@@ -164,7 +164,7 @@ internal class {Entity}Service(
     public async Task<Result<Unit>> DeleteAsync(Guid id, long? expectedVersion, CancellationToken ct = default)
     {
         Guid deletedTenantId = default;
-        var result = await ConcurrencyRetry.RunAsync<Result<Unit>>(repoTrxn, expectedVersion, async attemptCt =>
+        var result = await ConcurrencyRetry.RunAsync<Result<Unit>>(repoTrxn, expectedVersion, nameof({Entity}), id, async attemptCt =>
         {
             var entity = await repoTrxn.Get{Entity}Async(id, false, attemptCt);
             if (entity == null) return Result.Ok();  // idempotent
@@ -216,7 +216,7 @@ Service rules 5-10 in [application-layer.md](../skills/application-layer.md) sec
 2. **Missing UpdateFromDto mock in tests** - `CreateAsync` uses `.Bind(e => repoTrxn.UpdateFromDto(e, dto))` and `UpdateAsync` calls `repoTrxn.UpdateFromDto(entity, dto, RelatedDeleteBehavior.RelationshipAndEntity)`. Unmocked, it returns the default `Result`, an `UnexpectedError` (500). Always mock with `It.IsAny<RelatedDeleteBehavior>()` so both call shapes match: `_repoTrxnMock.Setup(r => r.UpdateFromDto(It.IsAny<{Entity}>(), It.IsAny<{Entity}Dto>(), It.IsAny<RelatedDeleteBehavior>())).Returns((Entity e, EntityDto _, RelatedDeleteBehavior _) => e);` (`Result<{Entity}>` converts implicitly)
 3. **[Multi-tenant] Missing PreventTenantChange in Update** - After boundary check, before domain update, compare the existing entity tenant with the stamped authoritative tenant as a defense-in-depth invariant.
 4. **Invented repository members (GR-14)** - Call only members that exist on the injected contract. Read the interface (or the first green service/handler) before writing call sites. `IRepositoryQuery<TEntity, TId>` exposes `GetAsync(id)` / `ListAsync(predicate)`; paged search lives on the bespoke `I{Entity}RepositoryQuery.Search{Entity}Async`. `QueryPageAsync` / `QueryPageProjectionAsync` are protected `RepositoryBase` helpers for repository implementations only.
-5. **Save failure as a result** - An uncaught save exception reaches the exception handler (concurrency 412, else generic 500). Code returning it as a result (`CqrsHandlerSupport.TrySaveAsync` too) catches only `when (SaveFailure.MapsToFailureResult(ex))` (not cancellation or concurrency) and returns `SaveFailure.ToError(ex)`: the `Application.Contracts/Concurrency` helper applying the [../support/ef-packages-reference.md](../support/ef-packages-reference.md) `Error` row rule with fixed `ErrorConstants.ERROR_SAVE_FAILED` text (`save.constraint`, `save.failed`). Never `ex.Message`: it leaks SQL, schema and connection details.
+5. **Save failure as a result** - catch only `when (SaveFailure.MapsToFailureResult(ex))` and return `SaveFailure.ToError(ex)`, never `ex.Message`: [data-persistence.md](../skills/data-persistence.md) section Provider Branch and Concurrency Discipline.
 6. **Version check after the load** - `ConcurrencyGuard.Require` runs right after the boundary check, before any change; concrete and `*` If-Match semantics: [data-persistence.md](../skills/data-persistence.md) section Provider Branch and Concurrency Discipline.
 
 ## Policy Notes

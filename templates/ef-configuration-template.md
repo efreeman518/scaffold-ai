@@ -91,7 +91,7 @@ When workflows include compensations:
 
 ## JSON Column Mapping with `ToJson()`
 
-`ToJson()` with owned types is the preferred pattern for structured data stored as JSON columns. When migration generation fails for complex shapes (nested collections, dictionaries), fall back to a serializer-backed value conversion as documented in [data-persistence.md](../skills/data-persistence.md) under *JSON Column Mapping (`ToJson()`) Troubleshooting*.
+Map a JSON value object with `builder.OwnsOne(e => e.{ValueObjectProperty}, o => o.ToJson())` while any test host runs the EF InMemory provider: `ComplexProperty(...).ToJson()` breaks InMemory query compilation for the owner, and the relational migration is the same either way. Before changing the mapping or the value object, pin the stored document in a provider integration test (column read as raw text, members and round trip asserted). Migration failures for nested collections or dictionaries: [../support/data-persistence-advanced.md](../support/data-persistence-advanced.md) section JSON Columns (`ToJson()`) Troubleshooting.
 
 ## File: Infrastructure/Data/Configuration/{ChildEntity}Configuration.cs
 
@@ -166,13 +166,10 @@ Converted value object defaults must use the **model CLR type**, not the provide
 
 ## Notes
 
-- `TenantEntityTypeConfiguration<TEntity, TId, TTenantId>` (EF.Data) handles the tenant-first key, `Id` (client-generated V7 GUID wrapped in a typed ID, never store-generated) and the required `TenantId` - NO audit fields; `RegisterVersionConcurrencyTokens()` maps `Version`
 - **Every tenant-owned entity configuration derives from `TenantEntityTypeConfiguration` and calls `base.Configure(builder)`**; without it `Id` may be store-generated and aggregate child inserts fail
 - Timestamps and audit ids are stamped by `DbContextBase` on save; audit trail entries come from the `AuditInterceptor`, not entity configuration
 - Foreign keys to tenant-owned principals are composite `(TenantId, {Entity}Id)` against the principal key `(TenantId, Id)`
 - Composite indexes always lead with `TenantId` for filtered queries
 - Enum properties: use `HasDefaultValue({Enum}.None)` for flags enums; `HasConversion<string>()` is optional for readability
-- All string properties must have `HasMaxLength()` with a realistic length; leave one unbounded only when it genuinely stores large text
 - Decimal precision and UTC temporal conversion are `ConfigureConventions` rules (section Model Conventions); entity configs name no provider column type
-- Domain ID properties (`{Entity}Id`, `TenantId`, nullable FKs) are handled by `ConfigureConventions` / `RegisterDomainIdConversions` - no per-property `HasConversion<>` and no `OnModelCreating` reflection loop
 - Stable value objects such as `Email` and `Locale` are handled by `ConfigureConventions` once per type; entity configs keep only required/default/index facets

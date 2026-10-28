@@ -14,7 +14,7 @@ Use EF Core with split read/write contexts, explicit entity configurations, repo
 Reference patterns: [../patterns/data-layer-wiring.md](../patterns/data-layer-wiring.md).
 Base types (`DbContextBase`, `RepositoryBase`, `AuditInterceptor`, `SearchRequest`, `PagedResponse`): [../support/ef-packages-reference.md](../support/ef-packages-reference.md).
 
-Load [../support/data-persistence-advanced.md](../support/data-persistence-advanced.md) only when the current task needs design-time factory setup, migrations, JSON column troubleshooting, startup seeding, or expand/contract guidance.
+Load [../support/data-persistence-advanced.md](../support/data-persistence-advanced.md) only when the current task needs design-time factory setup, EF CLI and migrations, JSON column troubleshooting, startup seeding, expand/contract, or multi-store schema coordination.
 
 ---
 
@@ -81,18 +81,11 @@ Register query context with `NoTracking` behavior. Both contexts are leased thro
 
 ### Local Inspection Tools
 
-For local-dev SQL inspection, use the **VS Code SQL extension** (`mssql`). When the Aspire AppHost is the SQL host, pin the host port to `38433` for non-test runs and connect via `Server=localhost,38433`.
-
-See [aspire.md](aspire.md) -> *Local Explorer Tooling* for the canonical port matrix and the `isTesting` gate that keeps these ports out of test runs.
+VS Code SQL extension (`mssql`) against the pinned AppHost port: [aspire.md](aspire.md) -> *Local Explorer Tooling* (port matrix, `isTesting` gate).
 
 ### Bootstrapper Alignment
 
-Keep full registration details in [bootstrapper.md](bootstrapper.md):
-
-- Pooled DbContext factories
-- Audit interceptor on transactional context
-- No-tracking and read optimizations on query context
-- Retry and provider options
+Registration (pooled factories, audit interceptor on the Trxn context, no-tracking query context, retry and provider options): [bootstrapper.md](bootstrapper.md).
 
 ---
 
@@ -148,17 +141,30 @@ A concrete `If-Match` edit or delete runs its read, `ConcurrencyGuard.Require` a
 ```csharp
 public static class ConcurrencyRetry
 {
-    public static async Task<T> RunAsync<T>(IRepositoryBase repo, long? expectedVersion,
-        Func<CancellationToken, Task<T>> work, CancellationToken ct)
+    public static async Task<T> RunAsync<T>(IRepositoryBase repo, long? expectedVersion, string entityType,
+        Guid entityId, Func<CancellationToken, Task<T>> work, CancellationToken ct)
     {
         if (expectedVersion is not null) return await work(ct);   // concrete If-Match: once, 412 on a lost race
         try { return await repo.RetryOnConcurrencyAsync(work, 3, ct); }
         catch (Exception ex) when (ConcurrencyGuard.IsConcurrencyFailure(ex))
         {
-            throw new ConflictException("The resource kept changing; retry the request.", ex);
+            throw new ConflictException($"{entityType} {entityId} kept changing; retry the request.", ex);
         }
     }
-    // Child adds (no If-Match) use an overload without expectedVersion that always retries.
+    // Child adds (no If-Match): RunAsync(repo, childType, rootId, work, ct) always retries.
+}
+```
+
+Code that returns a save failure as a result (a service, `CqrsHandlerSupport.TrySaveAsync`) catches only `when (SaveFailure.MapsToFailureResult(ex))`, so a cancellation and a lost update still reach the host (499/504, 412), and returns `SaveFailure.ToError(ex)` (the [../support/ef-packages-reference.md](../support/ef-packages-reference.md) `Error` row rule); an uncaught save exception reaches the exception handler. Never `ex.Message`: it leaks SQL, schema and connection details.
+
+```csharp
+public static class SaveFailure   // beside ConcurrencyRetry
+{
+    public static bool MapsToFailureResult(Exception ex) =>
+        ex is not OperationCanceledException && !ConcurrencyGuard.IsConcurrencyFailure(ex);
+    public static Error ToError(Exception ex) => ex is DatabaseConstraintException   // fixed text; detail stays in the log
+        ? new ConflictError(ErrorConstants.ERROR_SAVE_FAILED, "save.constraint")     // 409
+        : new UnexpectedError(ErrorConstants.ERROR_SAVE_FAILED, ex, "save.failed");  // 500
 }
 ```
 
@@ -210,19 +216,6 @@ Key, `Id` value generation and `TenantId` come from the package `TenantEntityTyp
 
 ---
 
-## Advanced Topics
-
-Load [../support/data-persistence-advanced.md](../support/data-persistence-advanced.md) when the current task needs:
-
-- design-time factory setup,
-- EF CLI prerequisites or migration commands,
-- `ToJson()` / JSON column troubleshooting,
-- startup seeding patterns,
-- expand/contract guidance, or
-- multi-store schema coordination.
-
----
-
 ## SaveChangesAsync Rules
 
 `DbContextBase.SaveChangesAsync(CancellationToken)` saves with no conflict strategy (audit fields and the `Version` increment still apply). Generated code always names the conflict strategy with the winner overload, so every write's concurrency choice is explicit in review.
@@ -235,7 +228,7 @@ await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 await repoTrxn.SaveChangesAsync(ct);
 ```
 
-The 2-param overload applies the selected concurrency policy. Use `Throw` for normal application writes so HTTP/application conflict handling remains reachable. Use client-wins or database-wins only when the design decision explicitly accepts one side overwriting the other.
+Use `Throw` for normal writes so conflict handling stays reachable; another winner only where a recorded design decision accepts one side overwriting the other.
 
 > **Important:** `OptimisticConcurrencyWinner` is in `EF.Data.Contracts`. Add `global using EF.Data.Contracts;` to `Application.Services/GlobalUsings.cs`.
 
@@ -283,7 +276,6 @@ await repoTrxn.SaveChangesAsync(OptimisticConcurrencyWinner.Throw, ct);
 - Updating aggregate roots with child collections without an `{Entity}Updater.cs` DbContext extension - client-side child removals silently drop because EF will not detach orphans without an explicit sync call. Use `CollectionUtility.SyncCollectionWithResult`.
 - Inline backfill SQL inside an EF migration - blocks deployment on long-running data work and offers no retry handle. Use a background job for complex transforms; keep migrations idempotent and structural.
 - Npgsql GSS encryption default on chiseled/minimal images - Npgsql defaults `GssEncryptionMode` to Prefer and probes for Kerberos libs the image intentionally lacks, printing a `libgssapi_krb5.so.2` load error on every startup. Set `GssEncryptionMode.Disable` unconditionally for password-auth deployments in the central provider-options helper, and pin it with a test against the effective `DbConnection.ConnectionString`. Do not guard with `NpgsqlConnectionStringBuilder.ContainsKey` - it reports whether a keyword is *supported*, not *present*, so the guard never fires.
-- Member access on a value-converted property inside an EF-translated predicate - compiles and passes model validation, then fails at runtime with `InvalidOperationException: The LINQ expression ... could not be translated`. Build typed IDs/value objects outside the expression and compare the whole property. Use `.Value` only in domain code or post-materialization LINQ-to-objects.
 
 ---
 

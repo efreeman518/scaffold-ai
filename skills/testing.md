@@ -128,7 +128,7 @@ EF query-translation correctness requires a real relational provider. `minimal` 
 
 The real provider must be the **deployed** provider. Container-backed tiers run on the resolved lane (`NonAzure` unless `{APP}_LANE=Azure`), so a green run proves query translation only for that lane's provider - shaper and translation failures are provider-specific. Run the relational suites on the lane of every deployed provider at least once per release, and on every change to query projections.
 
-Any assertion whose expected result crosses a time boundary uses an injected `TimeProvider` fixed to an explicit instant. This includes recurrence generation, expiry, retention, leases, retries, and scheduled-window queries. `TimeProvider.System` in such a test makes the boundary move between arrange and act and can change counts without a product defect.
+Any assertion whose expected result crosses a time boundary pins time: an injected `FakeTimeProvider` (Microsoft.Extensions.TimeProvider.Testing) set to an explicit instant, or a fixed `now` passed to the domain ([domain-model.md](domain-model.md) section Clock). This includes recurrence generation, expiry, retention, leases, retries, scheduled-window queries and completion stamps. `TimeProvider.System` there moves the boundary between arrange and act and can change counts without a product defect.
 
 ## Capability-Gated Test Tiers (the early decision drives the rest)
 
@@ -165,7 +165,7 @@ Start **one** monotonic deadline before Docker preflight or test-owned restore, 
 - **Budget source.** Read once from the tier's variable: `{APP}_ASPIRE_STARTUP_TIMEOUT_SECONDS` (default 900 s) for Aspire-backed tiers, `{APP}_WASM_STARTUP_TIMEOUT_SECONDS` for Uno WASM (default at least 1800 s for a cold first build; a lower verified budget is fine for a lighter generated app).
 - **Classification.** Follows the [prerequisite rule](#never-silently-pass-applies-to-every-tier); an unresolved named endpoint is a startup failure. A generic `TimeoutException` catch never classifies availability.
 - **Diagnostics.** On any host/start/wait failure, dump named resource state, health, exit code, and start/stop timestamps before rethrowing. Raw resource logs stay opt-in behind the diagnostic logging switch because they flood TRX.
-- **Elapsed time is not domain time.** The budget uses a monotonic elapsed-time source; business recurrence, expiry, retention, lease, retry, and scheduled-window assertions inject a fixed `TimeProvider`. Never use the startup deadline or the wall clock as domain time.
+- **Elapsed time is not domain time.** The budget uses a monotonic elapsed-time source; never use the startup deadline or the wall clock as domain time.
 
 ### Mobile Tier Opt-In (default off)
 
@@ -487,7 +487,7 @@ The Docker/deadline/wait/diagnostic/cleanup mechanics live in [../templates/test
 - [ ] Mesh tests are `[DoNotParallelize]`; no endpoint-contract tests in either integration project.
 - [ ] Every test class has a class-level `<summary>` (scope / tier + why / quirks).
 - [ ] Startup follows [One Startup Budget](#one-startup-budget): one monotonic deadline begun before Docker preflight/test-owned build, read from the tier's `*_STARTUP_TIMEOUT_SECONDS` variable, with subordinate caps that cannot reset it and the stated inconclusive-versus-red classification and failure diagnostics.
-- [ ] Recurrence, expiry, retention, lease, retry, and scheduled-window assertions inject a fixed `TimeProvider`; no expected count depends on `TimeProvider.System`.
+- [ ] Time-boundary assertions pin time (fake provider or fixed `now`); no expected count depends on `TimeProvider.System`.
 
 ## Pitfalls
 

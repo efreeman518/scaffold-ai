@@ -174,7 +174,7 @@ public class FunctionTimerTrigger(ILogger<FunctionTimerTrigger> logger)
     [ExponentialBackoffRetry(5, "00:00:05", "00:05:00")]
     public Task Run([TimerTrigger("%TimerCron%")] TimerInfo timer, CancellationToken ct)
     {
-        logger.LogInformation("Timer fired at {UtcNow}", DateTime.UtcNow);
+        logger.LogInformation("Timer fired; past due {PastDue}", timer.IsPastDue);
         return Task.CompletedTask;
     }
 }
@@ -354,7 +354,7 @@ For `scaffoldMode: lite`:
 5. Bind settings via `%SettingName%` expressions.
 6. Apply retries for timer/message triggers.
 7. Do not expose business handlers as `Anonymous`.
-8. If trigger dependencies are not ready, disable registration cleanly rather than shipping broken bindings.
+8. If trigger dependencies are not ready, disable registration cleanly; never ship broken bindings.
 9. Token placeholders remain defined by [placeholder-tokens.md](../ai/placeholder-tokens.md).
 10. For event-driven ingestion, align ordering/lateness behavior with `ingestionSemantics` from resource mapping.
 

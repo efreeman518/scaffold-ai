@@ -16,10 +16,12 @@ Rule: use `IInternalMessageBus` for in-process events; use this skill for cross-
 Cross-process bus payloads are application/integration contracts, not domain artifacts.
 
 - Aggregates raise domain events (`IDomainEvent`, buffered by `DomainEventContainer` behind `IHasDomainEvents`); the app's `IOutboxEventMapper` turns each into an `IntegrationEventEnvelope` at the application boundary. The envelope frame is the package's; the app owns the payload records, their versions, and the headers (tenant) it adds.
-- Keep the envelope helpers (`{Project}IntegrationEvents`: destination, per-type versions, `Envelope(...)`, `Entry(...)`, `ConfigureReader(...)`) in `Application.Contracts.Messaging`; domain, application and consumer projects reference EF.Messaging.Contracts, never EF.Messaging.
+- Event records derive from one `closed record {Project}DomainEvent : IDomainEvent` in `Domain.Shared`; its `public abstract Guid TenantId { get; init; }` is re-declared in each positional record's parameter list, so property order and wire bytes stay put. `VersionOf(evt)` switches over the closed type with no discard arm, so a new record fails the build until it has a payload version. The reader sees only wire names: it keeps a known-type name set, and an architecture test requires every record in the hierarchy on the messaging context and in that set.
+- Before changing event records (base type, rename, property order), pin every record's serialized envelope byte for byte in a unit test (fixed ids, time, correlation id; cases asserted equal to the hierarchy) and keep it green through the change: a message queued during a rolling deploy is read by the other build.
+- Keep the envelope helpers (`{Project}IntegrationEvents`: destination, `VersionOf`, known types, `Envelope(...)`, `Entry(...)`, `ConfigureReader(...)`) in `Application.Contracts.Messaging`; domain, application and consumer projects reference EF.Messaging.Contracts, never EF.Messaging.
 - Payload types and the envelope are registered on the app's source-generated messaging `JsonSerializerContext`, and its options are passed everywhere an envelope is serialized or read.
 
-> **Shared infrastructure pattern:** Messaging follows the same **Settings -> Named client -> DI -> Resilience** integration chain as external APIs. See [external-api.md](external-api.md) for the general pattern with Refit/resilience pipeline. This file covers messaging-specific adapters.
+> Messaging follows the **Settings -> Named client -> DI -> Resilience** chain of [external-api.md](external-api.md).
 
 ## Service Selection
 
@@ -202,11 +204,7 @@ public interface IEventHubProcessor
 }
 ```
 
-High-ingest guidance:
-
-- document expected throughput profile (`standard|high|burst`)
-- choose partitioning based on dominant ordering/read patterns
-- define replay window and checkpoint cadence before production rollout
+Before production, record the throughput profile (`standard|high|burst`), the partitioning (from ordering/read patterns), the replay window and the checkpoint cadence.
 
 ```csharp
 services.AddAzureClients(builder =>
@@ -248,31 +246,22 @@ else // Azure lane: exactly one broker is declared
 
 RabbitMQ: `WithManagementPlugin()` serves the management UI from the broker container; no extra tool is needed.
 
-For Service Bus emulator inspection, pin the AMQP port (`5672`) and expose a management endpoint (`5300`) on non-test runs. **Messentra** is the recommended UI (it is an inspector, not an emulator - Aspire still owns the emulator container). Health probe: `http://localhost:5300/health`. SDK clients use `Endpoint=sb://localhost;...;UseDevelopmentEmulator=true;`; administration-client tools use `Endpoint=sb://localhost:5300;...;UseDevelopmentEmulator=true;`.
-
-See [aspire.md](aspire.md) -> *Local Explorer Tooling* for the canonical port matrix and the `RunAsEmulator(...)` pattern.
+Service Bus emulator inspection (Messentra, pinned AMQP and management ports, connection strings, `RunAsEmulator(...)`): [aspire.md](aspire.md) -> *Local Explorer Tooling*.
 
 ## Rules
 
 1. One settings class per concrete sender/processor (`*SettingsBase` inheritance).
 2. Named Azure clients via `IAzureClientFactory<T>` on Azure arms; RabbitMQ binds one `Messaging:RabbitMq` options section.
 3. Background processors create DI scopes for scoped dependencies.
-4. Preserve correlation IDs in message metadata.
-5. Event Hub processors checkpoint regularly (not every event unless required).
-6. Configure retries + dead-letter handling for every broker consumer (RabbitMQ dead-letter exchange, Service Bus DLQ).
-7. Keep message contracts versioned and backward-compatible.
-8. For webhook/callback-originated events, verify signature/timestamp and deduplicate before publishing domain events.
-9. For support/dispute-critical workflows, maintain an immutable timeline projection (append-only event log + query read model).
-10. Never acknowledge a failed or malformed message as success. Use the transport retry and dead-letter contract with a reason.
-11. Carry W3C trace context across broker hops; correlation IDs alone do not join distributed traces.
+4. Configure retries + dead-letter handling for every broker consumer (RabbitMQ dead-letter exchange, Service Bus DLQ).
+5. For webhook/callback-originated events, verify signature/timestamp and deduplicate before publishing domain events.
+6. For support/dispute-critical workflows, maintain an immutable timeline projection (append-only event log + query read model).
+7. Never acknowledge a failed or malformed message as success. Use the transport retry and dead-letter contract with a reason.
+8. Carry correlation IDs in message metadata and W3C trace context across broker hops; correlation IDs alone do not join distributed traces.
 
 ## Verification
 
-- [ ] Sender/processor inherit correct base classes
-- [ ] Named clients and settings sections are aligned
-- [ ] Background processors are registered and startable
-- [ ] Batch sending handles message-size constraints
-- [ ] Aspire references match connection names used by services
+- [ ] Senders/processors derive from the package bases, are registered, and match named clients, settings sections and Aspire connection names; batches respect message size
 - [ ] Delivery semantics (idempotency/outbox/dedup window) are explicitly configured per channel
 - [ ] `outboxEnabled: true` registers `AddOutbox` with the staging interceptor on the write context, `AddOutboxDispatcher` on the dispatcher host, the backlog health check, a retention job, and a replay proof
 - [ ] Side-effecting consumers derive from `IntegrationEventConsumerBase` over `AddInbox` and have a duplicate-delivery test

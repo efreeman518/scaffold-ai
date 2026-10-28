@@ -9,8 +9,7 @@
 
 ## Test Naming Convention
 
-Owned by [../skills/testing.md](../skills/testing.md) section Test Naming Convention. `Given_When_Then` is the
-default; `<Subject>_<Condition>_<Outcome>` applies when a named member or structural fact is under test.
+Owned by [../skills/testing.md](../skills/testing.md) section Test Naming Convention (`Given_When_Then` by default).
 Result API: [../support/ef-packages-reference.md](../support/ef-packages-reference.md) section Domain Layer.
 Success: `GetValueOrThrow()`; failure: `Assert.IsInstanceOfType<ValidationError>(result.Value)`.
 
@@ -94,7 +93,7 @@ public class {Entity}Tests
 }
 ```
 
-> **Child entity tests:** Include the `Add{ChildEntity}` and duplicate-child tests only when the entity has child collections defined in `.scaffold/resource-implementation.yaml`. Omit for leaf entities.
+> **Child entity tests:** only for an entity with child collections in `.scaffold/resource-implementation.yaml`.
 
 ---
 
@@ -109,13 +108,15 @@ Only for an entity with a `stateMachine`. Drive the aggregate's `Transition`; on
 [TestCategory("Unit")]
 public class {Entity}StatusTransitionTests
 {
+    private static readonly DateTimeOffset Now = new(2030, 1, 15, 12, 0, 0, TimeSpan.Zero);   // fixed clock, never UtcNow
+
     [TestMethod]
     [DataRow({Entity}Status.Open, {Entity}Status.InProgress)]
     public void Given_AllowedTransition_When_Transitioned_Then_StatusChanges({Entity}Status current, {Entity}Status target)
     {
         var entity = CreateAt(current);
 
-        var result = entity.Transition(target);
+        var result = entity.Transition(target, Now);
 
         Assert.IsTrue(result.IsSuccess);
         Assert.AreEqual(target, entity.Status);
@@ -127,7 +128,7 @@ public class {Entity}StatusTransitionTests
     {
         var entity = CreateAt(current);
 
-        var result = entity.Transition(target);
+        var result = entity.Transition(target, Now);
 
         Assert.IsInstanceOfType<RuleError>(result.Value);
         Assert.AreEqual(current, entity.Status);
@@ -144,7 +145,7 @@ public class {Entity}StatusTransitionTests
             _ => throw new ArgumentOutOfRangeException(nameof(status), status, null)
         };
         foreach (var next in path)
-            Assert.IsTrue(entity.Transition(next).IsSuccess);
+            Assert.IsTrue(entity.Transition(next, Now).IsSuccess);
         return entity;
     }
 }

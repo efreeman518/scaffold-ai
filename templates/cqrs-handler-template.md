@@ -77,7 +77,7 @@ internal sealed class Update{Entity}Handler(
         var validation = {Entity}StructureValidator.ValidateUpdate(dto);
         if (validation.TryGetValue(out Error? validationError)) return validationError;
 
-        return await ConcurrencyRetry.RunAsync(repoTrxn, command.ExpectedVersion,   // If-Match: * retries (service-template.md)
+        return await ConcurrencyRetry.RunAsync(repoTrxn, command.ExpectedVersion, nameof({Entity}), dto.Id!.Value,
             attemptCt => UpdateOnceAsync(dto, authoritativeTenantId, command.ExpectedVersion, attemptCt), ct);
     }
 
@@ -116,7 +116,8 @@ internal sealed class Delete{Entity}Handler(
     : IRequestHandler<Delete{Entity}Command, Result<Unit>>
 {
     public Task<Result<Unit>> HandleAsync(Delete{Entity}Command command, CancellationToken ct = default) =>
-        ConcurrencyRetry.RunAsync(repoTrxn, command.ExpectedVersion, attemptCt => DeleteOnceAsync(command, attemptCt), ct);
+        ConcurrencyRetry.RunAsync(repoTrxn, command.ExpectedVersion, nameof({Entity}), command.Id,
+            attemptCt => DeleteOnceAsync(command, attemptCt), ct);
 
     private async Task<Result<Unit>> DeleteOnceAsync(Delete{Entity}Command command, CancellationToken ct)
     {
@@ -138,7 +139,7 @@ internal sealed class Delete{Entity}Handler(
 
 Rules:
 
-- **Derive repository call sites from the actual contract (GR-14).** Before writing handler bodies, read the repository interface the handler injects (vendored source under `src/Packages/<packagePrefix>.Data.Contracts`, or [repository-template.md](repository-template.md) section Generic Repository Pair) or the first green handler in the codebase, and call only members that exist there. `IRepositoryQuery<TEntity, TId>` exposes `GetAsync(id)` and `ListAsync(predicate)` - there is no `QueryPageAsync` on it. Paged search goes through the bespoke `I{Entity}RepositoryQuery.Search{Entities}Async` (which uses the protected `RepositoryBase.QueryPageProjectionAsync` internally). Do not invent method names from conventions; a plausible name that compiles nowhere costs a fix in every generated handler.
+- **Derive repository call sites from the actual contract (GR-14).** Before writing handler bodies, read the repository interface the handler injects (vendored source under `src/Packages/<packagePrefix>.Data.Contracts`, or [repository-template.md](repository-template.md) section Generic Repository Pair) or the first green handler in the codebase, and call only members that exist there. `IRepositoryQuery<TEntity, TId>` exposes `GetAsync(id)` and `ListAsync(predicate)` - there is no `QueryPageAsync` on it. Paged search goes through the bespoke `I{Entity}RepositoryQuery.Search{Entities}Async` (which uses the protected `RepositoryBase.QueryPageProjectionAsync` internally). Never invent method names from conventions: a wrong name breaks every generated handler.
 - One command/query maps to one handler registration; no dispatcher, request bus or generic `Send()`.
 - Multi-tenant create/update handlers overwrite DTO `TenantId` from `IRequestContext` before validation/mapping. Keep the field for contract compatibility, but never use payload tenant as fallback when context is missing.
 - Create handlers apply `UpdateFromDto` after the factory so non-factory fields and aggregate children match service-style behavior.
@@ -146,7 +147,7 @@ Rules:
 - Handler injects only repositories and collaborators it uses.
 - Reuse existing repository contracts; do not create CQRS-specific repositories unless the domain needs a genuinely different abstraction.
 - Handlers return `Result<T>` / `Result<Unit>`, propagating per [../support/ef-packages-reference.md](../support/ef-packages-reference.md) Result idioms. Search handlers return plain `PagedResponse<{Entity}Dto>` in the same catalog; no custom validation failure factory ([../support/ef-packages-optional.md](../support/ef-packages-optional.md) section CQRS).
-- `CqrsHandlerSupport` holds small ceremony only: `TrySaveAsync` (save failures as in [service-template.md](service-template.md) Common Mistake 5) and `ToValidationResult` ([cqrs-validation-template.md](cqrs-validation-template.md)); searches get no helper, so cancellation propagates. Do not hide create/update/delete flow behind generic base handlers.
+- `CqrsHandlerSupport` holds small ceremony only: `TrySaveAsync` (`SaveFailure`: [../skills/data-persistence.md](../skills/data-persistence.md) section Provider Branch and Concurrency Discipline) and `ToValidationResult` ([cqrs-validation-template.md](cqrs-validation-template.md)); searches get no helper, so cancellation propagates. Do not hide create/update/delete flow behind generic base handlers.
 
 Per-feature registration fragment:
 

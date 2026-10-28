@@ -17,6 +17,7 @@ Assert:
 - Domain does not depend on Infrastructure/Application/EF
 - Application does not depend on Infrastructure
 - API avoids direct persistence coupling
+- `src/` reads no ambient clock ([domain-model.md](domain-model.md) section Clock)
 
 ## Load Rules
 
@@ -29,7 +30,7 @@ Assert:
 - Use realistic setup and representative datasets.
 - Benchmark hot paths only.
 - Compare trends over time; do not use one-off numbers as hard pass/fail without baseline.
-- Pin BenchmarkDotNet artifacts under the benchmark project, not the caller's CWD. BenchmarkDotNet defaults `ArtifactsPath` to the current directory, so running from the repo root drops a `BenchmarkDotNet.Artifacts/` folder there. Pass an explicit config: `DefaultConfig.Instance.WithArtifactsPath(...)` anchored to the solution root by walking up from `AppContext.BaseDirectory` to the `*.slnx`/`*.sln` marker, then into `tests/Test.Benchmarks/BenchmarkDotNet.Artifacts`.
+- Pin BenchmarkDotNet artifacts under the benchmark project: `ArtifactsPath` defaults to the current directory. Pass an explicit config: `DefaultConfig.Instance.WithArtifactsPath(...)` anchored to the solution root by walking up from `AppContext.BaseDirectory` to the `*.slnx`/`*.sln` marker, then into `tests/Test.Benchmarks/BenchmarkDotNet.Artifacts`.
 
 ## Mutation Testing Rules
 
