@@ -220,9 +220,9 @@
       "default": false,
       "description": "Test.E2E tier (WebApplicationFactory + Testcontainers SQL): multi-endpoint workflows against real SQL. Derived from testingProfile when omitted: comprehensive enables it. Distinct from includePlaywrightUITests (browser/WASM UI)."
     },
-    "includeLoadTests": { "type": "boolean", "default": false },
-    "includeBenchmarkTests": { "type": "boolean", "default": false },
-    "includeMutationTests": { "type": "boolean", "default": false },
+    "includeLoadTests": { "type": "boolean", "default": false, "description": "Test.Load tier. Derived from testingProfile when omitted: comprehensive enables it." },
+    "includeBenchmarkTests": { "type": "boolean", "default": false, "description": "Test.Benchmarks tier. Derived from testingProfile when omitted: comprehensive enables it." },
+    "includeMutationTests": { "type": "boolean", "default": false, "description": "Test.Mutation tier. Derived from testingProfile when omitted: comprehensive enables it." },
     "includeAspireTests": {
       "type": "boolean",
       "default": false,

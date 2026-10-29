@@ -200,7 +200,7 @@ Every generated tier passes, per [testing.md](../skills/testing.md#profiles). Pe
 
 - `minimal`: mapper parity test exists.
 - `balanced`: minimal + `{Entity}RepositoryIntegrationTests` (the lane's real database via a standalone Testcontainer in `Test.Integration`).
-- `comprehensive`: balanced + `{Entity}WorkflowTests` (multi-endpoint workflow against the Testcontainers database) where `Test.E2E` is generated - `includeE2ETests`, which `comprehensive` sets by default + audit-pipeline / projection-pipeline integration tests where the entity participates in either.
+- `comprehensive`: balanced + audit-pipeline / projection-pipeline integration tests where the entity participates in either + `{Entity}WorkflowTests` (multi-endpoint workflow against the Testcontainers database) where `Test.E2E` is generated (`includeE2ETests`, which `comprehensive` sets by default).
 
 For composite slices, include at least one integration scenario that traverses all participating entities.
 

@@ -10,9 +10,9 @@ disable-model-invocation: true
 Add a new entity vertical slice (domain -> data -> application -> API -> tests) to an existing C#/.NET solution scaffolded with this instruction set.
 
 **Entity and target:** $ARGUMENTS
+<!-- /per-harness -->
 
 If no entity or target was supplied, ask the developer for both before loading anything.
-<!-- /per-harness -->
 
 All instruction files live under `.instructions/` in the project root. All file references below are relative to that folder.
 

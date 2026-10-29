@@ -1125,7 +1125,9 @@ class ValidatorMutationTests(unittest.TestCase):
                     target = repo / rel
                     text = target.read_text(encoding="utf-8")
                     target.write_text(text.replace("<!-- /per-harness -->", hidden + "\n<!-- /per-harness -->", 1), encoding="utf-8")
-                self.assertEqual(self._run_validator(repo), 1)
+                proc = self._validate(repo)
+                self.assertEqual(proc.returncode, 1)
+                self.assertIn("a <!-- per-harness --> block holds a section, list or rule line", proc.stdout)
 
     def test_harness_pair_ignores_bom_and_per_harness_block(self):
         repo = self._copy_repo()

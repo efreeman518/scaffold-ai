@@ -164,7 +164,8 @@ REQUIRED_COMMAND_HEADINGS = {
 
 # Claude file -> Copilot file carrying the same instructions. Only frontmatter and text
 # between `<!-- per-harness -->` and `<!-- /per-harness -->` may differ (harness framing
-# such as `$ARGUMENTS`); everything else is one body kept in step.
+# such as `$ARGUMENTS`); everything else is one body kept in step. PER_HARNESS_RULE rejects
+# headings and list lines in a block; a prose rule placed there is caught only in review.
 HARNESS_PAIRS = {
     ".claude/commands/scaffold.md": ".github/agents/dotnet-scaffold.agent.md",
     ".claude/commands/vertical-slice.md": ".github/agents/vertical-slice.agent.md",

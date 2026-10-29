@@ -74,7 +74,7 @@ Before the orchestrator spawns any worker:
 
 ## Model Routing by Tier
 
-Route by tier, never by model name: names and availability change, so pick from the list the harness offers at dispatch time. Tier names and characteristics are owned by [../README.md](../README.md#model-tier-by-phase). Its quality-first default holds here: the Balanced and Fast rows below are the opt-in cost levers it allows for mechanical, build/test-verified or read-only work, and the operator may keep every worker on Reasoning.
+Route by tier, never by model name: names and availability change, so pick from the list the harness offers at dispatch time. Tier names and characteristics are owned by [../README.md](../README.md#model-tier-by-phase). Its quality-first default holds here: the Balanced row below is the opt-in cost lever it allows for mechanical, build/test-verified work; this file extends that lever to the Fast row for read-only work, which writes nothing to verify; and the operator may keep every worker on Reasoning.
 
 | Work | Tier | Why |
 |---|---|---|
