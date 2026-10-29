@@ -618,7 +618,4 @@ After writing quality gate tests, run the full suite to verify no regressions fr
 dotnet test -m:1
 ```
 
-Profile gates:
-- `minimal`: Unit + Endpoint pass
-- `balanced`: Unit + Endpoint + Integration + Architecture pass
-- `comprehensive`: Balanced + E2E/Load/Benchmark/Mutation pass
+Profile gate: every tier the profile generates passes, per [testing.md](../skills/testing.md#profiles).

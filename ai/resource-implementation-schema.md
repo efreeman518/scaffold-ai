@@ -491,7 +491,7 @@ For AI services selection guidance and agent framework concepts, see [skills/ai-
 |---|---|
 | `testingProfile` | `balanced` |
 | `includeArchitectureTests` | `false` |
-| `includeE2ETests` | `false` |
+| `includeE2ETests` | `false` (derived: `comprehensive` enables) |
 | `includeLoadTests` | `false` |
 | `includeBenchmarkTests` | `false` |
 | `includeMutationTests` | `false` |

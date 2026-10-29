@@ -74,16 +74,16 @@ Before the orchestrator spawns any worker:
 
 ## Model Routing by Tier
 
-Route by tier, never by model name: names and availability change, so pick from the list the harness offers at dispatch time.
+Route by tier, never by model name: names and availability change, so pick from the list the harness offers at dispatch time. Tier names and what each means are owned by [../README.md](../README.md#model-tier-by-phase).
 
 | Work | Tier | Why |
 |---|---|---|
-| Orchestrator for Phases 1-4, and any shared-core write (5a/5b, `RegisterServices`, the two `DbContext`s, the Aspire AppHost) | top | Ambiguity, cross-file reasoning, and gate authority; a miss here propagates into every consumer |
-| Fan-out worker on a frozen shared layer (5c host, independent slice) | standard | Well-specified leaf work against fixed contracts |
-| Read-only search, extraction, inventory | cheap | No judgment and no writes |
-| `scaffold-reviewer` | top, from a different model family than the writer when the harness offers one | Same-family reviewers share the writer's blind spots; recall matters most for 5b, 5e identity, and migrations |
+| Orchestrator for Phases 1-4, and any shared-core write (5a/5b, `RegisterServices`, the two `DbContext`s, the Aspire AppHost) | Reasoning | Ambiguity, cross-file reasoning, and gate authority; a miss here propagates into every consumer |
+| Fan-out worker on a frozen shared layer (5c host, independent slice) | Balanced | Well-specified leaf work against fixed contracts |
+| Read-only search, extraction, inventory | Fast | No judgment and no writes |
+| `scaffold-reviewer` | Reasoning, from a different model family than the writer when the harness offers one | Same-family reviewers share the writer's blind spots; recall matters most for 5b, 5e identity, and migrations |
 
-- An unavailable tier degrades upward (cheap -> standard -> top), never downward. Record the substitution and its reason in `HANDOFF.md`.
+- An unavailable tier degrades upward (Fast -> Balanced -> Reasoning), never downward. Record the substitution and its reason in `HANDOFF.md`.
 - A review gate never runs below the tier that wrote the code.
 - Judge cost per finished work-item: a cheaper model that needs retries or corrections is not cheaper.
 

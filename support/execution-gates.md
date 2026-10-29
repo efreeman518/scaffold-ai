@@ -390,10 +390,7 @@ Unit, service, endpoint, and integration tests already exist from Phases 5a/5b/5
 **Also in this phase:**
 - IaC (deployment definitions per `deployTargets` entry: Bicep for `ContainerApps`, `deploy/compose/` for `DockerCompose`), CI/CD pipeline YAML, Dockerfile, coverage settings
 
-Required profile gate (full regression):
-- `minimal`: Unit + Endpoint
-- `balanced`: Unit + UI/Presentation (when generated) + Endpoint + Integration + Architecture
-- `comprehensive`: Balanced + E2E/Load/Benchmark/Mutation (when enabled)
+Required profile gate (full regression): every tier the profile generates passes, per [testing.md](../skills/testing.md#profiles).
 
 Commands:
 

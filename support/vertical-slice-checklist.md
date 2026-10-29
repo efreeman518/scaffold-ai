@@ -191,14 +191,16 @@ dotnet ef migrations add Add{Entity} --project src/Infrastructure/{Project}.Infr
 | `tests/Test.Endpoints/Endpoints/{Entity}EndpointsTests.cs` | [test-templates-endpoint.md](../templates/test-templates-endpoint.md) | all |
 | `tests/Test.Unit/Cqrs/{Entity}CqrsValidationTests.cs` | [test-templates-cqrs.md](../templates/test-templates-cqrs.md) | if cqrs or switch |
 | `tests/Test.Integration/{Entity}RepositoryIntegrationTests.cs` | [test-templates-integration.md](../templates/test-templates-integration.md) | balanced+ |
-| `tests/Test.E2E/{Entity}WorkflowTests.cs` | [test-templates-e2e.md](../templates/test-templates-e2e.md) | balanced+ |
+| `tests/Test.E2E/{Entity}WorkflowTests.cs` | [test-templates-e2e.md](../templates/test-templates-e2e.md) | comprehensive, or `includeE2ETests` |
 | `tests/Test.Architecture/` updates | [test-templates-quality.md](../templates/test-templates-quality.md) | balanced+ |
 
 ### Required Test Gate by Profile
 
-- `minimal`: Unit + Endpoint pass; mapper parity test exists.
-- `balanced`: Minimal + `{Entity}RepositoryIntegrationTests` (the lane's real database via a standalone Testcontainer in `Test.Integration`) + `{Entity}WorkflowTests` (multi-endpoint workflow against the Testcontainers database) + Architecture pass.
-- `comprehensive`: Balanced + Load + Benchmark + Mutation (where enabled) + audit-pipeline / projection-pipeline integration tests where the entity participates in either.
+The profile's tiers pass, per [testing.md](../skills/testing.md#profiles). Per entity, on top of that:
+
+- `minimal`: mapper parity test exists.
+- `balanced`: `{Entity}RepositoryIntegrationTests` (the lane's real database via a standalone Testcontainer in `Test.Integration`).
+- `comprehensive`: `{Entity}WorkflowTests` (multi-endpoint workflow against the Testcontainers database; also whenever `includeE2ETests` is set) + audit-pipeline / projection-pipeline integration tests where the entity participates in either.
 
 For composite slices, include at least one integration scenario that traverses all participating entities.
 

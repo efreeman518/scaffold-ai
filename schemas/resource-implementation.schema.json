@@ -218,7 +218,7 @@
     "includeE2ETests": {
       "type": "boolean",
       "default": false,
-      "description": "Test.E2E tier (WebApplicationFactory + Testcontainers SQL): multi-endpoint workflows against real SQL. Distinct from includePlaywrightUITests (browser/WASM UI)."
+      "description": "Test.E2E tier (WebApplicationFactory + Testcontainers SQL): multi-endpoint workflows against real SQL. Derived from testingProfile when omitted: comprehensive enables it. Distinct from includePlaywrightUITests (browser/WASM UI)."
     },
     "includeLoadTests": { "type": "boolean", "default": false },
     "includeBenchmarkTests": { "type": "boolean", "default": false },
