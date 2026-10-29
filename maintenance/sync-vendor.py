@@ -90,14 +90,13 @@ def main() -> int:
         return 1
     commit_id = commit.decode().strip()
     published = False
+    # A remote that cannot be read (an offline mirror) is reported and skipped; another may prove it.
     for name in remotes.decode().split():
         url = git("remote", "get-url", name)
-        if url is None:
-            return 1
-        if not names_repository(url.decode(), sources["repository"]):
+        if url is None or not names_repository(url.decode(), sources["repository"]):
             continue
         if git("fetch", "-q", name, "HEAD") is None:
-            return 1
+            continue
         ancestry = subprocess.run(["git", "-C", str(source_root), "merge-base", "--is-ancestor", commit_id, "FETCH_HEAD"])
         if ancestry.returncode == 0:
             published = True

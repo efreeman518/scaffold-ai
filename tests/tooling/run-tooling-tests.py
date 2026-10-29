@@ -1260,6 +1260,8 @@ class ValidatorMutationTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("is not on the default branch of a remote for efreeman518/workstation", proc.stdout)
 
+        # An unreadable mirror of the same repository is skipped, not fatal.
+        git("remote", "add", "archive", str(repo.parent / "offline" / "efreeman518" / "workstation.git"))
         git("push", "-q", "upstream", "HEAD:refs/heads/main")
         proc = self._sync_vendor(repo, source)
         self.assertEqual(proc.returncode, 0, proc.stdout)
@@ -1268,6 +1270,22 @@ class ValidatorMutationTests(unittest.TestCase):
         vendored = (repo / "vendor" / "engineering-criteria" / "SKILL.md").read_bytes()
         self.assertNotIn(b"\r\n", vendored)
         self.assertTrue(vendored.endswith(b"Upstream change.\n"))
+
+        # A later entry missing from the commit (ignored on disk) fails before any file is written.
+        criteria = repo / "vendor" / "engineering-criteria" / "SKILL.md"
+        manifest = repo / "vendor" / "SOURCES.json"
+        before = (criteria.read_bytes(), manifest.read_bytes())
+        changed.write_bytes(changed.read_bytes() + b"Second change.\r\n")
+        untracked = entries["vendor/orchestrated-refactor/SKILL.md"]["path"]
+        (source / ".gitignore").write_text(untracked + "\n", encoding="utf-8")
+        git("rm", "-q", "--cached", untracked)
+        git("add", "-A")
+        git("commit", "-q", "-m", "untrack")
+        git("push", "-q", "upstream", "HEAD:refs/heads/main")
+        proc = self._sync_vendor(repo, source)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("git show", proc.stdout)
+        self.assertEqual((criteria.read_bytes(), manifest.read_bytes()), before)
         self.assertEqual(self._run_validator(repo), 0)
 
     def test_harness_pair_ignores_bom_and_per_harness_block(self):
