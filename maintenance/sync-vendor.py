@@ -35,6 +35,13 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def names_repository(url: str, repository: str) -> bool:
+    """True when url is https://host/owner/repo, git@host:owner/repo or a local path ending in
+    owner/repo for repository "owner/repo"; a lookalike owner such as notowner/repo is not."""
+    tail = url.strip().replace("\\", "/").replace(":", "/").lower().rstrip("/").removesuffix(".git")
+    return "/".join(tail.rsplit("/", 2)[-2:]) == repository.lower()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--from", dest="source", required=True, help="local checkout of the source repo")
@@ -69,41 +76,48 @@ def main() -> int:
             return None
         return proc.stdout
 
-    # The recorded commit must reproduce the copied bytes and be fetchable from the recorded
+    # The recorded commit must reproduce the copied bytes and stay fetchable from the recorded
     # repository: content is read from that commit, never the working tree, and uncommitted
-    # edits or a commit on no branch of that repository's remote are refused.
+    # edits or a commit missing from that repository's default branch (fetched now, so a stale
+    # or deleted branch cannot vouch for it) are refused.
     dirty = git("status", "--porcelain", "--", *[e["path"] for e in entries.values()])
     commit = git("rev-parse", "HEAD")
-    branches = git("branch", "-r", "--contains", "HEAD", "--format=%(refname:lstrip=2)")
-    if dirty is None or commit is None or branches is None:
+    remotes = git("remote")
+    if dirty is None or commit is None or remotes is None:
         return 1
     if dirty.strip():
         print(f"source files have uncommitted changes; commit them first:\n{dirty.decode(errors='replace')}")
         return 1
     commit_id = commit.decode().strip()
-    remote_names = {b.split("/", 1)[0] for b in branches.decode().split() if "/" in b}
-    repository = sources["repository"].lower()
-
-    # Matches https://host/owner/repo, git@host:owner/repo and local paths ending in owner/repo,
-    # but not a lookalike owner such as notowner/repo.
-    def names_repository(url: bytes | None) -> bool:
-        tail = url.decode().strip().replace("\\", "/").replace(":", "/").lower().rstrip("/").removesuffix(".git") if url else ""
-        return "/".join(tail.rsplit("/", 2)[-2:]) == repository
-
-    urls = [git("remote", "get-url", name) for name in sorted(remote_names)]
-    if not any(names_repository(u) for u in urls):
-        print(f"source HEAD {commit_id} is on no branch of a remote for {sources['repository']}; push it there first")
+    published = False
+    for name in remotes.decode().split():
+        url = git("remote", "get-url", name)
+        if url is None:
+            return 1
+        if not names_repository(url.decode(), sources["repository"]):
+            continue
+        if git("fetch", "-q", name, "HEAD") is None:
+            return 1
+        ancestry = subprocess.run(["git", "-C", str(source_root), "merge-base", "--is-ancestor", commit_id, "FETCH_HEAD"])
+        if ancestry.returncode == 0:
+            published = True
+            break
+    if not published:
+        print(f"source HEAD {commit_id} is not on the default branch of a remote for {sources['repository']}; merge and push it there first")
         return 1
 
+    # Read every file before writing any, so a failed read leaves vendor/ and the manifest consistent.
+    contents = {}
     for rel, entry in entries.items():
         content = git("show", f"{commit_id}:{entry['path']}")
         if content is None:
             return 1
-        data = content.replace(b"\r\n", b"\n")
+        contents[rel] = content.replace(b"\r\n", b"\n")
+    for rel, data in contents.items():
         dest = REPO_ROOT / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
-        entry["sha256"] = sha256(data)
+        entries[rel]["sha256"] = sha256(data)
     sources["commit"] = commit_id
     SOURCES.write_text(json.dumps(sources, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(f"synced {len(entries)} file(s) from {source_root} at {commit_id}")

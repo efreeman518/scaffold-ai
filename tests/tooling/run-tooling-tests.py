@@ -1195,6 +1195,21 @@ class ValidatorMutationTests(unittest.TestCase):
         proc = self._sync_vendor(repo, source, "--check")
         self.assertIn("stale: vendor/engineering-criteria/SKILL.md", proc.stdout)
 
+    def test_sync_vendor_matches_repository_url_forms(self):
+        sync_vendor = load_module("sync_vendor", REPO_ROOT / "maintenance" / "sync-vendor.py")
+        cases = {
+            "https://github.com/efreeman518/workstation.git\n": True,
+            "https://github.com/EFreeman518/Workstation/": True,
+            "git@github.com:efreeman518/workstation.git": True,
+            "ssh://git@github.com:22/efreeman518/workstation": True,
+            "C:\\mirrors\\efreeman518\\workstation.git": True,
+            "https://github.com/notefreeman518/workstation": False,
+            "https://github.com/efreeman518/workstation-fork": False,
+        }
+        for url, expected in cases.items():
+            with self.subTest(url=url):
+                self.assertEqual(sync_vendor.names_repository(url, "efreeman518/workstation"), expected)
+
     def test_sync_vendor_records_pushed_committed_source_only(self):
         repo = self._copy_repo()
         entries, source = self._vendor_source(repo)
@@ -1211,7 +1226,7 @@ class ValidatorMutationTests(unittest.TestCase):
             ).stdout.strip()
 
         fork.parent.mkdir()
-        git("init", "-q", "--bare", str(fork), cwd=repo.parent)
+        git("init", "-q", "--bare", "-b", "main", str(fork), cwd=repo.parent)
         git("init", "-q")
         git("remote", "add", "origin", str(fork))
         git("add", "-A")
@@ -1228,19 +1243,24 @@ class ValidatorMutationTests(unittest.TestCase):
         git("commit", "-q", "-m", "change")
         proc = self._sync_vendor(repo, source)
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("on no branch of a remote for efreeman518/workstation", proc.stdout)
+        self.assertIn("is not on the default branch of a remote for efreeman518/workstation", proc.stdout)
 
         # Pushed, but only to a lookalike fork: the recorded repository could not serve the commit.
         git("push", "-q", "origin", "HEAD:refs/heads/main")
         proc = self._sync_vendor(repo, source)
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("on no branch of a remote for efreeman518/workstation", proc.stdout)
+        self.assertIn("is not on the default branch of a remote for efreeman518/workstation", proc.stdout)
 
+        # On the recorded repository, but only on a branch that may be deleted after a squash merge.
         upstream.parent.mkdir()
-        git("init", "-q", "--bare", str(upstream), cwd=repo.parent)
+        git("init", "-q", "--bare", "-b", "main", str(upstream), cwd=repo.parent)
         git("remote", "add", "upstream", str(upstream))
+        git("push", "-q", "upstream", "HEAD~1:refs/heads/main", "HEAD:refs/heads/feature")
+        proc = self._sync_vendor(repo, source)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("is not on the default branch of a remote for efreeman518/workstation", proc.stdout)
+
         git("push", "-q", "upstream", "HEAD:refs/heads/main")
-        git("fetch", "-q", "upstream")
         proc = self._sync_vendor(repo, source)
         self.assertEqual(proc.returncode, 0, proc.stdout)
         recorded = json.loads((repo / "vendor" / "SOURCES.json").read_text(encoding="utf-8"))
