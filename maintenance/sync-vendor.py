@@ -38,7 +38,7 @@ def sha256(data: bytes) -> str:
 def names_repository(url: str, repository: str) -> bool:
     """True when url is https://host/owner/repo, git@host:owner/repo or a local path ending in
     owner/repo for repository "owner/repo"; a lookalike owner such as notowner/repo is not."""
-    tail = url.strip().replace("\\", "/").replace(":", "/").lower().rstrip("/").removesuffix(".git")
+    tail = url.strip().replace("\\", "/").replace(":", "/").lower().rstrip("/").removesuffix("/.git").removesuffix(".git")
     return "/".join(tail.rsplit("/", 2)[-2:]) == repository.lower()
 
 
@@ -89,18 +89,22 @@ def main() -> int:
         print(f"source files have uncommitted changes; commit them first:\n{dirty.decode(errors='replace')}")
         return 1
     commit_id = commit.decode().strip()
-    published = False
+    published = matched = False
     # A remote that cannot be read (an offline mirror) is reported and skipped; another may prove it.
     for name in remotes.decode().split():
         url = git("remote", "get-url", name)
         if url is None or not names_repository(url.decode(), sources["repository"]):
             continue
+        matched = True
         if git("fetch", "-q", name, "HEAD") is None:
             continue
         ancestry = subprocess.run(["git", "-C", str(source_root), "merge-base", "--is-ancestor", commit_id, "FETCH_HEAD"])
         if ancestry.returncode == 0:
             published = True
             break
+    if not matched:
+        print(f"no remote of {source_root} names {sources['repository']}; add one")
+        return 1
     if not published:
         print(f"source HEAD {commit_id} is not on the default branch of any fetchable remote for {sources['repository']}; push it there, or fix the fetch errors above")
         return 1

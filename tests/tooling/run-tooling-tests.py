@@ -1205,6 +1205,7 @@ class ValidatorMutationTests(unittest.TestCase):
             "C:\\mirrors\\efreeman518\\workstation.git": True,
             "https://github.com/notefreeman518/workstation": False,
             "https://github.com/efreeman518/workstation-fork": False,
+            "C:/src/efreeman518/workstation/.git": True,
         }
         for url, expected in cases.items():
             with self.subTest(url=url):
@@ -1243,13 +1244,13 @@ class ValidatorMutationTests(unittest.TestCase):
         git("commit", "-q", "-m", "change")
         proc = self._sync_vendor(repo, source)
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("is not on the default branch of any fetchable remote for efreeman518/workstation", proc.stdout)
+        self.assertIn("no remote of", proc.stdout)
 
         # Pushed, but only to a lookalike fork: the recorded repository could not serve the commit.
         git("push", "-q", "origin", "HEAD:refs/heads/main")
         proc = self._sync_vendor(repo, source)
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("is not on the default branch of any fetchable remote for efreeman518/workstation", proc.stdout)
+        self.assertIn("no remote of", proc.stdout)
 
         # On the recorded repository, but only on a branch that may be deleted after a squash merge.
         upstream.parent.mkdir()
@@ -1266,6 +1267,7 @@ class ValidatorMutationTests(unittest.TestCase):
         git("push", "-q", "upstream", "HEAD:refs/heads/main")
         proc = self._sync_vendor(repo, source)
         self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("git fetch -q failed", proc.stdout)
         recorded = json.loads((repo / "vendor" / "SOURCES.json").read_text(encoding="utf-8"))
         self.assertEqual(recorded["commit"], git("rev-parse", "HEAD"))
         vendored = (repo / "vendor" / "engineering-criteria" / "SKILL.md").read_bytes()
