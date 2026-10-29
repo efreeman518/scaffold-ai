@@ -172,6 +172,7 @@ HARNESS_PAIRS = {
     ".claude/agents/scaffold-reviewer.md": ".github/agents/scaffold-reviewer.agent.md",
 }
 PER_HARNESS_BLOCK = re.compile(r"^<!-- per-harness -->\n.*?^<!-- /per-harness -->\n?", re.DOTALL | re.MULTILINE)
+PER_HARNESS_RULE = re.compile(r"^\s*(?:#{2,}|[-*+]|\d+\.)\s", re.MULTILINE)
 FRONTMATTER = re.compile(r"\A---[ \t]*\n(?:.*?\n)?---[ \t]*\n", re.DOTALL)
 
 MAINTENANCE_GUARD_PHRASES = ["Maintenance-repo note", "If `.instructions/` is missing"]
@@ -692,10 +693,10 @@ def check_harness_pairs(findings: Findings) -> None:
         # utf-8-sig: an editor-added BOM would otherwise hide the frontmatter from the strip.
         claude_text = claude_path.read_text(encoding="utf-8-sig")
         copilot_text = copilot_path.read_text(encoding="utf-8-sig")
-        # A per-harness block holds framing only; a section moved into one would escape the compare.
+        # A per-harness block holds framing only; a section or rule moved into one would escape the compare.
         for path, text in ((claude_path, claude_text), (copilot_path, copilot_text)):
-            if any(re.search(r"^##\s", block, re.MULTILINE) for block in PER_HARNESS_BLOCK.findall(text)):
-                findings.err(path, "a <!-- per-harness --> block holds a ## section; only harness framing may differ")
+            if any(PER_HARNESS_RULE.search(block) for block in PER_HARNESS_BLOCK.findall(text)):
+                findings.err(path, "a <!-- per-harness --> block holds a section, list or rule line; only harness framing may differ")
         claude_body = shared_harness_body(claude_text)
         copilot_body = shared_harness_body(copilot_text)
         if claude_body == copilot_body:

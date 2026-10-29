@@ -28,7 +28,7 @@ Same three files as a greenfield Phase 1. Create `.scaffold/` at project root if
 
 ## Pre-Flight
 
-- [ ] Solution builds: `dotnet build` exits 0. A non-building solution makes inference unreliable - fix or branch from a known-good commit first.
+- [ ] Solution builds: `dotnet build` exits 0. A non-building solution makes inference unreliable - the developer fixes it or branches from a known-good commit first.
 - [ ] Locate the solution file: `*.slnx` (preferred) or `*.sln` at project root.
 - [ ] Identify the layer assignment of every project (Domain / Application / Infrastructure / Host / Test) by directory convention and project references.
 - [ ] Confirm with the developer: "I'm going to derive Phase-1 artifacts from the existing code. Code wins on any conflict with prior intent. OK to proceed?"

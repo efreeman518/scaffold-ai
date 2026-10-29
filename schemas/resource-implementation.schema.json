@@ -214,7 +214,7 @@
     "apiAuth": { "type": "string", "default": "EntraID" },
     "tokenRelay": { "type": "boolean", "default": true },
     "tenantIdType": { "type": "string", "default": "Guid" },
-    "includeArchitectureTests": { "type": "boolean", "default": false },
+    "includeArchitectureTests": { "type": "boolean", "default": false, "description": "Test.Architecture tier. Derived from testingProfile when omitted: balanced and comprehensive enable it." },
     "includeE2ETests": {
       "type": "boolean",
       "default": false,

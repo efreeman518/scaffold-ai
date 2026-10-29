@@ -490,7 +490,7 @@ For AI services selection guidance and agent framework concepts, see [skills/ai-
 | Input | Default |
 |---|---|
 | `testingProfile` | `balanced` |
-| `includeArchitectureTests` | `false` |
+| `includeArchitectureTests` | `false` (derived: `balanced`+ enables) |
 | `includeE2ETests` | `false` (derived: `comprehensive` enables) |
 | `includeLoadTests` | `false` |
 | `includeBenchmarkTests` | `false` |
@@ -637,7 +637,7 @@ Work through these in order during Phase 2. **Question 1 is asked first and must
 6. **External dependencies** - declare a scaffold mode for each (emulator, lazy-optional, no-op stub, deployment-only). When `useAspire: true`, consult [skills/aspire.md](../skills/aspire.md) section Official Integration Catalog Awareness and record any non-baseline service in `aspireResources` with docs URL, local mode, publish mode, and connection names.
 7. **Messaging & events** - which events need broker topics (RabbitMQ; Service Bus on the Azure lane)? Which are in-process channel dispatches?
 8. **AI services** - if enabled: which entities need search indexes? Which decisions need agents? What models?
-9. **Testing profile & surfaces** - minimal, balanced, or comprehensive? Which optional test types (E2E, architecture, load)? **Test surfaces are derived from the hosts/UI chosen in Question 2, not asked independently:** UI model/presentation coverage -> `Test.UI`; Uno -> `WasmUI` (Skia canvas bridge) + `Test.Mobile`; Blazor/React -> `Test.PlaywrightUI` (DOM); `useAspire` + comprehensive (or explicit `includeAspireTests`) -> `Test.Aspire` mesh; `api-only` / no UI -> none of these. Record the resulting tier set; the [Capability-Gated Test Tiers](../skills/testing.md#capability-gated-test-tiers-the-early-decision-drives-the-rest) table is authoritative for the mapping.
+9. **Testing profile & surfaces** - minimal, balanced, or comprehensive? Which optional test types (E2E, architecture, load)? **Test surfaces are derived from the hosts/UI chosen in Question 2, not asked independently:** UI model/presentation coverage -> `Test.UI`; Uno -> `Test.Mobile`, plus `WasmUI` (Skia canvas bridge) with comprehensive or `includePlaywrightUITests`; Blazor/React -> `Test.PlaywrightUI` (DOM); `useAspire` + comprehensive (or explicit `includeAspireTests`) -> `Test.Aspire` mesh; `api-only` / no UI -> none of these. Record the resulting tier set; the [Capability-Gated Test Tiers](../skills/testing.md#capability-gated-test-tiers-the-early-decision-drives-the-rest) table is authoritative for the mapping.
 
 ---
 
