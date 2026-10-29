@@ -102,7 +102,7 @@ def main() -> int:
             published = True
             break
     if not published:
-        print(f"source HEAD {commit_id} is not on the default branch of a remote for {sources['repository']}; merge and push it there first")
+        print(f"source HEAD {commit_id} is not on the default branch of any fetchable remote for {sources['repository']}; push it there, or fix the fetch errors above")
         return 1
 
     # Read every file before writing any, so a failed read leaves vendor/ and the manifest consistent.

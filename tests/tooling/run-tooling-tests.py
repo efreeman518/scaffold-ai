@@ -1243,13 +1243,13 @@ class ValidatorMutationTests(unittest.TestCase):
         git("commit", "-q", "-m", "change")
         proc = self._sync_vendor(repo, source)
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("is not on the default branch of a remote for efreeman518/workstation", proc.stdout)
+        self.assertIn("is not on the default branch of any fetchable remote for efreeman518/workstation", proc.stdout)
 
         # Pushed, but only to a lookalike fork: the recorded repository could not serve the commit.
         git("push", "-q", "origin", "HEAD:refs/heads/main")
         proc = self._sync_vendor(repo, source)
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("is not on the default branch of a remote for efreeman518/workstation", proc.stdout)
+        self.assertIn("is not on the default branch of any fetchable remote for efreeman518/workstation", proc.stdout)
 
         # On the recorded repository, but only on a branch that may be deleted after a squash merge.
         upstream.parent.mkdir()
@@ -1258,9 +1258,10 @@ class ValidatorMutationTests(unittest.TestCase):
         git("push", "-q", "upstream", "HEAD~1:refs/heads/main", "HEAD:refs/heads/feature")
         proc = self._sync_vendor(repo, source)
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("is not on the default branch of a remote for efreeman518/workstation", proc.stdout)
+        self.assertIn("is not on the default branch of any fetchable remote for efreeman518/workstation", proc.stdout)
 
         # An unreadable mirror of the same repository is skipped, not fatal.
+        # `git remote` lists names sorted, so "archive" is fetched (and fails) before "upstream".
         git("remote", "add", "archive", str(repo.parent / "offline" / "efreeman518" / "workstation.git"))
         git("push", "-q", "upstream", "HEAD:refs/heads/main")
         proc = self._sync_vendor(repo, source)
