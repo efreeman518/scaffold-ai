@@ -1167,10 +1167,13 @@ class ValidatorMutationTests(unittest.TestCase):
             dest.write_bytes((repo / rel).read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
         return entries, source
 
+    # Machine-wide git config (hooks, templates, autocrlf) must not reach the throwaway source repos.
+    ISOLATED_GIT_ENV = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
     def _sync_vendor(self, repo: Path, source: Path, *extra: str) -> subprocess.CompletedProcess:
         return subprocess.run(
             [sys.executable, str(repo / "maintenance" / "sync-vendor.py"), "--from", str(source), *extra],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            capture_output=True, text=True, encoding="utf-8", errors="replace", env=self.ISOLATED_GIT_ENV,
         )
 
     def test_sync_vendor_check_reports_stale_copies(self):
@@ -1194,12 +1197,13 @@ class ValidatorMutationTests(unittest.TestCase):
         repo = self._copy_repo()
         entries, source = self._vendor_source(repo)
         remote = repo.parent / "remote.git"
+        # Git writes read-only object files that the default ignore-errors cleanup would leave behind.
+        self.addCleanup(clean_tmp.remove_tree, repo.parent)
 
         def git(*args: str, cwd: Path = source) -> str:
             return subprocess.run(
-                ["git", "-C", str(cwd), "-c", "core.autocrlf=false", "-c", "user.name=t", "-c", "user.email=t@t",
-                 "-c", "commit.gpgsign=false", *args],
-                capture_output=True, text=True, check=True,
+                ["git", "-C", str(cwd), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                capture_output=True, text=True, check=True, env=self.ISOLATED_GIT_ENV,
             ).stdout.strip()
 
         git("init", "-q", "--bare", str(remote), cwd=repo.parent)
