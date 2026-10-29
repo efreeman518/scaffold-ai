@@ -1145,6 +1145,8 @@ class ValidatorMutationTests(unittest.TestCase):
                                     lambda repo, data: (repo / "vendor" / "engineering-criteria" / "SKILL.md").unlink()),
             "malformed entry": ("unreadable vendor manifest",
                                 lambda repo, data: data["files"].update({"vendor/engineering-criteria/SKILL.md": "abc"})),
+            "entry without path": ("unreadable vendor manifest",
+                                   lambda repo, data: data["files"]["vendor/engineering-criteria/SKILL.md"].pop("path")),
         }
         for name, (message, mutate) in cases.items():
             with self.subTest(case=name):
@@ -1196,7 +1198,9 @@ class ValidatorMutationTests(unittest.TestCase):
     def test_sync_vendor_records_pushed_committed_source_only(self):
         repo = self._copy_repo()
         entries, source = self._vendor_source(repo)
-        remote = repo.parent / "remote.git"
+        # A lookalike owner ("notefreeman518") must not pass for efreeman518.
+        fork = repo.parent / "notefreeman518" / "workstation.git"
+        upstream = repo.parent / "efreeman518" / "workstation.git"
         # Git writes read-only object files that the default ignore-errors cleanup would leave behind.
         self.addCleanup(clean_tmp.remove_tree, repo.parent)
 
@@ -1206,9 +1210,10 @@ class ValidatorMutationTests(unittest.TestCase):
                 capture_output=True, text=True, check=True, env=self.ISOLATED_GIT_ENV,
             ).stdout.strip()
 
-        git("init", "-q", "--bare", str(remote), cwd=repo.parent)
+        fork.parent.mkdir()
+        git("init", "-q", "--bare", str(fork), cwd=repo.parent)
         git("init", "-q")
-        git("remote", "add", "origin", str(remote))
+        git("remote", "add", "origin", str(fork))
         git("add", "-A")
         git("commit", "-q", "-m", "seed")
         git("push", "-q", "origin", "HEAD:refs/heads/main")
@@ -1223,11 +1228,21 @@ class ValidatorMutationTests(unittest.TestCase):
         git("commit", "-q", "-m", "change")
         proc = self._sync_vendor(repo, source)
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("on no remote branch", proc.stdout)
+        self.assertIn("on no branch of a remote for efreeman518/workstation", proc.stdout)
 
+        # Pushed, but only to a lookalike fork: the recorded repository could not serve the commit.
         git("push", "-q", "origin", "HEAD:refs/heads/main")
-        git("fetch", "-q", "origin")
-        self.assertEqual(self._sync_vendor(repo, source).returncode, 0)
+        proc = self._sync_vendor(repo, source)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("on no branch of a remote for efreeman518/workstation", proc.stdout)
+
+        upstream.parent.mkdir()
+        git("init", "-q", "--bare", str(upstream), cwd=repo.parent)
+        git("remote", "add", "upstream", str(upstream))
+        git("push", "-q", "upstream", "HEAD:refs/heads/main")
+        git("fetch", "-q", "upstream")
+        proc = self._sync_vendor(repo, source)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
         recorded = json.loads((repo / "vendor" / "SOURCES.json").read_text(encoding="utf-8"))
         self.assertEqual(recorded["commit"], git("rev-parse", "HEAD"))
         vendored = (repo / "vendor" / "engineering-criteria" / "SKILL.md").read_bytes()

@@ -780,8 +780,9 @@ def check_vendor_hashes(findings: Findings) -> None:
     sources_path = INSTRUCTIONS_ROOT / "vendor" / "SOURCES.json"
     try:
         entries: dict[str, dict] = json.loads(sources_path.read_text(encoding="utf-8"))["files"]
-        if not all(isinstance(entry, dict) for entry in entries.values()):
-            raise ValueError("every files entry must be an object with path and sha256")
+        if not all(isinstance(entry, dict) and isinstance(entry.get("path"), str) and isinstance(entry.get("sha256"), str)
+                   for entry in entries.values()):
+            raise ValueError("every files entry must be an object with string path and sha256")
     except (OSError, ValueError, KeyError, AttributeError, TypeError) as exc:
         findings.err(sources_path, f"unreadable vendor manifest ({exc!r})")
         return

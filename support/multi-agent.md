@@ -93,7 +93,7 @@ All agent and subagent scratch lives under the repo-root `.tmp/`, which the app 
 | What | Where |
 |---|---|
 | Worker worktree | `.tmp/worktrees/<slug>` on its own branch from the current branch's HEAD, which holds the frozen shared core: `git worktree add .tmp/worktrees/<slug> -b <type>/<slug> HEAD` |
-| `orchestrated-refactor` run state (slice handoffs, review inputs and reports) | `.tmp/orchestrated-refactor/<run-id>/`, removed by that run once its worktrees are removed; `clean-tmp.py` does not touch it, so an abandoned run's folder is removed by hand after its worktrees are gone |
+| `orchestrated-refactor` run state (slice handoffs, review inputs and reports) | `.tmp/orchestrated-refactor/<run-id>/`, removed by that run after the phase gate, once its worktrees are removed, so the developer can read its review reports at the gate; `clean-tmp.py` does not touch it, so an abandoned run's folder is removed by hand after its worktrees are gone |
 | Worker logs, prompts, handoff notes, reports outside a run | `.tmp/sessions/<session-id>/` - outside every worktree, so they never enter a diff |
 | Tool output with an owning project (`TestResults/`, `StrykerOutput/`, benchmark artifacts) | Under that project, not `.tmp/` - see [../skills/testing-quality.md](../skills/testing-quality.md) |
 

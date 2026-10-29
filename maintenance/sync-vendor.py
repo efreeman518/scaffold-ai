@@ -62,36 +62,51 @@ def main() -> int:
             print(f"vendor/ matches {source_root} for {len(entries)} file(s)")
         return 1 if stale else 0
 
-    def git(*git_args: str) -> str | None:
-        proc = subprocess.run(["git", "-C", str(source_root), *git_args], capture_output=True, text=True)
+    def git(*git_args: str) -> bytes | None:
+        proc = subprocess.run(["git", "-C", str(source_root), *git_args], capture_output=True)
         if proc.returncode != 0:
-            print(f"git {' '.join(git_args[:2])} failed in {source_root}: {proc.stderr.strip()}")
+            print(f"git {' '.join(git_args[:2])} failed in {source_root}: {proc.stderr.decode(errors='replace').strip()}")
             return None
-        return proc.stdout.strip()
+        return proc.stdout
 
-    # The recorded commit must describe the copied content and be reachable by others,
-    # so uncommitted source edits and commits on no remote branch are refused.
+    # The recorded commit must reproduce the copied bytes and be fetchable from the recorded
+    # repository: content is read from that commit, never the working tree, and uncommitted
+    # edits or a commit on no branch of that repository's remote are refused.
     dirty = git("status", "--porcelain", "--", *[e["path"] for e in entries.values()])
     commit = git("rev-parse", "HEAD")
-    remotes = git("branch", "-r", "--contains", "HEAD")
-    if dirty is None or commit is None or remotes is None:
+    branches = git("branch", "-r", "--contains", "HEAD", "--format=%(refname:lstrip=2)")
+    if dirty is None or commit is None or branches is None:
         return 1
-    if dirty:
-        print(f"source files have uncommitted changes; commit them first:\n{dirty}")
+    if dirty.strip():
+        print(f"source files have uncommitted changes; commit them first:\n{dirty.decode(errors='replace')}")
         return 1
-    if not remotes:
-        print(f"source HEAD {commit} is on no remote branch; push it first")
+    commit_id = commit.decode().strip()
+    remote_names = {b.split("/", 1)[0] for b in branches.decode().split() if "/" in b}
+    repository = sources["repository"].lower()
+
+    # Matches https://host/owner/repo, git@host:owner/repo and local paths ending in owner/repo,
+    # but not a lookalike owner such as notowner/repo.
+    def names_repository(url: bytes | None) -> bool:
+        tail = url.decode().strip().replace("\\", "/").replace(":", "/").lower().rstrip("/").removesuffix(".git") if url else ""
+        return "/".join(tail.rsplit("/", 2)[-2:]) == repository
+
+    urls = [git("remote", "get-url", name) for name in sorted(remote_names)]
+    if not any(names_repository(u) for u in urls):
+        print(f"source HEAD {commit_id} is on no branch of a remote for {sources['repository']}; push it there first")
         return 1
 
     for rel, entry in entries.items():
-        data = normalized_bytes(source_root / entry["path"])
+        content = git("show", f"{commit_id}:{entry['path']}")
+        if content is None:
+            return 1
+        data = content.replace(b"\r\n", b"\n")
         dest = REPO_ROOT / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
         entry["sha256"] = sha256(data)
-    sources["commit"] = commit
+    sources["commit"] = commit_id
     SOURCES.write_text(json.dumps(sources, indent=2) + "\n", encoding="utf-8", newline="\n")
-    print(f"synced {len(entries)} file(s) from {source_root} at {commit}")
+    print(f"synced {len(entries)} file(s) from {source_root} at {commit_id}")
     return 0
 
 
