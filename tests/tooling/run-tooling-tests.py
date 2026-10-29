@@ -1093,6 +1093,15 @@ class ValidatorMutationTests(unittest.TestCase):
         target.write_text(text.replace(needle, needle + "ontologyExtra: x\n", 1), encoding="utf-8")
         self.assertEqual(self._run_validator(repo), 1)
 
+    def test_harness_pair_drift_fails(self):
+        repo = self._copy_repo()
+        target = repo / ".github" / "agents" / "vertical-slice.agent.md"
+        text = target.read_text(encoding="utf-8")
+        needle = "- Do not skip DI registration or endpoint mapping steps."
+        self.assertIn(needle, text)
+        target.write_text(text.replace(needle, needle + " Copilot-only drift.", 1), encoding="utf-8")
+        self.assertEqual(self._run_validator(repo), 1)
+
     def test_concrete_model_name_fails(self):
         repo = self._copy_repo()
         target = repo / "skills" / "ai-integration.md"
