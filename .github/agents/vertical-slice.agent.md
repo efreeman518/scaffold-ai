@@ -40,6 +40,10 @@ See `.instructions/support/execution-gates.md` section Core Loop. Scope test fil
 
 After the gate passes, optionally dispatch the read-only `scaffold-reviewer` agent over the slice's files and resolve its `blocker`/`major` findings before reporting.
 
+## Several Entities
+
+This workflow adds one entity per session. For several independent entities, run one `orchestrated-refactor` run per `.instructions/support/multi-agent.md`, one slice per entity. Each slice's SCOPE is this file's Pre-Flight, Execution Order and Constraints for its entity, except that the worker writes only entity-specific files and reports the DI registration, endpoint mapping and DbContext edits it needs; its DONE is a clean build with the entity's unit tests passing. After integration the orchestrator applies those shared edits serially, then runs the Validation Gate for every entity. An entity that references another is not independent: the referenced one goes first.
+
 ## Constraints
 
 - Do not modify the solution structure or shared infrastructure - only add entity-specific files and make the registration and mapping edits the checklist requires.

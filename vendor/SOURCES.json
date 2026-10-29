@@ -1,0 +1,14 @@
+{
+  "repository": "efreeman518/workstation",
+  "commit": "e6aa46a0b423e191353d81984d7c0d91acd263e0",
+  "files": {
+    "vendor/engineering-criteria/SKILL.md": {
+      "path": "ai-context-tooling/skills-deploy/skills/common/engineering-criteria/SKILL.md",
+      "sha256": "dd087563c23eb5e9efa2a75dfacd85c92c74336c27a3d7ee9ec22a435e43211d"
+    },
+    "vendor/orchestrated-refactor/SKILL.md": {
+      "path": "ai-context-tooling/skills-portable/orchestrated-refactor/SKILL.md",
+      "sha256": "011323e2534e8718643a455d034aa0fc354185b25eb8f4622cf2519b49716796"
+    }
+  }
+}

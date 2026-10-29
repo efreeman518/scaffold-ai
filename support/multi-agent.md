@@ -4,6 +4,17 @@ Opt-in, harness-gated guidance for running parts of a phase across multiple agen
 
 > **Harness-gated, never required.** Spawning subagents and isolating their writes in git worktrees depends on the harness: Claude Code (`.claude/agents/`), GitHub Copilot agent surfaces (custom agents under `.github/agents/` run as subagents), and Codex CLI (multi-agent mode) can; generic assistants and older clients usually cannot. If yours cannot, ignore this file and run every phase sequentially - the workflow is designed to work that way first.
 
+## Who owns the mechanics
+
+This file owns only the scaffold rules: what may fan out, when, and which writes stay with the orchestrator. A fan-out runs as one `orchestrated-refactor` run, which owns dispatch, worktrees, model assignment, worker prompts, the feedback loop, review rounds, integration and cleanup: use the installed skill when the harness has one, else [../vendor/orchestrated-refactor/SKILL.md](../vendor/orchestrated-refactor/SKILL.md). What workers write meets `engineering-criteria` (installed, else [../vendor/engineering-criteria/SKILL.md](../vendor/engineering-criteria/SKILL.md)) for the sections their slice touches. The `orchestrated-refactor` skill is written for Claude Code; another harness that can spawn subagents follows its scoping, worker prompt, feedback loop, review and integration rules with its own spawn and model mechanism.
+
+The rules below bind every run as SCOPE constraints:
+
+- **Its tracked handoff is a run section in `HANDOFF.md`**, written by the orchestrator only; the phase's gate evidence stays where [execution-gates.md](execution-gates.md) puts it.
+- **One slice per independent work-item**, each with its gate from [execution-gates.md](execution-gates.md) (or [vertical-slice-checklist.md](vertical-slice-checklist.md) for an entity) as DONE.
+- **Shared writes stay with the orchestrator** (below), so every slice's SCOPE names its disjoint write paths and lists the frozen shared layer as read-only.
+- **Shared-core writes run at the Reasoning tier** ([../README.md](../README.md#model-tier-by-phase)), and so does `scaffold-reviewer`, from a different model family than the writer when the harness offers one.
+
 ## What does not change
 
 - **Phases stay strictly ordered and human-gated.** 1 -> 2 -> 3 -> 4 -> 5a..5e. Each phase ends in a developer review gate. Multi-agent work never crosses a phase boundary, because phase N consumes phase N-1's reviewed artifact.
@@ -12,7 +23,7 @@ Opt-in, harness-gated guidance for running parts of a phase across multiple agen
 
 ## The model: orchestrator + work-item workers + independent reviewer
 
-The developer-facing agent is the orchestrator. It dispatches subagents, collects their results as tool output, performs the merge and the gate itself, then updates `HANDOFF.md` and closes. Subagents never talk to the developer.
+The developer-facing agent is the orchestrator. It dispatches subagents, collects their results, performs the merge and the gate itself, then updates `HANDOFF.md` and closes. Subagents never talk to the developer.
 
 Decompose work **by independent work-item (fan-out), not by role.**
 
@@ -23,7 +34,7 @@ Decompose work **by independent work-item (fan-out), not by role.**
 |---|---|---|
 | Orchestrator | Yes - it is the existing phase session | Owns the developer relationship, gate authority, and every shared write |
 | Worker (per host / entity / slice) | Yes, by work-item | Independent units; each does its *whole* slice |
-| Reviewer / verifier | Yes - ships as `scaffold-reviewer` (`.github/agents/`, `.claude/agents/`) | Independence is the point: a fresh agent that did not write the code is a better adversary for ground-rule and architecture-test compliance. Read-only, so no write conflict |
+| Reviewer / verifier | Yes - ships as `scaffold-reviewer` (`.github/agents/`, `.claude/agents/`) | Independence is the point: a fresh agent that did not write the code is a better adversary for ground-rule and architecture-test compliance. Read-only, so no write conflict. Its findings join the run's review round as an extra lens |
 | Separate "test agent" vs "code agent" | No | The workflow is TDD ([../ai/tdd-protocol.md](../ai/tdd-protocol.md)). The same reasoning writes the failing test and makes it pass; splitting them breaks the red-green loop and the shared understanding of intent |
 
 ## The precondition: fan out only the leaves, after the shared core is frozen
@@ -56,9 +67,9 @@ The orchestrator completes and freezes these, then dispatches the per-host worke
 
 1. Orchestrator (the phase session, talking to the developer) reads `HANDOFF.md` + `.scaffold/resource-implementation.yaml`, confirms the 5a/5b gates passed, and enumerates the enabled hosts.
 2. It completes and freezes any artifact shared across those hosts (shared contracts/client, shared component lib, common client wiring).
-3. It fans out **one worker per host**, each in its own worktree under `.tmp/worktrees/`, each scaffolding *and* validating its host standalone (TDD where applicable), returning a structured status. Workers read the frozen shared layer; they write only their own host's disjoint files.
-4. Workers finish; the orchestrator merges, performs the single serialized Aspire AppHost registration pass itself, and runs the mesh gate (`dotnet run` + health) per [execution-gates.md](execution-gates.md).
-5. Optionally, it dispatches `scaffold-reviewer` over the merged result for ground-rule / architecture-test compliance - read-only.
+3. It starts one `orchestrated-refactor` run with **one slice per host**: SCOPE is that host's disjoint files with the frozen shared layer read-only, DONE is the host's own gate (TDD where applicable).
+4. Workers finish; the orchestrator integrates the slices, performs the single serialized Aspire AppHost registration pass itself, and runs the mesh gate (`dotnet run` + health) per [execution-gates.md](execution-gates.md).
+5. The run's review round covers the integrated result, with `scaffold-reviewer` as an extra read-only lens for ground-rule / architecture-test compliance.
 6. Orchestrator updates `hostGates` in `HANDOFF.md`, records gate evidence per [execution-gates.md](execution-gates.md) section Verification Evidence Rule, removes the merged worker worktrees per section Agent Scratch, and closes. The next phase is a fresh orchestrator.
 
 ## Pre-dispatch checklist
@@ -69,23 +80,7 @@ Before the orchestrator spawns any worker:
 - [ ] Every artifact shared *across* the target work-items is complete and frozen (shared contracts/client, shared component/theme library, common wiring).
 - [ ] Each fan-out unit is an independent deployable host (or a genuinely independent entity/slice), not a target or route within one host.
 - [ ] Workers are constrained to disjoint write paths; all shared writes are reserved for the orchestrator's serialized merge step.
-- [ ] Worker writes are isolated in `.tmp/worktrees/<slug>` (one per worker) when the harness supports it, and `.tmp/` is gitignored.
-- [ ] Each worker's tier is chosen per section Model Routing by Tier.
-
-## Model Routing by Tier
-
-Route by tier, never by model name: names and availability change, so pick from the list the harness offers at dispatch time. Tier names and characteristics are owned by [../README.md](../README.md#model-tier-by-phase). Its quality-first default holds here: the Balanced row below is the opt-in cost lever it allows for mechanical, build/test-verified work; this file extends that lever to the Fast row for read-only work, which writes nothing to verify; and the operator may keep every worker on Reasoning.
-
-| Work | Tier | Why |
-|---|---|---|
-| Orchestrator for Phases 1-4, and any shared-core write (5a/5b, `RegisterServices`, the two `DbContext`s, the Aspire AppHost) | Reasoning | Ambiguity, cross-file reasoning, and gate authority; a miss here propagates into every consumer |
-| Fan-out worker on a frozen shared layer (5c host, independent slice) | Balanced | Well-specified leaf work against fixed contracts |
-| Read-only search, extraction, inventory | Fast | No judgment and no writes |
-| `scaffold-reviewer` | Reasoning, from a different model family than the writer when the harness offers one | Same-family reviewers share the writer's blind spots; recall matters most for 5b, 5e identity, and migrations |
-
-- An unavailable tier degrades upward (Fast -> Balanced -> Reasoning), never downward. Record the substitution and its reason in `HANDOFF.md`.
-- A review gate never runs below the tier that wrote the code.
-- Judge cost per finished work-item: a cheaper model that needs retries or corrections is not cheaper.
+- [ ] `.tmp/` is gitignored, so worker worktrees and run state stay out of every diff.
 
 ## Agent Scratch
 
@@ -94,7 +89,8 @@ All agent and subagent scratch lives under the repo-root `.tmp/`, which the app 
 | What | Where |
 |---|---|
 | Worker worktree | `.tmp/worktrees/<slug>` on its own branch from the up-to-date default branch: `git worktree add .tmp/worktrees/<slug> -b <type>/<slug> origin/<default-branch>` |
-| Worker logs, prompts, handoff notes, reports | `.tmp/sessions/<session-id>/` - outside every worktree, so they never enter a diff |
+| `orchestrated-refactor` run state (slice handoffs, review inputs and reports) | `.tmp/orchestrated-refactor/<run-id>/`, removed by that run after its verified merge |
+| Worker logs, prompts, handoff notes, reports outside a run | `.tmp/sessions/<session-id>/` - outside every worktree, so they never enter a diff |
 | Tool output with an owning project (`TestResults/`, `StrykerOutput/`, benchmark artifacts) | Under that project, not `.tmp/` - see [../skills/testing-quality.md](../skills/testing-quality.md) |
 
 Cleanup runs after the merge is verified, never before:
@@ -110,4 +106,4 @@ Cleanup runs after the merge is verified, never before:
 
 ## When it is not worth it
 
-For a `lite` / `api-only` app, or a slice with 2-3 entities and one host, the orchestration and merge overhead exceeds the wall-clock saving - run sequentially. Fan-out pays off at scale: many entities, several independent optional hosts, or a batch of independent vertical slices. The scaffold is a one-time, high-leverage effort; never trade output confidence for parallelism. Read-only review/research fan-out is the safe default that adds value without write-conflict risk at any size.
+For a `lite` / `api-only` app, or a slice with 2-3 entities and one host, the orchestration and merge overhead exceeds the wall-clock saving - run sequentially. One vertical slice always stays in its own session. Fan-out pays off at scale: many entities, several independent optional hosts, or a batch of independent vertical slices. The scaffold is a one-time, high-leverage effort; never trade output confidence for parallelism. Read-only review/research fan-out is the safe default that adds value without write-conflict risk at any size.

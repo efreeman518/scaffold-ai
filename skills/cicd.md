@@ -287,8 +287,6 @@ playwright:
       run: dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --no-build --configuration Release -m:1
 ```
 
-For PR-time runs, gate `Test.PlaywrightUI` to nightly to keep PR loops fast.
-
 If `Test.PlaywrightUI` wraps Node Playwright for React/Vite, run `npm ci`, install browsers, then let the C# test adapter invoke one `node node_modules/@playwright/test/cli.js test --project <name>` process per project. Capture stdout/stderr and pass the shared remaining startup-deadline token; `{APP}_PLAYWRIGHT_PROJECT_TIMEOUT_SECONDS` is only a shorter subordinate cap.
 
 ### Special-Runtime Job (`Test.Mobile`)
@@ -615,7 +613,8 @@ For `scaffoldMode: lite`:
 7. Default PR path runs fast tiers only; all heavy/special tiers are `workflow_dispatch` toggles, default off.
 8. Keep token placeholders aligned with [placeholder-tokens.md](../ai/placeholder-tokens.md).
 9. Validate the requested deployment SHA is green before building; build each artifact once and reuse it through rollout and promotion.
-10. Verify database-aware internal readiness before public health, then run a post-deploy functional smoke. Every health gate polls with a bounded deadline (e.g. 30 x 2s) and dumps recent service logs on genuine failure - a one-shot probe fired straight after container start false-fails healthy deploys.11. Roll back from authoritative previous-release metadata without rebuilding. Deployment concurrency queues rather than canceling an active run.
+10. Verify database-aware internal readiness before public health, then run a post-deploy functional smoke. Every health gate polls with a bounded deadline (e.g. 30 x 2s) and dumps recent service logs on genuine failure - a one-shot probe fired straight after container start false-fails healthy deploys.
+11. Roll back from authoritative previous-release metadata without rebuilding. Deployment concurrency queues rather than canceling an active run.
 12. Operational docs state what automation actually verifies. Do not claim rollback, backup, health, or smoke coverage that the workflow does not execute.
 13. Local/manual emergency deployment may mirror the same gates when explicitly requested, but scaffold generation does not create a second default deployment path.
 14. A single-file bind mount does not track a replaced file: an scp'd/copied replacement is a new inode, so `reload` serves the old config silently. Mount the directory, or restart (not reload) the container after replacing the file.

@@ -1129,6 +1129,43 @@ class ValidatorMutationTests(unittest.TestCase):
                 self.assertEqual(proc.returncode, 1)
                 self.assertIn("a <!-- per-harness --> block holds a section, list or rule line", proc.stdout)
 
+    def test_vendor_hand_edit_fails(self):
+        repo = self._copy_repo()
+        target = repo / "vendor" / "engineering-criteria" / "SKILL.md"
+        target.write_text(target.read_text(encoding="utf-8") + "\nLocal tweak.\n", encoding="utf-8")
+        proc = self._validate(repo)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("differs from its vendor/SOURCES.json sha256", proc.stdout)
+
+    def test_vendor_unlisted_file_fails(self):
+        repo = self._copy_repo()
+        (repo / "vendor" / "extra.md").write_text("# Extra\n", encoding="utf-8")
+        proc = self._validate(repo)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("is not listed in vendor/SOURCES.json", proc.stdout)
+
+    def test_sync_vendor_check_reports_stale_source(self):
+        repo = self._copy_repo()
+        entries = json.loads((repo / "vendor" / "SOURCES.json").read_text(encoding="utf-8"))["files"]
+        source = repo.parent / "source"
+        for rel, entry in entries.items():
+            dest = source / entry["path"]
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(repo / rel, dest)
+
+        def check() -> subprocess.CompletedProcess:
+            return subprocess.run(
+                [sys.executable, str(repo / "scripts" / "sync-vendor.py"), "--from", str(source), "--check"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+            )
+
+        self.assertEqual(check().returncode, 0)
+        changed = source / entries["vendor/orchestrated-refactor/SKILL.md"]["path"]
+        changed.write_text(changed.read_text(encoding="utf-8") + "\nUpstream change.\n", encoding="utf-8")
+        proc = check()
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("stale: vendor/orchestrated-refactor/SKILL.md", proc.stdout)
+
     def test_harness_pair_ignores_bom_and_per_harness_block(self):
         repo = self._copy_repo()
         target = repo / ".github" / "agents" / "vertical-slice.agent.md"
