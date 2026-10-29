@@ -1137,34 +1137,99 @@ class ValidatorMutationTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("differs from its vendor/SOURCES.json sha256", proc.stdout)
 
-    def test_vendor_unlisted_file_fails(self):
-        repo = self._copy_repo()
-        (repo / "vendor" / "extra.md").write_text("# Extra\n", encoding="utf-8")
-        proc = self._validate(repo)
-        self.assertEqual(proc.returncode, 1)
-        self.assertIn("is not listed in vendor/SOURCES.json", proc.stdout)
+    def test_vendor_manifest_defects_fail(self):
+        cases = {
+            "unlisted file": ("is not listed in vendor/SOURCES.json",
+                              lambda repo, data: (repo / "vendor" / "extra.md").write_text("# Extra\n", encoding="utf-8")),
+            "listed file missing": ("which does not exist",
+                                    lambda repo, data: (repo / "vendor" / "engineering-criteria" / "SKILL.md").unlink()),
+            "malformed entry": ("unreadable vendor manifest",
+                                lambda repo, data: data["files"].update({"vendor/engineering-criteria/SKILL.md": "abc"})),
+        }
+        for name, (message, mutate) in cases.items():
+            with self.subTest(case=name):
+                repo = self._copy_repo()
+                manifest = repo / "vendor" / "SOURCES.json"
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+                mutate(repo, data)
+                manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+                proc = self._validate(repo)
+                self.assertEqual(proc.returncode, 1)
+                self.assertIn(message, proc.stdout)
 
-    def test_sync_vendor_check_reports_stale_source(self):
-        repo = self._copy_repo()
+    def _vendor_source(self, repo: Path) -> tuple[dict, Path]:
+        """A source tree holding the vendored files (CRLF, as a Windows checkout has them)."""
         entries = json.loads((repo / "vendor" / "SOURCES.json").read_text(encoding="utf-8"))["files"]
         source = repo.parent / "source"
         for rel, entry in entries.items():
             dest = source / entry["path"]
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(repo / rel, dest)
+            dest.write_bytes((repo / rel).read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+        return entries, source
 
-        def check() -> subprocess.CompletedProcess:
-            return subprocess.run(
-                [sys.executable, str(repo / "scripts" / "sync-vendor.py"), "--from", str(source), "--check"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace",
-            )
+    def _sync_vendor(self, repo: Path, source: Path, *extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(repo / "maintenance" / "sync-vendor.py"), "--from", str(source), *extra],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
 
-        self.assertEqual(check().returncode, 0)
+    def test_sync_vendor_check_reports_stale_copies(self):
+        repo = self._copy_repo()
+        entries, source = self._vendor_source(repo)
+        self.assertEqual(self._sync_vendor(repo, source, "--check").returncode, 0)
+
         changed = source / entries["vendor/orchestrated-refactor/SKILL.md"]["path"]
-        changed.write_text(changed.read_text(encoding="utf-8") + "\nUpstream change.\n", encoding="utf-8")
-        proc = check()
+        changed.write_bytes(changed.read_bytes() + b"Upstream change.\r\n")
+        proc = self._sync_vendor(repo, source, "--check")
         self.assertEqual(proc.returncode, 1)
         self.assertIn("stale: vendor/orchestrated-refactor/SKILL.md", proc.stdout)
+
+        # A local edit is stale too, even when the source has not moved.
+        local = repo / "vendor" / "engineering-criteria" / "SKILL.md"
+        local.write_bytes(local.read_bytes() + b"Local tweak.\n")
+        proc = self._sync_vendor(repo, source, "--check")
+        self.assertIn("stale: vendor/engineering-criteria/SKILL.md", proc.stdout)
+
+    def test_sync_vendor_records_pushed_committed_source_only(self):
+        repo = self._copy_repo()
+        entries, source = self._vendor_source(repo)
+        remote = repo.parent / "remote.git"
+
+        def git(*args: str, cwd: Path = source) -> str:
+            return subprocess.run(
+                ["git", "-C", str(cwd), "-c", "core.autocrlf=false", "-c", "user.name=t", "-c", "user.email=t@t",
+                 "-c", "commit.gpgsign=false", *args],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+
+        git("init", "-q", "--bare", str(remote), cwd=repo.parent)
+        git("init", "-q")
+        git("remote", "add", "origin", str(remote))
+        git("add", "-A")
+        git("commit", "-q", "-m", "seed")
+        git("push", "-q", "origin", "HEAD:refs/heads/main")
+
+        changed = source / entries["vendor/engineering-criteria/SKILL.md"]["path"]
+        changed.write_bytes(changed.read_bytes() + b"Upstream change.\r\n")
+        proc = self._sync_vendor(repo, source)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("uncommitted changes", proc.stdout)
+
+        git("add", "-A")
+        git("commit", "-q", "-m", "change")
+        proc = self._sync_vendor(repo, source)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("on no remote branch", proc.stdout)
+
+        git("push", "-q", "origin", "HEAD:refs/heads/main")
+        git("fetch", "-q", "origin")
+        self.assertEqual(self._sync_vendor(repo, source).returncode, 0)
+        recorded = json.loads((repo / "vendor" / "SOURCES.json").read_text(encoding="utf-8"))
+        self.assertEqual(recorded["commit"], git("rev-parse", "HEAD"))
+        vendored = (repo / "vendor" / "engineering-criteria" / "SKILL.md").read_bytes()
+        self.assertNotIn(b"\r\n", vendored)
+        self.assertTrue(vendored.endswith(b"Upstream change.\n"))
+        self.assertEqual(self._run_validator(repo), 0)
 
     def test_harness_pair_ignores_bom_and_per_harness_block(self):
         repo = self._copy_repo()

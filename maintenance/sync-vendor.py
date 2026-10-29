@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
 Refresh the vendored skills under vendor/ from a local checkout of their source repo.
+Maintainer-only: it lives outside the shipped payload so installed apps never rewrite vendor/.
 
 vendor/SOURCES.json maps each vendored file to its path in the source repo and records
 the source commit and each copy's SHA-256 (line endings normalized to LF).
 validate-instructions.py fails when a vendored file no longer matches its recorded hash,
 so vendored files change only through this script, never by hand.
 
-    python scripts/sync-vendor.py --from ../workstation           # copy and re-record
-    python scripts/sync-vendor.py --from ../workstation --check   # report staleness only
+    python maintenance/sync-vendor.py --from ../workstation           # copy and re-record
+    python maintenance/sync-vendor.py --from ../workstation --check   # report staleness only
 
 Exit code 0 when synced (or, with --check, current), 1 otherwise.
 """
@@ -50,25 +51,37 @@ def main() -> int:
         return 1
 
     if args.check:
-        stale = [rel for rel, e in entries.items() if sha256(normalized_bytes(source_root / e["path"])) != e["sha256"]]
-        for rel in stale:
-            print(f"stale: {rel} differs from {entries[rel]['path']} - run without --check to refresh")
+        stale = []
+        for rel, entry in entries.items():
+            local = REPO_ROOT / rel
+            upstream = sha256(normalized_bytes(source_root / entry["path"]))
+            if not local.is_file() or sha256(normalized_bytes(local)) != upstream:
+                stale.append(rel)
+                print(f"stale: {rel} differs from {entry['path']} - run without --check to refresh")
         if not stale:
             print(f"vendor/ matches {source_root} for {len(entries)} file(s)")
         return 1 if stale else 0
 
-    # The recorded commit must describe the copied content, so uncommitted source edits are refused.
-    paths = [e["path"] for e in entries.values()]
-    dirty = subprocess.run(
-        ["git", "-C", str(source_root), "status", "--porcelain", "--", *paths],
-        capture_output=True, text=True, check=True,
-    ).stdout.strip()
+    def git(*git_args: str) -> str | None:
+        proc = subprocess.run(["git", "-C", str(source_root), *git_args], capture_output=True, text=True)
+        if proc.returncode != 0:
+            print(f"git {' '.join(git_args[:2])} failed in {source_root}: {proc.stderr.strip()}")
+            return None
+        return proc.stdout.strip()
+
+    # The recorded commit must describe the copied content and be reachable by others,
+    # so uncommitted source edits and commits on no remote branch are refused.
+    dirty = git("status", "--porcelain", "--", *[e["path"] for e in entries.values()])
+    commit = git("rev-parse", "HEAD")
+    remotes = git("branch", "-r", "--contains", "HEAD")
+    if dirty is None or commit is None or remotes is None:
+        return 1
     if dirty:
         print(f"source files have uncommitted changes; commit them first:\n{dirty}")
         return 1
-    commit = subprocess.run(
-        ["git", "-C", str(source_root), "rev-parse", "HEAD"], capture_output=True, text=True, check=True,
-    ).stdout.strip()
+    if not remotes:
+        print(f"source HEAD {commit} is on no remote branch; push it first")
+        return 1
 
     for rel, entry in entries.items():
         data = normalized_bytes(source_root / entry["path"])
