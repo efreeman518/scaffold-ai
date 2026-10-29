@@ -86,13 +86,9 @@ Scale-gated: only when measured private boots dominate an endpoint suite that ru
 
 ## Slice Gate by Profile
 
-- `minimal`: Unit + Endpoint
-- `balanced`: Unit + Endpoint + Integration + Architecture
-- `comprehensive`: balanced + PlaywrightUI + Load + Benchmarks + Mutation (when scenario enabled)
+The gate is every generated tier passing; the tiers are owned by [testing.md](testing.md#profiles), which also owns the EF query-translation (real relational provider) rule.
 
 If a slice spans multiple entities/stores, run at least one integration path that covers the full composite flow.
-
-`minimal` does not prove EF query-translation correctness. Unit tests and WAF endpoint tests can pass while predicates over converted columns, owned-type filters, projections, or `Contains`/`LIKE` calls fail against SQL. In `balanced` and higher, include at least one real relational-provider search/list path per searchable aggregate, through `Test.E2E` when the behavior is HTTP workflow-shaped or `Test.Integration` when one repository/component is enough.
 
 ---
 

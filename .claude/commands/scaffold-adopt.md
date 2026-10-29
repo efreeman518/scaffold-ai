@@ -4,43 +4,51 @@ argument-hint: "<target project directory>"
 disable-model-invocation: true
 ---
 
+<!-- per-harness -->
 # Adopt Existing C#/.NET Codebase
 
-Generate Phase-1 artifacts (`.scaffold/domain-specification.yaml`, `.scaffold/UBIQUITOUS-LANGUAGE.md`, `.scaffold/DESIGN-DECISIONS.md`) from an **existing** C#/.NET solution by code inspection. Use this command when adopting the scaffold workflow onto a brownfield project so that `/vertical-slice` and the regular Phase 2+ flow become usable.
+Generate Phase-1 artifacts (`.scaffold/domain-specification.yaml`, `.scaffold/UBIQUITOUS-LANGUAGE.md`, `.scaffold/DESIGN-DECISIONS.md`) from an **existing** C#/.NET solution by code inspection - a code-driven replacement for the Phase 1 interview. Use this command when adopting the scaffold workflow onto a brownfield project so that `/vertical-slice` and the regular Phase 2+ flow become usable.
 
 **Target project:** $ARGUMENTS
+<!-- /per-harness -->
 
 All instruction files live under `.instructions/` in the project root. All file references below are relative to that folder.
 
-> **Maintenance-repo note:** This command is designed to run in a target app where the instruction set has been installed at `.instructions/`. If `.instructions/` is missing in the current working directory, you are likely inside the scaffold-ai maintenance repo itself - stop and confirm with the developer rather than trying to adopt here.
+> **Maintenance-repo note:** This workflow is designed to run in a target app where the instruction set has been installed at `.instructions/`. If `.instructions/` is missing in the current working directory, you are likely inside the scaffold-ai maintenance repo itself - stop and confirm with the developer rather than trying to adopt here.
 
-## Instructions
-
-You are executing the brownfield adoption workflow - a code-driven replacement for Phase 1.
+## Bootstrap
 
 1. Read `.instructions/START-AI.md` section Phase-1 Artifact Lifecycle Rule. The drift principle (*the artifact loses to code reality*) governs this entire session: existing code is authoritative.
 2. Read `.instructions/ai/adopt-codebase.md` - it is the canonical execution guide.
 3. Read `.instructions/ai/domain-specification-schema.md`, `.instructions/templates/ubiquitous-language-template.md`, and `.instructions/templates/design-decisions-template.md` so the generated artifacts match canonical shape.
 4. Confirm with the developer that the solution builds (`dotnet build` exits 0) and that they accept code-as-authority for any conflict with prior intent.
-5. If `.scaffold/` already contains any of the three artifacts, ask whether to replace, merge, or abort before continuing.
-6. Walk the Inspection Order in `.instructions/ai/adopt-codebase.md` section Inspection Order. After each pass, recap findings to the developer using the Branch Recap Format from `.instructions/ai/shared-understanding-interview.md` section Branch Recap Format, then ask them to confirm or correct.
-7. For each inferred design decision, run the Decision Confirmation Loop in `.instructions/ai/adopt-codebase.md` section Decision Confirmation Loop.
-8. Write the three artifacts under `.scaffold/` per the schema/templates referenced in `.instructions/ai/adopt-codebase.md` section Output Artifacts.
-9. Write `HANDOFF.md` at project root with `workflowStatus: active`, `currentPhase: 2`, `currentSubPhase: ""`, `contractsScaffolded: false`, and a section Completed note: "Phase 1 adopted from existing codebase via `ai/adopt-codebase.md` inference."
-10. Stop. The next session resumes at Phase 2 (Resource Definition) exactly as for a greenfield project.
+5. If `.scaffold/` already contains any of the three artifacts, ask whether to replace, merge, or abort before continuing (merge semantics: `.instructions/ai/adopt-codebase.md` section Merge Decision Protocol).
 
 ## Pre-Flight
 
-Run every checkbox in `.instructions/ai/adopt-codebase.md` section Pre-Flight before reading any source files. Do not proceed on a red build.
+Run every checkbox in `.instructions/ai/adopt-codebase.md` section Pre-Flight before reading any source files. Do not proceed on a red build - the developer fixes it or branches from a known-good commit first.
 
-## Rules
+## Execution Order
 
-- Generate only the three `.scaffold/` artifacts and `HANDOFF.md`. **Do not modify any source code, project files, or solution files.**
-- Do not invent features. If the scaffold's canonical patterns expect something the code lacks (gateway, multi-tenancy, observability), record it as a deferred `D-###` decision with `inferred-from: absence`, not as a generated stub.
-- Do not retroactively recommend refactors. Surface violations of canonical patterns as design decisions; do not edit code to fix them.
+1. Walk the Inspection Order in `.instructions/ai/adopt-codebase.md` section Inspection Order. After each pass, recap findings to the developer using the Branch Recap Format from `.instructions/ai/shared-understanding-interview.md` section Branch Recap Format, then ask them to confirm or correct.
+2. For each inferred design decision, run the Decision Confirmation Loop in `.instructions/ai/adopt-codebase.md` section Decision Confirmation Loop.
+3. Write the three artifacts under `.scaffold/` (create it if absent) per the schema/templates referenced in `.instructions/ai/adopt-codebase.md` section Output Artifacts.
+4. Write `HANDOFF.md` at project root with `workflowStatus: active`, `currentPhase: 2`, `currentSubPhase: ""`, `contractsScaffolded: false`, and a section Completed note: "Phase 1 adopted from existing codebase via `ai/adopt-codebase.md` inference."
+5. Stop. The next session resumes at Phase 2 (Resource Definition) exactly as for a greenfield project.
+
+## Validation Gate
+
+See `.instructions/ai/adopt-codebase.md` section Gate. Required checks: `domain-specification.yaml` validates against its schema; `UBIQUITOUS-LANGUAGE.md` and `DESIGN-DECISIONS.md` follow their templates; every `Domain.Model` entity appears in the spec; every public language term in `Domain.Model` and `Application.Models` is in the language file or explicitly excluded; every visible architectural choice (package strategy, persistence, identity, caching, gateway, multi-tenancy, hosting) has at least one `D-###`.
+
+## Constraints
+
+- Write only what `.instructions/ai/adopt-codebase.md` section Output Artifacts names (the three Phase-1 files, plus the ontology output when the developer opts in), `.scaffold/INSTRUCTION-GAPS.md`, and `HANDOFF.md` at project root. **Do not modify any source code, project files, or solution files**, or files under `.instructions/`.
+- Do not invent features or generate stubs for absent ones. If the scaffold's canonical patterns expect something the code lacks (gateway, multi-tenancy, observability), record it as a deferred `D-###` decision with `inferred-from: absence`.
+- Do not recommend refactors. Surface violations of canonical patterns as design decisions; leave code untouched.
+- Follow existing public type/property names exactly when building the language file (preserve casing).
 - Conflict precedence: see `.instructions/ai/SKILL.md` section Non-Negotiables (canonical).
-- Record instruction gaps (e.g., "the adopt skill needs guidance for X pattern that wasn't covered") in `.scaffold/INSTRUCTION-GAPS.md`. Do not modify instruction files.
+- Record instruction gaps (for example, "the adopt skill needs guidance for X pattern that was not covered") in `.scaffold/INSTRUCTION-GAPS.md`.
 
-## Gate
+## Output
 
-See `.instructions/ai/adopt-codebase.md` section Gate. `domain-specification.yaml` must validate against its schema; `UBIQUITOUS-LANGUAGE.md` and `DESIGN-DECISIONS.md` must follow their templates and cover every entity, public language term, and visible architectural decision in the solution before declaring done.
+Report which artifacts were written, which entities/terms/decisions were inferred, which decisions the developer corrected, and any `INSTRUCTION-GAPS.md` entries logged.

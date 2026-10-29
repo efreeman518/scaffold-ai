@@ -12,6 +12,8 @@ Checks:
   - Phase labels in instruction prose match the canonical set
     (Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, 5a, 5b, 5c, 5d, 5e).
   - Each .claude/commands/*.md and .github/agents/*.md has the expected sections.
+  - Each Claude command/agent and its Copilot agent share one body: they match
+    after frontmatter and `<!-- per-harness -->` blocks are removed.
   - Each scaffold command/agent carries the maintenance-repo guard that stops
     accidental generation when `.instructions/` is missing.
   - The payload shape declared in install-to-project.py covers every top-level
@@ -150,15 +152,29 @@ SECTION_TAIL_CONNECTOR = re.compile(
 
 # Required section headings in harness command/agent files.
 REQUIRED_COMMAND_HEADINGS = {
-    ".claude/commands/scaffold.md": ["Instructions", "Rules"],
-    ".claude/commands/vertical-slice.md": ["Instructions", "Pre-Flight", "Rules"],
-    ".claude/commands/scaffold-adopt.md": ["Instructions", "Pre-Flight", "Rules"],
+    ".claude/commands/scaffold.md": ["Bootstrap", "Core Rules"],
+    ".claude/commands/vertical-slice.md": ["Bootstrap", "Pre-Flight", "Constraints"],
+    ".claude/commands/scaffold-adopt.md": ["Bootstrap", "Pre-Flight", "Constraints"],
     ".github/agents/dotnet-scaffold.agent.md": ["Bootstrap", "Core Rules"],
     ".github/agents/vertical-slice.agent.md": ["Bootstrap", "Pre-Flight", "Constraints"],
     ".github/agents/scaffold-adopt.agent.md": ["Bootstrap", "Pre-Flight", "Constraints"],
     ".github/agents/scaffold-reviewer.agent.md": ["Bootstrap", "Review Scope", "Constraints"],
     ".claude/agents/scaffold-reviewer.md": ["Bootstrap", "Review Scope", "Constraints"],
 }
+
+# Claude file -> Copilot file carrying the same instructions. Only frontmatter and text
+# between `<!-- per-harness -->` and `<!-- /per-harness -->` may differ (harness framing
+# such as `$ARGUMENTS`); everything else is one body kept in step. PER_HARNESS_RULE rejects
+# headings and list lines in a block; a prose rule placed there is caught only in review.
+HARNESS_PAIRS = {
+    ".claude/commands/scaffold.md": ".github/agents/dotnet-scaffold.agent.md",
+    ".claude/commands/vertical-slice.md": ".github/agents/vertical-slice.agent.md",
+    ".claude/commands/scaffold-adopt.md": ".github/agents/scaffold-adopt.agent.md",
+    ".claude/agents/scaffold-reviewer.md": ".github/agents/scaffold-reviewer.agent.md",
+}
+PER_HARNESS_BLOCK = re.compile(r"^<!-- per-harness -->\n.*?^<!-- /per-harness -->\n?", re.DOTALL | re.MULTILINE)
+PER_HARNESS_RULE = re.compile(r"^\s*(?:#{2,}|[-*+]|\d+\.)\s", re.MULTILINE)
+FRONTMATTER = re.compile(r"\A---[ \t]*\n(?:.*?\n)?---[ \t]*\n", re.DOTALL)
 
 MAINTENANCE_GUARD_PHRASES = ["Maintenance-repo note", "If `.instructions/` is missing"]
 
@@ -661,6 +677,40 @@ def check_command_shape(findings: Findings) -> None:
             pattern = re.compile(rf"^##\s+{re.escape(heading)}\b", re.MULTILINE)
             if not pattern.search(text):
                 findings.err(path, f"missing required heading '## {heading}'")
+
+
+def shared_harness_body(text: str) -> list[str]:
+    """Body lines a harness pair must share: frontmatter and per-harness blocks removed."""
+    text = FRONTMATTER.sub("", text, count=1)
+    return PER_HARNESS_BLOCK.sub("", text).strip("\n").split("\n")
+
+
+def check_harness_pairs(findings: Findings) -> None:
+    for claude_rel, copilot_rel in HARNESS_PAIRS.items():
+        claude_path, copilot_path = APP_ROOT / claude_rel, APP_ROOT / copilot_rel
+        # A missing file is reported by check_command_shape.
+        if not (claude_path.exists() and copilot_path.exists()):
+            continue
+        # utf-8-sig: an editor-added BOM would otherwise hide the frontmatter from the strip.
+        claude_text = claude_path.read_text(encoding="utf-8-sig")
+        copilot_text = copilot_path.read_text(encoding="utf-8-sig")
+        # A per-harness block holds framing only; a section or rule moved into one would escape the compare.
+        for path, text in ((claude_path, claude_text), (copilot_path, copilot_text)):
+            if any(PER_HARNESS_RULE.search(block) for block in PER_HARNESS_BLOCK.findall(text)):
+                findings.err(path, "a <!-- per-harness --> block holds a section, list or rule line; only harness framing may differ")
+        claude_body = shared_harness_body(claude_text)
+        copilot_body = shared_harness_body(copilot_text)
+        if claude_body == copilot_body:
+            continue
+        line = next(
+            (i for i, (a, b) in enumerate(zip(claude_body, copilot_body), 1) if a != b),
+            min(len(claude_body), len(copilot_body)) + 1,
+        )
+        findings.err(
+            copilot_path,
+            f"shared body differs from {claude_rel} at body line {line} (counted after frontmatter "
+            "and <!-- per-harness --> blocks, which alone may differ); fix whichever side drifted",
+        )
 
 
 def check_maintenance_guards(findings: Findings) -> None:
@@ -1571,6 +1621,7 @@ def main() -> int:
     check_agents_path_rule(findings)
     check_no_dated_reports(findings)
     check_maintenance_guards(findings)
+    check_harness_pairs(findings)
     check_payload_shape(findings)
     check_readme_install_table(findings)
     check_optional_ai_contract(findings)

@@ -1040,12 +1040,14 @@ class ValidatorMutationTests(unittest.TestCase):
         shutil.copytree(REPO_ROOT, dest, ignore=MUTATION_IGNORE)
         return dest
 
-    def _run_validator(self, root: Path) -> int:
-        proc = subprocess.run(
+    def _validate(self, root: Path) -> subprocess.CompletedProcess:
+        return subprocess.run(
             [sys.executable, str(root / "scripts" / "validate-instructions.py")],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
-        return proc.returncode
+
+    def _run_validator(self, root: Path) -> int:
+        return self._validate(root).returncode
 
     def test_baseline_copy_passes(self):
         repo = self._copy_repo()
@@ -1092,6 +1094,61 @@ class ValidatorMutationTests(unittest.TestCase):
         self.assertIn(needle, text)
         target.write_text(text.replace(needle, needle + "ontologyExtra: x\n", 1), encoding="utf-8")
         self.assertEqual(self._run_validator(repo), 1)
+
+    def test_harness_pair_drift_fails(self):
+        repo = self._copy_repo()
+        target = repo / ".github" / "agents" / "vertical-slice.agent.md"
+        text = target.read_text(encoding="utf-8")
+        needle = "- Do not skip DI registration or endpoint mapping steps."
+        self.assertIn(needle, text)
+        target.write_text(text.replace(needle, needle + " Copilot-only drift.", 1), encoding="utf-8")
+        proc = self._validate(repo)
+        self.assertEqual(proc.returncode, 1)
+        line = 1 + [l.rstrip("\r") for l in text.split("<!-- /per-harness -->", 1)[1].strip("\r\n").split("\n")].index(needle)
+        self.assertIn(f"shared body differs from .claude/commands/vertical-slice.md at body line {line} ", proc.stdout)
+
+    def test_harness_pair_section_in_per_harness_block_fails(self):
+        repo = self._copy_repo()
+        for rel in (".claude/commands/vertical-slice.md", ".github/agents/vertical-slice.agent.md"):
+            target = repo / rel
+            text = target.read_text(encoding="utf-8")
+            target.write_text(text.replace("<!-- /per-harness -->", "## Hidden\nHarness-only rule.\n<!-- /per-harness -->", 1), encoding="utf-8")
+        proc = self._validate(repo)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("a <!-- per-harness --> block holds a section, list or rule line", proc.stdout)
+
+    def test_harness_pair_rule_in_per_harness_block_fails(self):
+        for hidden in ("- Harness-only rule.", "  ### Harness-only rule"):
+            with self.subTest(hidden=hidden):
+                repo = self._copy_repo()
+                for rel in (".claude/commands/vertical-slice.md", ".github/agents/vertical-slice.agent.md"):
+                    target = repo / rel
+                    text = target.read_text(encoding="utf-8")
+                    target.write_text(text.replace("<!-- /per-harness -->", hidden + "\n<!-- /per-harness -->", 1), encoding="utf-8")
+                proc = self._validate(repo)
+                self.assertEqual(proc.returncode, 1)
+                self.assertIn("a <!-- per-harness --> block holds a section, list or rule line", proc.stdout)
+
+    def test_harness_pair_ignores_bom_and_per_harness_block(self):
+        repo = self._copy_repo()
+        target = repo / ".github" / "agents" / "vertical-slice.agent.md"
+        text = target.read_text(encoding="utf-8")
+        framing = "You are a vertical-slice code generation agent."
+        self.assertIn(framing, text)
+        target.write_text("\ufeff" + text.replace(framing, "You are a Copilot slice agent.", 1), encoding="utf-8")
+        self.assertEqual(self._run_validator(repo), 0)
+
+    def test_harness_pair_shorter_body_fails(self):
+        repo = self._copy_repo()
+        target = repo / ".github" / "agents" / "vertical-slice.agent.md"
+        text = target.read_text(encoding="utf-8")
+        cut = text.index("## Output")
+        target.write_text(text[:cut], encoding="utf-8")
+        # The truncated side ends first, so the reported line is one past its last shared line.
+        line = 1 + len(text[:cut].split("<!-- /per-harness -->", 1)[1].strip("\r\n").split("\n"))
+        proc = self._validate(repo)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn(f"shared body differs from .claude/commands/vertical-slice.md at body line {line} ", proc.stdout)
 
     def test_concrete_model_name_fails(self):
         repo = self._copy_repo()

@@ -30,7 +30,7 @@ Use this when adding a new entity to an **already-scaffolded** solution. Skip fu
 3. Backend templates: `entity-template.md`, `ef-configuration-template.md`, `repository-template.md`, `data-mapping-template.md`, `service-template.md`, `endpoint-template.md`, `structure-validator-template.md`
 4. If `applicationStyle` is `cqrs` or `switch`: `cqrs-handler-template.md`, `cqrs-endpoint-template.md`, `cqrs-validation-template.md`, `test-templates-cqrs.md`
 5. **If child collections (1:N owned or M:N junction): `updater-template.md` is required** - the repository's `UpdateFromDto` delegates to a DbContext extension method that uses `CollectionUtility.SyncCollectionWithResult` to add/update/remove children in one call. Without this, aggregate edits silently drop client-side removals.
-6. Test templates per profile (see section Test Slice below): `test-templates-domain.md`, `test-templates-repository.md`, `test-templates-service.md`, `test-templates-endpoint.md`, and for balanced+ profiles `test-templates-integration.md` + `test-templates-e2e.md`
+6. Test templates per profile (see section Test Slice below): `test-templates-domain.md`, `test-templates-repository.md`, `test-templates-service.md`, `test-templates-endpoint.md`, for balanced+ profiles `test-templates-integration.md`, and where `Test.E2E` is generated `test-templates-e2e.md`
 7. If Uno UI enabled: `uno-mvux-model-template.md`, `uno-xaml-page-template.md`, `uno-ui-client-layer.md`, `test-templates-presentation.md`
 8. If Blazor UI enabled: `skills/ui-blazor.md` - add a Refit method group, entity list page, and entity new/edit page
 9. If React UI enabled: `skills/ui-react.md` - add API hooks, entity list page, detail/edit page, and form components
@@ -191,14 +191,16 @@ dotnet ef migrations add Add{Entity} --project src/Infrastructure/{Project}.Infr
 | `tests/Test.Endpoints/Endpoints/{Entity}EndpointsTests.cs` | [test-templates-endpoint.md](../templates/test-templates-endpoint.md) | all |
 | `tests/Test.Unit/Cqrs/{Entity}CqrsValidationTests.cs` | [test-templates-cqrs.md](../templates/test-templates-cqrs.md) | if cqrs or switch |
 | `tests/Test.Integration/{Entity}RepositoryIntegrationTests.cs` | [test-templates-integration.md](../templates/test-templates-integration.md) | balanced+ |
-| `tests/Test.E2E/{Entity}WorkflowTests.cs` | [test-templates-e2e.md](../templates/test-templates-e2e.md) | balanced+ |
+| `tests/Test.E2E/{Entity}WorkflowTests.cs` | [test-templates-e2e.md](../templates/test-templates-e2e.md) | where `Test.E2E` is generated |
 | `tests/Test.Architecture/` updates | [test-templates-quality.md](../templates/test-templates-quality.md) | balanced+ |
 
 ### Required Test Gate by Profile
 
-- `minimal`: Unit + Endpoint pass; mapper parity test exists.
-- `balanced`: Minimal + `{Entity}RepositoryIntegrationTests` (the lane's real database via a standalone Testcontainer in `Test.Integration`) + `{Entity}WorkflowTests` (multi-endpoint workflow against the Testcontainers database) + Architecture pass.
-- `comprehensive`: Balanced + Load + Benchmark + Mutation (where enabled) + audit-pipeline / projection-pipeline integration tests where the entity participates in either.
+Every generated tier passes, per [testing.md](../skills/testing.md#profiles). Per entity, on top of that (each profile includes the one before):
+
+- `minimal`: mapper parity test exists.
+- `balanced`: minimal + `{Entity}RepositoryIntegrationTests` (the lane's real database via a standalone Testcontainer in `Test.Integration`).
+- `comprehensive`: balanced + audit-pipeline / projection-pipeline integration tests where the entity participates in either + `{Entity}WorkflowTests` (multi-endpoint workflow against the Testcontainers database) where `Test.E2E` is generated (`includeE2ETests`, which `comprehensive` sets by default).
 
 For composite slices, include at least one integration scenario that traverses all participating entities.
 
