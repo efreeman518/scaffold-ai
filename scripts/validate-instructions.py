@@ -171,8 +171,8 @@ HARNESS_PAIRS = {
     ".claude/commands/scaffold-adopt.md": ".github/agents/scaffold-adopt.agent.md",
     ".claude/agents/scaffold-reviewer.md": ".github/agents/scaffold-reviewer.agent.md",
 }
-PER_HARNESS_BLOCK = re.compile(r"<!-- per-harness -->.*?<!-- /per-harness -->\n?", re.DOTALL)
-FRONTMATTER = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+PER_HARNESS_BLOCK = re.compile(r"^<!-- per-harness -->\n.*?^<!-- /per-harness -->\n?", re.DOTALL | re.MULTILINE)
+FRONTMATTER = re.compile(r"\A---[ \t]*\n(?:.*?\n)?---[ \t]*\n", re.DOTALL)
 
 MAINTENANCE_GUARD_PHRASES = ["Maintenance-repo note", "If `.instructions/` is missing"]
 
@@ -679,7 +679,7 @@ def check_command_shape(findings: Findings) -> None:
 
 def shared_harness_body(text: str) -> list[str]:
     """Body lines a harness pair must share: frontmatter and per-harness blocks removed."""
-    text = FRONTMATTER.sub("", text.replace("\r\n", "\n"), count=1)
+    text = FRONTMATTER.sub("", text, count=1)
     return PER_HARNESS_BLOCK.sub("", text).strip("\n").split("\n")
 
 
@@ -689,8 +689,15 @@ def check_harness_pairs(findings: Findings) -> None:
         # A missing file is reported by check_command_shape.
         if not (claude_path.exists() and copilot_path.exists()):
             continue
-        claude_body = shared_harness_body(claude_path.read_text(encoding="utf-8"))
-        copilot_body = shared_harness_body(copilot_path.read_text(encoding="utf-8"))
+        # utf-8-sig: an editor-added BOM would otherwise hide the frontmatter from the strip.
+        claude_text = claude_path.read_text(encoding="utf-8-sig")
+        copilot_text = copilot_path.read_text(encoding="utf-8-sig")
+        # A per-harness block holds framing only; a section moved into one would escape the compare.
+        for path, text in ((claude_path, claude_text), (copilot_path, copilot_text)):
+            if any(re.search(r"^##\s", block, re.MULTILINE) for block in PER_HARNESS_BLOCK.findall(text)):
+                findings.err(path, "a <!-- per-harness --> block holds a ## section; only harness framing may differ")
+        claude_body = shared_harness_body(claude_text)
+        copilot_body = shared_harness_body(copilot_text)
         if claude_body == copilot_body:
             continue
         line = next(
@@ -699,8 +706,8 @@ def check_harness_pairs(findings: Findings) -> None:
         )
         findings.err(
             copilot_path,
-            f"shared body differs from {claude_rel} at body line {line}; only frontmatter and "
-            "<!-- per-harness --> blocks may differ",
+            f"shared body differs from {claude_rel} at body line {line} (counted after frontmatter "
+            "and <!-- per-harness --> blocks, which alone may differ); fix whichever side drifted",
         )
 
 

@@ -618,4 +618,4 @@ After writing quality gate tests, run the full suite to verify no regressions fr
 dotnet test -m:1
 ```
 
-Profile gate: every tier the profile generates passes, per [testing.md](../skills/testing.md#profiles).
+Profile gate: every generated tier (by the profile or an explicit flag) passes, per [testing.md](../skills/testing.md#profiles).

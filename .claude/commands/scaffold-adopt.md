@@ -26,7 +26,7 @@ All instruction files live under `.instructions/` in the project root. All file 
 
 ## Pre-Flight
 
-Run every checkbox in `.instructions/ai/adopt-codebase.md` section Pre-Flight before reading any source files. Do not proceed on a red build - fix it or branch from a known-good commit first.
+Run every checkbox in `.instructions/ai/adopt-codebase.md` section Pre-Flight before reading any source files. Do not proceed on a red build - the developer fixes it or branches from a known-good commit first.
 
 ## Execution Order
 
@@ -42,7 +42,7 @@ See `.instructions/ai/adopt-codebase.md` section Gate. Required checks: `domain-
 
 ## Constraints
 
-- Write only the three `.scaffold/` artifacts and `HANDOFF.md` at project root. **Do not modify any source code, project files, or solution files**, or files under `.instructions/`.
+- Write only what `.instructions/ai/adopt-codebase.md` section Output Artifacts names (the three Phase-1 files, plus the ontology output when the developer opts in), `.scaffold/INSTRUCTION-GAPS.md`, and `HANDOFF.md` at project root. **Do not modify any source code, project files, or solution files**, or files under `.instructions/`.
 - Do not invent features or generate stubs for absent ones. If the scaffold's canonical patterns expect something the code lacks (gateway, multi-tenancy, observability), record it as a deferred `D-###` decision with `inferred-from: absence`.
 - Do not recommend refactors. Surface violations of canonical patterns as design decisions; leave code untouched.
 - Follow existing public type/property names exactly when building the language file (preserve casing).

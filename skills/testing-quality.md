@@ -86,7 +86,7 @@ Scale-gated: only when measured private boots dominate an endpoint suite that ru
 
 ## Slice Gate by Profile
 
-The gate for each profile is its generated tiers passing; the tiers are owned by [testing.md](testing.md#profiles), and the real-provider query-translation rule by the paragraph after that table.
+The gate is every generated tier passing; the tiers are owned by [testing.md](testing.md#profiles), which also owns the EF query-translation (real relational provider) rule.
 
 If a slice spans multiple entities/stores, run at least one integration path that covers the full composite flow.
 

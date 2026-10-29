@@ -40,9 +40,9 @@ After the gate passes, optionally dispatch the read-only `scaffold-reviewer` age
 
 ## Constraints
 
-- Do not modify the solution structure or shared infrastructure - only add entity-specific files.
+- Do not modify the solution structure or shared infrastructure - only add entity-specific files and make the registration and mapping edits the checklist requires.
 - Do not skip DI registration or endpoint mapping steps.
-- Do not modify files under `.instructions/` - generate production files in `src/`, test files in sibling `tests/`, and required solution/config changes at project root.
+- Do not modify files under `.instructions/` - generate/edit production files in `src/`, test files in sibling `tests/`, and required solution/config changes at project root.
 - Do not create new projects unless the entity requires a workload not yet in the solution.
 - Follow existing code patterns in the project for consistency.
 

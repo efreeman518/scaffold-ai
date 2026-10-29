@@ -390,7 +390,7 @@ Unit, service, endpoint, and integration tests already exist from Phases 5a/5b/5
 **Also in this phase:**
 - IaC (deployment definitions per `deployTargets` entry: Bicep for `ContainerApps`, `deploy/compose/` for `DockerCompose`), CI/CD pipeline YAML, Dockerfile, coverage settings
 
-Required profile gate (full regression): every tier the profile generates passes, per [testing.md](../skills/testing.md#profiles).
+Required profile gate (full regression): every generated tier (by the profile or an explicit flag) passes, per [testing.md](../skills/testing.md#profiles).
 
 Commands:
 

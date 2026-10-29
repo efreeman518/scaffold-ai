@@ -117,14 +117,14 @@ Severity policy for `MSTEST0049` (and the generation-time verify gate that enfor
 | Profile | Include by default |
 |---|---|
 | `minimal` | Test.Support + Unit + Endpoint |
-| `balanced` | Minimal + Integration (component) + Architecture + `Test.UI` when UI model/presentation coverage exists |
-| `comprehensive` | Balanced + E2E + Aspire mesh + PlaywrightUI + Load + Benchmarks + Mutation (capability gates below) |
+| `balanced` | Minimal + Integration (component) + Architecture + `Test.UI` when UI model/presentation coverage exists + `Test.Mobile` when Uno is in scope |
+| `comprehensive` | Balanced + E2E + Aspire mesh + PlaywrightUI (incl. `WasmUI`) + Load + Benchmarks + Mutation (capability gates below) |
 
-Other files link to this table, never restate it. A profile's gate is its generated tiers passing.
+Other files link here, never restate it. Gate: every generated tier (by profile or explicit flag) passes.
 
 Rule: start balanced, then add hosted UI and performance suites when slices stabilize. **Generation** (does the project exist?) follows the early capability pick + `testingProfile`; **runtime gating** (does a generated tier run?) is owned by [Capability-Gated Test Tiers](#capability-gated-test-tiers-the-early-decision-drives-the-rest).
 
-The `resource-implementation.yaml` test booleans drive **generation**: `comprehensive` implies `includeE2ETests` + `includeAspireTests` + `includePlaywrightUITests` (plus Load/Benchmarks/Mutation) when those flags are omitted. Setting a flag explicitly overrides the profile default. `includeMobileTests` (`Test.Mobile`, Uno native Appium) and the Skia-canvas `WasmUI` bridge tier require `includeUnoUI`; generate them in balanced+ when Uno is in scope. Generate `Test.UI` when UI model/presentation coverage exists; it is the fast headless UI lane for UI services, theme/catalog logic, presentation models, and MVUX state/feed tests. Do not confuse `includeE2ETests` (`Test.E2E`, WebApplicationFactory + Testcontainers database) with `includePlaywrightUITests` (`Test.PlaywrightUI`, browser-driven) - they are distinct tiers.
+The `resource-implementation.yaml` test booleans drive **generation**: `comprehensive` implies `includeE2ETests` + `includeAspireTests` + `includePlaywrightUITests` (plus Load/Benchmarks/Mutation) when those flags are omitted. Setting a flag explicitly overrides the profile default. `includeMobileTests` (`Test.Mobile`, Uno native Appium) and the Skia-canvas `WasmUI` bridge tier require `includeUnoUI`. Generate `Test.UI` when UI model/presentation coverage exists; it is the fast headless UI lane for UI services, theme/catalog logic, presentation models, and MVUX state/feed tests. Do not confuse `includeE2ETests` (`Test.E2E`, WebApplicationFactory + Testcontainers database) with `includePlaywrightUITests` (`Test.PlaywrightUI`, browser-driven) - they are distinct tiers.
 
 EF query-translation correctness requires a real relational provider. `minimal` (Unit + Endpoint) does not cover translated predicates, projections, owned-type filters, or value-converted columns (`TenantId`, nullable typed FKs, `Email`, `Locale`, `Contains` / `LIKE`) because endpoint tests use the in-memory WAF path, and unit, endpoint, and model-validation tests can all stay green while translation throws at runtime. In `balanced` and higher, add at least one real-database search/list path per searchable aggregate: `Test.E2E` (where generated) for HTTP workflow coverage or `Test.Integration` for repository/component coverage.
 
@@ -247,7 +247,7 @@ Pure unit (Test.Unit)
 Mutation overlay (Test.Mutation, Stryker over focused MSTest suite)
 ```
 
-Phase 4 generates the WAF base in `Test.Support`, the `CustomApiFactory` / `DbApiFactory` shells, `TestDatabaseContainer`, the `Test.Integration` store fixtures (`DbContainerFixture` + one per selected store + `IntegrationTestSetup`), and the `Test.Aspire` mesh shells (`AspireTestHost` + `AspireMeshLifecycle`) so the ladder is wired before any Phase 5 tests are written - profile-gated tiers (`Test.E2E`, `Test.Aspire`) get shells only when the Capability-Gated table above generates them. See [../ai/contract-scaffolding.md](../ai/contract-scaffolding.md) (`### 4. Test Infrastructure`).
+Phase 4 generates the WAF base in `Test.Support`, the `CustomApiFactory` / `DbApiFactory` shells, `TestDatabaseContainer`, the `Test.Integration` store fixtures (`DbContainerFixture` + one per selected store + `IntegrationTestSetup`), and the `Test.Aspire` mesh shells (`AspireTestHost` + `AspireMeshLifecycle`) so the ladder is wired before any Phase 5 tests are written - profile-gated tiers (`Test.E2E`, `Test.Aspire`) get shells only when the tables above generate them. See [../ai/contract-scaffolding.md](../ai/contract-scaffolding.md) (`### 4. Test Infrastructure`).
 
 ### Heavy Aspire Mesh Graph Rule
 
