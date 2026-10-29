@@ -248,7 +248,7 @@ Fast tiers run automatically on PRs; everything else is a default-off `workflow_
 toggle (only emitted for tiers this scaffold generated). The trigger column maps each
 category to its `inputs.*` switch.
 
-Treat Aspire, Playwright, and WasmUI projects as resource-heavy. Keep their workflow steps/jobs non-overlapping, and use `-m:1` for every solution-wide or heavy-project `dotnet test` command. Keep `-m:1` on the solution `dotnet build` too: it guards the static-web-assets race (one web project built twice with different global properties; AppHost `GlobalPropertiesToRemove` plus test projects' `AdditionalProperties` yield one instance per project), and parallelizing is worth it only if measured faster on the hosted runner (TaskFlow measured no gain). The scheduled/manual acceptance lane must also run the unfiltered solution command `dotnet test {SolutionName}.slnx --no-build -m:1`; filtered fast tiers do not prove scaffold acceptance.
+Treat Aspire, Playwright, and WasmUI projects as resource-heavy. Keep their workflow steps/jobs non-overlapping, and use `-m:1` for every solution-wide or heavy-project `dotnet test` command. Keep `-m:1` on the solution `dotnet build` too: it guards the static-web-assets race (one web project built twice with different global properties; AppHost `GlobalPropertiesToRemove` plus test projects' `AdditionalProperties` yield one instance per project), and parallelizing is worth it only if measured faster on the hosted runner (TaskFlow measured no gain). The manual acceptance lane must also run the unfiltered solution command `dotnet test {SolutionName}.slnx --no-build -m:1`; filtered fast tiers do not prove scaffold acceptance.
 
 | Category | Trigger | Prerequisite / notes |
 |---|---|---|
@@ -286,8 +286,6 @@ playwright:
     - name: Run Playwright tests
       run: dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj --no-build --configuration Release -m:1
 ```
-
-For PR-time runs, gate `Test.PlaywrightUI` to nightly to keep PR loops fast.
 
 If `Test.PlaywrightUI` wraps Node Playwright for React/Vite, run `npm ci`, install browsers, then let the C# test adapter invoke one `node node_modules/@playwright/test/cli.js test --project <name>` process per project. Capture stdout/stderr and pass the shared remaining startup-deadline token; `{APP}_PLAYWRIGHT_PROJECT_TIMEOUT_SECONDS` is only a shorter subordinate cap.
 
@@ -615,7 +613,8 @@ For `scaffoldMode: lite`:
 7. Default PR path runs fast tiers only; all heavy/special tiers are `workflow_dispatch` toggles, default off.
 8. Keep token placeholders aligned with [placeholder-tokens.md](../ai/placeholder-tokens.md).
 9. Validate the requested deployment SHA is green before building; build each artifact once and reuse it through rollout and promotion.
-10. Verify database-aware internal readiness before public health, then run a post-deploy functional smoke. Every health gate polls with a bounded deadline (e.g. 30 x 2s) and dumps recent service logs on genuine failure - a one-shot probe fired straight after container start false-fails healthy deploys.11. Roll back from authoritative previous-release metadata without rebuilding. Deployment concurrency queues rather than canceling an active run.
+10. Verify database-aware internal readiness before public health, then run a post-deploy functional smoke. Every health gate polls with a bounded deadline (e.g. 30 x 2s) and dumps recent service logs on genuine failure - a one-shot probe fired straight after container start false-fails healthy deploys.
+11. Roll back from authoritative previous-release metadata without rebuilding. Deployment concurrency queues rather than canceling an active run.
 12. Operational docs state what automation actually verifies. Do not claim rollback, backup, health, or smoke coverage that the workflow does not execute.
 13. Local/manual emergency deployment may mirror the same gates when explicitly requested, but scaffold generation does not create a second default deployment path.
 14. A single-file bind mount does not track a replaced file: an scp'd/copied replacement is a new inode, so `reload` serves the old config silently. Mount the directory, or restart (not reload) the container after replacing the file.
@@ -629,7 +628,7 @@ For `scaffoldMode: lite`:
 - [ ] every compile surface the deploy builds also compiles in the fast lane (Non-Negotiable 12): a solution with a Uno/WASM head installs `wasm-tools` before build on the hosted runner, or the workflow names the required manual build explicitly
 - [ ] `ci.yml` declares a `workflow_dispatch` boolean (default false) for every manual tier it references, and emits one only for tiers this scaffold generated; every `inputs.*` referenced in an `if:` is declared
 - [ ] heavy tiers carry the `workflow_dispatch && inputs.<x>` gate, do not overlap, and use `-m:1`; Benchmarks use `dotnet run` and Mutation uses `dotnet stryker` (never `dotnet test`); disk reclaim covers Integration/Aspire/E2E
-- [ ] scheduled/manual acceptance provisions generated prerequisites, then runs unfiltered `dotnet test {SolutionName}.slnx --no-build -m:1`; filtered fast tiers remain diagnostic lanes, not acceptance
+- [ ] manual acceptance provisions generated prerequisites, then runs unfiltered `dotnet test {SolutionName}.slnx --no-build -m:1`; filtered fast tiers remain diagnostic lanes, not acceptance
 - [ ] `ci.yml` cancels superseded runs, skips draft PR work, and includes `ready_for_review`; deployment queues with `cancel-in-progress: false`
 - [ ] no redundant main-push CI retests an already gated merge candidate; any post-merge trigger performs distinct work
 - [ ] mesh failure diagnostics are captured before teardown, target-step gated, non-fatal, and secret-safe

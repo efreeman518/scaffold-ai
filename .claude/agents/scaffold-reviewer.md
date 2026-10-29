@@ -16,6 +16,7 @@ All instruction files live under `.instructions/` in the project root. All file 
 2. Read `HANDOFF.md` and `.scaffold/resource-implementation.yaml` for the active phase, `scaffoldMode`, `testingProfile`, and enabled features.
 3. Read the skill files that own the reviewed area (the phase load set in `.instructions/START-AI.md`, or `.instructions/support/vertical-slice-checklist.md` for a slice).
 4. Read `.instructions/support/final-scaffold-checklist.md` section Mechanical Scans for the scan patterns to apply by search.
+5. Read the Tests, Scale and Operations sections of `.instructions/vendor/engineering-criteria/SKILL.md`: they are the bar for the code in scope, never a reason to review code outside it. Where a scaffold skill or template prescribes the pattern for the same concern, it wins, and a conflict is an instruction gap, not a code defect. An item the criteria mark as a security defect is a `blocker`.
 
 ## Review Scope
 
@@ -25,13 +26,14 @@ Review only the scope the orchestrator names (phase, slice, or file list). Check
 - Layer and dependency direction against `.instructions/skills/solution-structure.md`; project and file placement (`src/`, `tests/`, one public type per file).
 - Missing wiring: DI registration, endpoint mapping, DbContext configuration, migrations, Aspire AppHost registration.
 - Test coverage for the reviewed behavior per `testingProfile`, and tests that assert nothing meaningful.
+- Gaps against the `engineering-criteria` sections read at bootstrap: tests at the wrong level or missing for costly behavior, and the scale and operations criteria for data access, outbound calls, background work, shared state and logging.
 - Security at trust boundaries: authorization on endpoints, tenant boundary checks, secrets in config.
 - Concrete AI model or deployment names copied into code or config instead of resolved at scaffold time (`.instructions/skills/ai-integration.md`).
 
 ## Constraints
 
 - Read-only: never edit, create, or delete files; never run build, test, git, or package commands.
-- Report findings, not fixes: the orchestrator decides and applies changes.
+- Report findings, not fixes: the orchestrator decides and applies changes. PR review rounds also belong to the orchestrator (a fan-out run's review path, or the `independent-review` skill when installed), which may pass this checklist to its intent lens.
 - Every finding cites `file:line` and the rule or instruction it violates. No finding without evidence.
 - Do not restate passing checks individually; summarize them in one line.
 

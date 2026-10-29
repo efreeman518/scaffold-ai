@@ -56,7 +56,7 @@ What it places:
 | Source in this repo | Destination in your app | Mode |
 |---|---|---|
 | `README.md`, `AGENTS.md`, `START-AI.md`, `GROUND-RULES.md` | `<app>/.instructions/` | copy |
-| `ai/`, `patterns/`, `profiles/`, `schemas/`, `skills/`, `support/`, `templates/`, `scripts/` | `<app>/.instructions/` | copy |
+| `ai/`, `patterns/`, `profiles/`, `schemas/`, `skills/`, `support/`, `templates/`, `scripts/`, `vendor/` | `<app>/.instructions/` | copy |
 | `AGENTS.md` | `<app>/AGENTS.md` (Codex-style CLI agents) | merge |
 | `CLAUDE.md` | `<app>/CLAUDE.md` (Claude Code project memory) | merge |
 | `.github/copilot-instructions.md` | `<app>/.github/copilot-instructions.md` (Copilot global guidance) | merge |
@@ -350,6 +350,7 @@ A short map of the repo so you know which directory owns what kind of content. U
 | `support/` | Operator-facing detail: execution gates, operations protocols, troubleshooting, HANDOFF template, MVS, golden path, prompt catalog, reference-app proof map | On failure, on session boundary, or on need |
 | `schemas/` | JSON Schemas for `.scaffold/domain-specification.yaml` and `.scaffold/resource-implementation.yaml` | Phase 1/2 validation |
 | `scripts/` | Author + operator tooling: install-to-project, configure-ef-packages-feed, generate-ontology, validate-instructions | One-off |
+| `vendor/` | Generated, hash-pinned copies of the `engineering-criteria` and `orchestrated-refactor` skills; refreshed only by `maintenance/sync-vendor.py` | Fan-out (`support/multi-agent.md`) and `scaffold-reviewer` |
 
 Rule of thumb when adding new content: it goes in `skills/` if it's "how to do X", in `templates/` if it's "the shape of the file you generate", in `patterns/` if it's "how multiple projects wire together", in `support/` if it's operator-facing, and in `ai/` only if it's phase orchestration the AI needs at session start.
 
@@ -411,7 +412,8 @@ These references are for **maintaining and developing the instruction set itself
 - [support/final-scaffold-checklist.md](support/final-scaffold-checklist.md) - final generated-app scaffold acceptance checklist
 - [support/troubleshooting.md](support/troubleshooting.md) - failure triage and recurring issue guidance
 - [support/taskflow-proof-map.md](support/taskflow-proof-map.md) - fast reference-app proof map from instruction concern to TaskFlow area
-- [support/multi-agent.md](support/multi-agent.md) - optional, harness-gated guidance for fanning out independent work-items within a phase (orchestrator + workers + `scaffold-reviewer`), model routing by tier, and `.tmp/` scratch/worktree cleanup
+- [support/multi-agent.md](support/multi-agent.md) - optional, harness-gated guidance for fanning out independent work-items within a phase (orchestrator + workers + `scaffold-reviewer`) as one `orchestrated-refactor` run, and `.tmp/` scratch/worktree cleanup
+- [vendor/](vendor/SOURCES.json) - vendored `engineering-criteria` (the bar generated code and `scaffold-reviewer` are held to) and `orchestrated-refactor` (fan-out mechanics) skills, read in place (never installed as harness skills). Generated from their source repo by `maintenance/sync-vendor.py`; never edit them by hand
 
 Useful script entrypoints:
 
@@ -420,4 +422,5 @@ Useful script entrypoints:
 - `scripts/validate-instructions.py` - author-side sanity check: relative-link integrity, phase-label canonical set, harness command-file shape, payload shape vs installer declaration, and golden-path YAML vs `schemas/*.schema.json` (full jsonschema validation when `pyyaml` + `jsonschema` are installed; stdlib structural checks otherwise). Run before committing edits to instruction files; CI runs it on every push via `.github/workflows/validate.yml`.
 - `scripts/validate-reference.py --reference-root <path>` - validate TaskFlow contracts against current schemas, tracked Markdown links, proof-map paths, explicit feature flags, high-value feature sentinels, and immutable workflow action refs. TaskFlow CI checks out the scaffold's current `main` branch and records the exact commit used as diagnostic evidence.
 - `tests/golden-path/run-golden-path.py` - author-side end-to-end regression: drives headless agent sessions (Claude Code subscription login or Codex CLI - no API key) through Phases 3-5b against the WorkBoard golden-path fixture in a throwaway workspace, gating each phase with `dotnet build`/`dotnet test`. Start with `--dry-run`. Not part of the installed payload; reports land under `.tmp/golden-path-runs/`, workspaces in the system temp folder.
+- `maintenance/sync-vendor.py --from <source checkout> [--check]` - maintainer-only: refresh `vendor/` from a local checkout of its source repo (committed and pushed source only) and record the commit and hashes in `vendor/SOURCES.json`; `--check` only reports copies that differ from the source. `validate-instructions.py` fails on any vendored file that no longer matches its recorded hash.
 - `scripts/clean-tmp.py` - dry-run-first cleanup of agent scratch under the repo-root `.tmp/`: removes clean, merged worktrees under `.tmp/worktrees/`, stale `.tmp/sessions/`, and old golden-path runs. Rules: [support/multi-agent.md](support/multi-agent.md) section Agent Scratch.

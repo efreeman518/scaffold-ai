@@ -1129,6 +1129,168 @@ class ValidatorMutationTests(unittest.TestCase):
                 self.assertEqual(proc.returncode, 1)
                 self.assertIn("a <!-- per-harness --> block holds a section, list or rule line", proc.stdout)
 
+    def test_vendor_hand_edit_fails(self):
+        repo = self._copy_repo()
+        target = repo / "vendor" / "engineering-criteria" / "SKILL.md"
+        target.write_text(target.read_text(encoding="utf-8") + "\nLocal tweak.\n", encoding="utf-8")
+        proc = self._validate(repo)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("differs from its vendor/SOURCES.json sha256", proc.stdout)
+
+    def test_vendor_manifest_defects_fail(self):
+        cases = {
+            "unlisted file": ("is not listed in vendor/SOURCES.json",
+                              lambda repo, data: (repo / "vendor" / "extra.md").write_text("# Extra\n", encoding="utf-8")),
+            "listed file missing": ("which does not exist",
+                                    lambda repo, data: (repo / "vendor" / "engineering-criteria" / "SKILL.md").unlink()),
+            "malformed entry": ("unreadable vendor manifest",
+                                lambda repo, data: data["files"].update({"vendor/engineering-criteria/SKILL.md": "abc"})),
+            "entry without path": ("unreadable vendor manifest",
+                                   lambda repo, data: data["files"]["vendor/engineering-criteria/SKILL.md"].pop("path")),
+        }
+        for name, (message, mutate) in cases.items():
+            with self.subTest(case=name):
+                repo = self._copy_repo()
+                manifest = repo / "vendor" / "SOURCES.json"
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+                mutate(repo, data)
+                manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+                proc = self._validate(repo)
+                self.assertEqual(proc.returncode, 1)
+                self.assertIn(message, proc.stdout)
+
+    def _vendor_source(self, repo: Path) -> tuple[dict, Path]:
+        """A source tree holding the vendored files (CRLF, as a Windows checkout has them)."""
+        entries = json.loads((repo / "vendor" / "SOURCES.json").read_text(encoding="utf-8"))["files"]
+        source = repo.parent / "source"
+        for rel, entry in entries.items():
+            dest = source / entry["path"]
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes((repo / rel).read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+        return entries, source
+
+    # Machine-wide git config (hooks, templates, autocrlf) must not reach the throwaway source repos.
+    ISOLATED_GIT_ENV = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+    def _sync_vendor(self, repo: Path, source: Path, *extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(repo / "maintenance" / "sync-vendor.py"), "--from", str(source), *extra],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", env=self.ISOLATED_GIT_ENV,
+        )
+
+    def test_sync_vendor_check_reports_stale_copies(self):
+        repo = self._copy_repo()
+        entries, source = self._vendor_source(repo)
+        self.assertEqual(self._sync_vendor(repo, source, "--check").returncode, 0)
+
+        changed = source / entries["vendor/orchestrated-refactor/SKILL.md"]["path"]
+        changed.write_bytes(changed.read_bytes() + b"Upstream change.\r\n")
+        proc = self._sync_vendor(repo, source, "--check")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("stale: vendor/orchestrated-refactor/SKILL.md", proc.stdout)
+
+        # A local edit is stale too, even when the source has not moved.
+        local = repo / "vendor" / "engineering-criteria" / "SKILL.md"
+        local.write_bytes(local.read_bytes() + b"Local tweak.\n")
+        proc = self._sync_vendor(repo, source, "--check")
+        self.assertIn("stale: vendor/engineering-criteria/SKILL.md", proc.stdout)
+
+    def test_sync_vendor_matches_repository_url_forms(self):
+        sync_vendor = load_module("sync_vendor", REPO_ROOT / "maintenance" / "sync-vendor.py")
+        cases = {
+            "https://github.com/efreeman518/workstation.git\n": True,
+            "https://github.com/EFreeman518/Workstation/": True,
+            "git@github.com:efreeman518/workstation.git": True,
+            "ssh://git@github.com:22/efreeman518/workstation": True,
+            "C:\\mirrors\\efreeman518\\workstation.git": True,
+            "https://github.com/notefreeman518/workstation": False,
+            "https://github.com/efreeman518/workstation-fork": False,
+            "C:/src/efreeman518/workstation/.git": True,
+        }
+        for url, expected in cases.items():
+            with self.subTest(url=url):
+                self.assertEqual(sync_vendor.names_repository(url, "efreeman518/workstation"), expected)
+
+    def test_sync_vendor_records_pushed_committed_source_only(self):
+        repo = self._copy_repo()
+        entries, source = self._vendor_source(repo)
+        # A lookalike owner ("notefreeman518") must not pass for efreeman518.
+        fork = repo.parent / "notefreeman518" / "workstation.git"
+        upstream = repo.parent / "efreeman518" / "workstation.git"
+        # Git writes read-only object files that the default ignore-errors cleanup would leave behind.
+        self.addCleanup(clean_tmp.remove_tree, repo.parent)
+
+        def git(*args: str, cwd: Path = source) -> str:
+            return subprocess.run(
+                ["git", "-C", str(cwd), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                capture_output=True, text=True, check=True, env=self.ISOLATED_GIT_ENV,
+            ).stdout.strip()
+
+        fork.parent.mkdir()
+        git("init", "-q", "--bare", "-b", "main", str(fork), cwd=repo.parent)
+        git("init", "-q")
+        git("remote", "add", "origin", str(fork))
+        git("add", "-A")
+        git("commit", "-q", "-m", "seed")
+        git("push", "-q", "origin", "HEAD:refs/heads/main")
+
+        changed = source / entries["vendor/engineering-criteria/SKILL.md"]["path"]
+        changed.write_bytes(changed.read_bytes() + b"Upstream change.\r\n")
+        proc = self._sync_vendor(repo, source)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("uncommitted changes", proc.stdout)
+
+        git("add", "-A")
+        git("commit", "-q", "-m", "change")
+        proc = self._sync_vendor(repo, source)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("names efreeman518/workstation; add one", proc.stdout)
+
+        # Pushed, but only to a lookalike fork: the recorded repository could not serve the commit.
+        git("push", "-q", "origin", "HEAD:refs/heads/main")
+        proc = self._sync_vendor(repo, source)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("names efreeman518/workstation; add one", proc.stdout)
+
+        # On the recorded repository, but only on a branch that may be deleted after a squash merge.
+        upstream.parent.mkdir()
+        git("init", "-q", "--bare", "-b", "main", str(upstream), cwd=repo.parent)
+        git("remote", "add", "upstream", str(upstream))
+        git("push", "-q", "upstream", "HEAD~1:refs/heads/main", "HEAD:refs/heads/feature")
+        proc = self._sync_vendor(repo, source)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("is not on the default branch of any fetchable remote for efreeman518/workstation", proc.stdout)
+
+        # An unreadable mirror of the same repository is skipped, not fatal.
+        # `git remote` lists names sorted, so "archive" is fetched (and fails) before "upstream".
+        git("remote", "add", "archive", str(repo.parent / "offline" / "efreeman518" / "workstation.git"))
+        git("push", "-q", "upstream", "HEAD:refs/heads/main")
+        proc = self._sync_vendor(repo, source)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("git fetch -q failed", proc.stdout)
+        recorded = json.loads((repo / "vendor" / "SOURCES.json").read_text(encoding="utf-8"))
+        self.assertEqual(recorded["commit"], git("rev-parse", "HEAD"))
+        vendored = (repo / "vendor" / "engineering-criteria" / "SKILL.md").read_bytes()
+        self.assertNotIn(b"\r\n", vendored)
+        self.assertTrue(vendored.endswith(b"Upstream change.\n"))
+
+        # A later entry missing from the commit (ignored on disk) fails before any file is written.
+        criteria = repo / "vendor" / "engineering-criteria" / "SKILL.md"
+        manifest = repo / "vendor" / "SOURCES.json"
+        before = (criteria.read_bytes(), manifest.read_bytes())
+        changed.write_bytes(changed.read_bytes() + b"Second change.\r\n")
+        untracked = entries["vendor/orchestrated-refactor/SKILL.md"]["path"]
+        (source / ".gitignore").write_text(untracked + "\n", encoding="utf-8")
+        git("rm", "-q", "--cached", untracked)
+        git("add", "-A")
+        git("commit", "-q", "-m", "untrack")
+        git("push", "-q", "upstream", "HEAD:refs/heads/main")
+        proc = self._sync_vendor(repo, source)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("git show", proc.stdout)
+        self.assertEqual((criteria.read_bytes(), manifest.read_bytes()), before)
+        self.assertEqual(self._run_validator(repo), 0)
+
     def test_harness_pair_ignores_bom_and_per_harness_block(self):
         repo = self._copy_repo()
         target = repo / ".github" / "agents" / "vertical-slice.agent.md"
