@@ -1244,13 +1244,13 @@ class ValidatorMutationTests(unittest.TestCase):
         git("commit", "-q", "-m", "change")
         proc = self._sync_vendor(repo, source)
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("no remote of", proc.stdout)
+        self.assertIn("names efreeman518/workstation; add one", proc.stdout)
 
         # Pushed, but only to a lookalike fork: the recorded repository could not serve the commit.
         git("push", "-q", "origin", "HEAD:refs/heads/main")
         proc = self._sync_vendor(repo, source)
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("no remote of", proc.stdout)
+        self.assertIn("names efreeman518/workstation; add one", proc.stdout)
 
         # On the recorded repository, but only on a branch that may be deleted after a squash merge.
         upstream.parent.mkdir()

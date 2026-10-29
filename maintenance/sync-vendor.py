@@ -37,7 +37,7 @@ def sha256(data: bytes) -> str:
 
 def names_repository(url: str, repository: str) -> bool:
     """True when url is https://host/owner/repo, git@host:owner/repo or a local path ending in
-    owner/repo for repository "owner/repo"; a lookalike owner such as notowner/repo is not."""
+    owner/repo (bare, or a checkout's owner/repo/.git) for repository "owner/repo"; a lookalike owner such as notowner/repo is not."""
     tail = url.strip().replace("\\", "/").replace(":", "/").lower().rstrip("/").removesuffix("/.git").removesuffix(".git")
     return "/".join(tail.rsplit("/", 2)[-2:]) == repository.lower()
 
