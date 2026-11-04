@@ -201,7 +201,7 @@ Use a domain service only when a business rule spans multiple aggregates and doe
 
 ## Result Pattern
 
-`Result<T>`, the `Error` categories and the idioms (return either case, propagate with `TryGetValue`, exhaustive switch, `.Value` is never the success value): [ef-packages-reference.md](../support/ef-packages-reference.md) section Domain Layer.
+`Result<T>`, the `Error` categories and the idioms (return either case, propagate with `TryGetValue`, exhaustive switch, `.Value` is never the success value): [ef-packages-reference.md](../support/ef-packages-reference.md) section Domain Layer. Closed sets the domain owns (states, commands) and switch rules: [csharp-language.md](csharp-language.md).
 
 ---
 

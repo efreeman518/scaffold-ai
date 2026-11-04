@@ -73,7 +73,7 @@ Each Phase 5 sub-phase loads its own file set. The base context (`ai/SKILL.md`, 
 | **5d Quality + Delivery** | `testing-quality`, `iac`, `cicd` | `test-templates-quality` (architecture + Playwright + load + benchmarks + mutation), `dockerfile`, `tech-design-template` (generates `docs/tech-design.html` only), `local-test-stack-template` (when `Test.Aspire`/`WasmUI`/`Test.Mobile` tiers exist) | `testing` (only if revisiting unit/endpoint scaffolding); `test-templates-integration` / `test-templates-aspire` / `test-templates-e2e` (if these tiers were skipped in 5a/5b); `flowengine-test-template` (when `includeFlowEngine: true` - five-tier guard tests per workflow JSON); `messaging`, `grpc`, `external-api` (if used); `support/compose-deployment` (when `deployTarget: DockerCompose`) |
 | **5e Integration (Auth + AI)** | `identity-management` (always); `ai-integration` (when `includeAiServices: true`) | `ai-search`, `agent` (when AI in scope) | scope AI further to search-only or agents-only as needed |
 
-On-demand in any sub-phase: [../support/quick-reference.md](../support/quick-reference.md) - one-page lookup for project map, package roles, DI patterns, routes, and config keys.
+On-demand in any sub-phase: [../support/quick-reference.md](../support/quick-reference.md) - one-page lookup for project map, package roles, DI patterns, routes, and config keys; [../skills/csharp-language.md](../skills/csharp-language.md) - closed sets, exhaustive switches, collection, loop and lock idioms.
 
 Read the table once at the start of each Phase 5 sub-phase session, load the listed files, proceed.
 
