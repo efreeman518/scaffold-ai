@@ -620,7 +620,4 @@ dotnet build -m:1
 dotnet test --no-build --max-parallel-test-modules 1
 ```
 
-Profile gates:
-- `minimal`: Unit + Endpoint pass
-- `balanced`: Unit + Endpoint + Integration + Architecture pass
-- `comprehensive`: Balanced + E2E/Load/Benchmark/Mutation pass
+Profile gate: every generated tier (by the profile or an explicit flag) passes, per [testing.md](../skills/testing.md#profiles).

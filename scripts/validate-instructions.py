@@ -12,12 +12,17 @@ Checks:
   - Phase labels in instruction prose match the canonical set
     (Phase 1, Phase 2, Phase 3, Phase 4, Phase 5, 5a, 5b, 5c, 5d, 5e).
   - Each .claude/commands/*.md and .github/agents/*.md has the expected sections.
+  - Each Claude command/agent and its Copilot agent share one body: they match
+    after frontmatter and `<!-- per-harness -->` blocks are removed.
   - Each scaffold command/agent carries the maintenance-repo guard that stops
     accidental generation when `.instructions/` is missing.
   - The payload shape declared in install-to-project.py covers every top-level
     runtime directory present in this repo (catches "added skills/foo, forgot
     to wire it into the installer" mistakes).
   - Installer integrity checks cover every first-class harness entrypoint.
+  - Vendored skills: every file under vendor/ is listed in vendor/SOURCES.json and
+    matches its recorded SHA-256, so vendored copies change only through
+    maintenance/sync-vendor.py, never by hand.
   - README install-table parity: every file in the installer's INSTRUCTIONS_FILES
     and every dir in INSTRUCTIONS_DIRS appears in README.md's "What it places"
     table (catches "installer copies GROUND-RULES.md, README table forgot it").
@@ -77,7 +82,7 @@ APP_ROOT = INSTRUCTIONS_ROOT.parent if INSTRUCTIONS_ROOT.name == ".instructions"
 REPO_ROOT = INSTRUCTIONS_ROOT
 
 # Directories the runtime payload should ship. Must match install-to-project.py.
-EXPECTED_RUNTIME_DIRS = {"ai", "patterns", "profiles", "schemas", "skills", "support", "templates", "scripts"}
+EXPECTED_RUNTIME_DIRS = {"ai", "patterns", "profiles", "schemas", "skills", "support", "templates", "scripts", "vendor"}
 
 # GR-08 bare-version prose guard. This allowlist is for non-dependency format
 # identifiers only; SDK, package, runtime, and action versions do not belong here.
@@ -88,7 +93,8 @@ VERSION_PROSE_ALLOWLIST: dict[str, set[str] | None] = {
 # Author-side directories that must NOT be in the runtime payload.
 AUTHOR_ONLY_DIRS = {"tests", ".github/workflows", ".githooks", ".vscode", ".venv", ".tmp"}
 
-# Markdown roots to walk. Skip vendored/temporary trees.
+# Markdown roots to walk. Skip vendored/temporary trees: vendor/ holds verbatim upstream
+# copies that check_vendor_hashes pins instead, so prose checks (GR-08, model names) skip it.
 RUNTIME_SCAN_ROOTS = ["ai", "patterns", "profiles", "schemas", "skills", "support", "templates"]
 HARNESS_SCAN_ROOTS = [".claude", ".github"]
 INSTRUCTIONS_TOP_LEVEL_MD = ["README.md", "START-AI.md", "AGENTS.md", "GROUND-RULES.md"]
@@ -150,15 +156,29 @@ SECTION_TAIL_CONNECTOR = re.compile(
 
 # Required section headings in harness command/agent files.
 REQUIRED_COMMAND_HEADINGS = {
-    ".claude/commands/scaffold.md": ["Instructions", "Rules"],
-    ".claude/commands/vertical-slice.md": ["Instructions", "Pre-Flight", "Rules"],
-    ".claude/commands/scaffold-adopt.md": ["Instructions", "Pre-Flight", "Rules"],
+    ".claude/commands/scaffold.md": ["Bootstrap", "Core Rules"],
+    ".claude/commands/vertical-slice.md": ["Bootstrap", "Pre-Flight", "Constraints"],
+    ".claude/commands/scaffold-adopt.md": ["Bootstrap", "Pre-Flight", "Constraints"],
     ".github/agents/dotnet-scaffold.agent.md": ["Bootstrap", "Core Rules"],
     ".github/agents/vertical-slice.agent.md": ["Bootstrap", "Pre-Flight", "Constraints"],
     ".github/agents/scaffold-adopt.agent.md": ["Bootstrap", "Pre-Flight", "Constraints"],
     ".github/agents/scaffold-reviewer.agent.md": ["Bootstrap", "Review Scope", "Constraints"],
     ".claude/agents/scaffold-reviewer.md": ["Bootstrap", "Review Scope", "Constraints"],
 }
+
+# Claude file -> Copilot file carrying the same instructions. Only frontmatter and text
+# between `<!-- per-harness -->` and `<!-- /per-harness -->` may differ (harness framing
+# such as `$ARGUMENTS`); everything else is one body kept in step. PER_HARNESS_RULE rejects
+# headings and list lines in a block; a prose rule placed there is caught only in review.
+HARNESS_PAIRS = {
+    ".claude/commands/scaffold.md": ".github/agents/dotnet-scaffold.agent.md",
+    ".claude/commands/vertical-slice.md": ".github/agents/vertical-slice.agent.md",
+    ".claude/commands/scaffold-adopt.md": ".github/agents/scaffold-adopt.agent.md",
+    ".claude/agents/scaffold-reviewer.md": ".github/agents/scaffold-reviewer.agent.md",
+}
+PER_HARNESS_BLOCK = re.compile(r"^<!-- per-harness -->\n.*?^<!-- /per-harness -->\n?", re.DOTALL | re.MULTILINE)
+PER_HARNESS_RULE = re.compile(r"^\s*(?:#{2,}|[-*+]|\d+\.)\s", re.MULTILINE)
+FRONTMATTER = re.compile(r"\A---[ \t]*\n(?:.*?\n)?---[ \t]*\n", re.DOTALL)
 
 MAINTENANCE_GUARD_PHRASES = ["Maintenance-repo note", "If `.instructions/` is missing"]
 
@@ -663,6 +683,40 @@ def check_command_shape(findings: Findings) -> None:
                 findings.err(path, f"missing required heading '## {heading}'")
 
 
+def shared_harness_body(text: str) -> list[str]:
+    """Body lines a harness pair must share: frontmatter and per-harness blocks removed."""
+    text = FRONTMATTER.sub("", text, count=1)
+    return PER_HARNESS_BLOCK.sub("", text).strip("\n").split("\n")
+
+
+def check_harness_pairs(findings: Findings) -> None:
+    for claude_rel, copilot_rel in HARNESS_PAIRS.items():
+        claude_path, copilot_path = APP_ROOT / claude_rel, APP_ROOT / copilot_rel
+        # A missing file is reported by check_command_shape.
+        if not (claude_path.exists() and copilot_path.exists()):
+            continue
+        # utf-8-sig: an editor-added BOM would otherwise hide the frontmatter from the strip.
+        claude_text = claude_path.read_text(encoding="utf-8-sig")
+        copilot_text = copilot_path.read_text(encoding="utf-8-sig")
+        # A per-harness block holds framing only; a section or rule moved into one would escape the compare.
+        for path, text in ((claude_path, claude_text), (copilot_path, copilot_text)):
+            if any(PER_HARNESS_RULE.search(block) for block in PER_HARNESS_BLOCK.findall(text)):
+                findings.err(path, "a <!-- per-harness --> block holds a section, list or rule line; only harness framing may differ")
+        claude_body = shared_harness_body(claude_text)
+        copilot_body = shared_harness_body(copilot_text)
+        if claude_body == copilot_body:
+            continue
+        line = next(
+            (i for i, (a, b) in enumerate(zip(claude_body, copilot_body), 1) if a != b),
+            min(len(claude_body), len(copilot_body)) + 1,
+        )
+        findings.err(
+            copilot_path,
+            f"shared body differs from {claude_rel} at body line {line} (counted after frontmatter "
+            "and <!-- per-harness --> blocks, which alone may differ); fix whichever side drifted",
+        )
+
+
 def check_maintenance_guards(findings: Findings) -> None:
     for rel in REQUIRED_COMMAND_HEADINGS:
         path = APP_ROOT / rel
@@ -716,6 +770,33 @@ def check_payload_shape(findings: Findings) -> None:
             findings.err(installer, f"SMOKE_CHECK_HARNESS_ENTRYPOINTS missing first-class entrypoints: {sorted(missing)}")
         if extra:
             findings.err(installer, f"SMOKE_CHECK_HARNESS_ENTRYPOINTS contains unexpected entries: {sorted(extra)}")
+
+
+def check_vendor_hashes(findings: Findings) -> None:
+    """Vendored files are generated by maintenance/sync-vendor.py; a hand edit breaks the recorded hash."""
+    import hashlib
+    import json
+
+    sources_path = INSTRUCTIONS_ROOT / "vendor" / "SOURCES.json"
+    try:
+        entries: dict[str, dict] = json.loads(sources_path.read_text(encoding="utf-8"))["files"]
+        if not all(isinstance(entry, dict) and isinstance(entry.get("path"), str) and isinstance(entry.get("sha256"), str)
+                   for entry in entries.values()):
+            raise ValueError("every files entry must be an object with string path and sha256")
+    except (OSError, ValueError, KeyError, AttributeError, TypeError) as exc:
+        findings.err(sources_path, f"unreadable vendor manifest ({exc!r})")
+        return
+    for rel, entry in entries.items():
+        path = INSTRUCTIONS_ROOT / rel
+        if not path.is_file():
+            findings.err(sources_path, f"lists {rel}, which does not exist")
+        elif hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest() != entry.get("sha256"):
+            findings.err(path, "differs from its vendor/SOURCES.json sha256 - vendored files change only "
+                               "through maintenance/sync-vendor.py, never by hand")
+    for path in sorted((INSTRUCTIONS_ROOT / "vendor").rglob("*")):
+        rel = path.relative_to(INSTRUCTIONS_ROOT).as_posix()
+        if path.is_file() and path != sources_path and rel not in entries:
+            findings.err(path, "is not listed in vendor/SOURCES.json - add it to the manifest and run maintenance/sync-vendor.py")
 
 
 def check_readme_install_table(findings: Findings) -> None:
@@ -1638,7 +1719,9 @@ def main() -> int:
     check_agents_path_rule(findings)
     check_no_dated_reports(findings)
     check_maintenance_guards(findings)
+    check_harness_pairs(findings)
     check_payload_shape(findings)
+    check_vendor_hashes(findings)
     check_readme_install_table(findings)
     check_optional_ai_contract(findings)
     check_deployment_hardening_contract(findings)

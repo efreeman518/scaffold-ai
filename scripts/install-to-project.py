@@ -53,6 +53,7 @@ INSTRUCTIONS_DIRS = [
     "support",
     "templates",
     "scripts",
+    "vendor",
 ]
 
 # Paths excluded from any directory copy (matched against path parts).

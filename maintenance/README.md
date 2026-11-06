@@ -10,7 +10,7 @@ The ship boundary is an explicit allowlist in `scripts/install-to-project.py` (c
 
 **Ships** (copied into a target app):
 
-- Payload -> `<app>/.instructions/`: `START-AI.md`, `GROUND-RULES.md`, `README.md`, `AGENTS.md`, and the dirs `ai/`, `patterns/`, `profiles/`, `schemas/`, `skills/`, `support/`, `templates/`, `scripts/` (the `INSTRUCTIONS_FILES` + `INSTRUCTIONS_DIRS` lists).
+- Payload -> `<app>/.instructions/`: `START-AI.md`, `GROUND-RULES.md`, `README.md`, `AGENTS.md`, and the dirs `ai/`, `patterns/`, `profiles/`, `schemas/`, `skills/`, `support/`, `templates/`, `scripts/`, `vendor/` (the `INSTRUCTIONS_FILES` + `INSTRUCTIONS_DIRS` lists).
 - Harness entrypoints -> app root / `.github/` / `.claude/`: `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md` (merged inside sentinel markers), `.claude/commands/`, `.claude/agents/`, `.github/agents/` (the `AGENT_COPIES` list). These sit at the repo root because they are also *this* repo's own agent config - they cannot move into a folder.
 
 **Never ships** (source-repo only):
