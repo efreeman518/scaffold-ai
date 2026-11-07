@@ -61,7 +61,8 @@ Is HANDOFF.md present?
   YES -> Read workflowStatus first.
          complete -> Scaffold workflow is terminal. Return to ordinary repository maintenance; do not load phase files.
                      New-entity work still routes to support/vertical-slice-checklist.md fast-path.
-         active   -> Fix `review pending` Blockers, then resume currentPhase/currentSubPhase; read
+         active   -> New entity: support/vertical-slice-checklist.md fast-path. Otherwise fix
+                     `review pending` Blockers, then resume currentPhase/currentSubPhase; read
                      that phase's Phase Router row for its load set.
   NO  -> New project          -> Phase Router
         New entity            -> load support/vertical-slice-checklist.md fast-path only

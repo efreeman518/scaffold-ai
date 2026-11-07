@@ -1937,11 +1937,18 @@ class GoldenPathTests(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp(prefix="tooling-git-wiring-"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         issue = "git: branch(es) not merged into scaffold/golden: feature/x"
-        with mock.patch.object(goldenpath, "git_state_issues", return_value=[issue]), \
-                mock.patch.object(goldenpath, "run_gate_cmd", return_value=(True, "")):
-            ok, notes = goldenpath.gate("5a", tmp)
-        self.assertFalse(ok)
-        self.assertIn(issue, notes)
+        # Phase 3 returns before the build gates, so it is checked with its own artifacts in place.
+        (tmp / ".scaffold").mkdir()
+        (tmp / ".scaffold" / "implementation-plan.md").write_text("plan\n", encoding="utf-8")
+        (tmp / "HANDOFF.md").write_text('currentPhase: "4"\n', encoding="utf-8")
+        for phase in ("3", "5a"):
+            with mock.patch.object(goldenpath, "git_state_issues", return_value=[issue]), \
+                    mock.patch.object(goldenpath, "run_gate_cmd", return_value=(True, "")):
+                ok, notes = goldenpath.gate(phase, tmp)
+            self.assertFalse(ok, phase)
+            self.assertIn(issue, notes)
+        with mock.patch.object(goldenpath, "git_state_issues", return_value=[]):
+            self.assertTrue(goldenpath.gate("3", tmp)[0])
 
     def test_gate_phase3(self):
         tmp = Path(tempfile.mkdtemp(prefix="tooling-gate-"))

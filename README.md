@@ -182,6 +182,7 @@ Read the rest of this guide when you need setup details, MCP recommendations, or
 ## Prerequisites
 
 - `git`
+- A GitHub repository as `origin` and an authenticated GitHub CLI (`gh auth status`): the Git Checkpoint Protocol in [support/OPERATIONS.md](support/OPERATIONS.md) asks the developer at every step without them
 - A current machine- or user-global Python 3 to run `install-to-project.py`, `configure-ef-packages-feed.py`, and `validate-instructions.py`; see [support/python-setup.md](support/python-setup.md). **On Windows, no single launcher is universal:** `py -3` works on machines with the Python launcher installed, and the bare `python` command works when a real Python is on PATH (it may resolve to the Microsoft-Store stub if not). Run `where python` and `where py` to see what's available, then pick the one that prints a real path. `.venv\Scripts\python.exe` is acceptable for source-repo authoring, but it is not the preferred cross-repo setup. The scripts have no Python-version-specific syntax - any current 3.x works.
 - Latest stable `.NET SDK`
 - Docker engine running (Docker Desktop not required) - Aspire relies on it for hosting local container services

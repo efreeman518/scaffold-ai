@@ -16,7 +16,7 @@ Run once per machine/repo before beginning any scaffolding phase.
 
 ### Development Tools
 
-- [ ] Git: the Git Checkpoint Protocol ([OPERATIONS.md](OPERATIONS.md)) initializes the repository and commits the payload; Phase 4 writes the .NET `.gitignore`, **patched** for this scaffold's `src/Packages/` source folder and `tests/Test.E2E/` project (see [../skills/solution-structure.md](../skills/solution-structure.md) section Required Root Files (Cross-Platform Hygiene))
+- [ ] Git: a GitHub repository to use as `origin` and an authenticated `gh` (`gh auth status`); the Git Checkpoint Protocol ([OPERATIONS.md](OPERATIONS.md)) initializes the local repository and commits the payload; Phase 4 writes the .NET `.gitignore`, **patched** for this scaffold's `src/Packages/` source folder and `tests/Test.E2E/` project (see [../skills/solution-structure.md](../skills/solution-structure.md) section Required Root Files (Cross-Platform Hygiene))
 - [ ] Current machine- or user-global Python 3 installed for scaffold helper scripts. Verify from a fresh shell per [python-setup.md](python-setup.md); do not rely on a repo `.venv` as the machine launcher.
 - [ ] Tracked-source validation runs after staging - see [Tracked-Source Validation](#tracked-source-validation) below.
 - [ ] `.NET SDK` installed (`dotnet --version`)

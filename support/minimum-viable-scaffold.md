@@ -27,7 +27,7 @@ MVS is a profile, not a separate path. After MVS finishes you can promote to a r
 Same as the [README Prerequisites](../README.md#prerequisites), with these MVS-specific simplifications:
 
 - **Skip:** Uno templates, `uno-check`, Kiota, Functions Core Tools.
-- **Required:** latest stable .NET SDK, `git`, Python (for installer), and Docker for the default Aspire SQL container and SQL-backed tests. Package feed access is conditional on `packageStrategy` (chosen in Phase 2): `feed`/`hybrid` needs read access to the configured private feed (e.g., GitHub Packages for the canonical `EF.*` example); `local` needs only `nuget.org`.
+- **Required:** latest stable .NET SDK, `git`, a GitHub repository as `origin` with an authenticated `gh` (`gh auth status`), Python (for installer), and Docker for the default Aspire SQL container and SQL-backed tests. Package feed access is conditional on `packageStrategy` (chosen in Phase 2): `feed`/`hybrid` needs read access to the configured private feed (e.g., GitHub Packages for the canonical `EF.*` example); `local` needs only `nuget.org`.
 
 ## Install
 

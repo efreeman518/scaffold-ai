@@ -18,7 +18,7 @@ Reference-app rules (when to consult, local vs MCP, do-not-copy-wholesale) live 
 ## Phase 1 - Domain Discovery (Session 1)
 
 ```text
-Load .instructions/START-AI.md. This is a new project - no HANDOFF.md yet.
+Load .instructions/START-AI.md and run its session start steps. This is a new project - no HANDOFF.md yet.
 Run the Tooling Check from START-AI.md; use Microsoft Docs or Context7 only if current docs are needed.
 Generate a domain-specification YAML for a new application called {ProjectName}.
 The business is: {one-sentence business description}.
@@ -144,7 +144,7 @@ Read workflowStatus first. If complete, leave the scaffold workflow and use ordi
 ## Add New Entity (Existing Project)
 
 ```text
-Load .instructions/START-AI.md. No HANDOFF.md needed - this is an add-entity operation.
+Load .instructions/START-AI.md and run its session start steps. This is an add-entity operation: route to the vertical-slice fast path, never resume a phase from HANDOFF.md.
 Add entity {Entity} to the existing solution using .instructions/support/vertical-slice-checklist.md fast-path.
 Follow patterns established by {ExistingEntity}.
 Start the slice branch, commit, review and open the PR per .instructions/support/OPERATIONS.md Git Checkpoint Protocol.
@@ -162,6 +162,6 @@ rebuts each finding before anything else; none at HIGH or MEDIUM stays open.
 Do not modify any file. Review the diff {Base}...{Branch} for {Scope}, excluding .instructions/; {Base} is HANDOFF.md reviewBase for a phase, or the branch a slice started from.
 - A slice ({Entity}, following {ExistingEntity}): load .instructions/support/vertical-slice-checklist.md; every applicable checklist item satisfied, wiring present, Phase-1 artifacts (.scaffold/) updated for {Entity} (GR-01).
 - A phase (4, 5a-5e): load that phase's files from .instructions/START-AI.md Phase Router (Phase 5: the .instructions/ai/SKILL.md Phase 5 file table) and .instructions/support/execution-gates.md; every output and gate check of the phase met.
-In both: boundaries respect .instructions/GROUND-RULES.md (GR-14 aggregate rules); patterns match the existing code; no dead stubs or leftover TODOs.
+In both: boundaries respect .instructions/GROUND-RULES.md (GR-14 aggregate rules); patterns match the existing code; no dead stubs or leftover TODOs beyond the GR-06 `TODO: [CONFIGURE]` markers.
 Report findings as a numbered list, each with severity (HIGH, MEDIUM or LOW), file path and scenario; end with VERDICT: CLEAN or VERDICT: FINDINGS.
 ```
