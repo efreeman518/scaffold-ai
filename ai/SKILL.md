@@ -12,18 +12,18 @@ Fast-lookup answer to "what do I do next?" - refer to this before scrolling for 
 
 | Situation | Action |
 |---|---|
-| Build green after a sub-phase | Move to next sub-phase. Update `HANDOFF.md`, close session. |
-| Build red, fixable in one focused pass | Fix, rebuild. If still red, stop and write `HANDOFF.md`. |
-| Build red, second pass purely propagates the same fix (rename/namespace/file-move cascade) | One extra pass allowed. If new failure modes appear, stop and write `HANDOFF.md`. |
-| Build red after fix attempt(s) with new errors | Write `HANDOFF.md` with the blocker. Do not loop. |
+| Build green after a sub-phase | Commit, update `HANDOFF.md`, close session. |
+| Build red, fixable in one focused pass | Fix, rebuild. If still red, diagnose. |
+| Build red, second pass purely propagates the same fix (rename/namespace/file-move cascade) | One extra pass allowed. If new failure modes appear, diagnose. |
+| Build red after fix attempt(s) with new errors | Diagnose (Fail-Fast Protocol); else `HANDOFF.md` blocker. Do not loop. |
 | Domain assumption looks wrong (entity shape, relationship) | Stop. Confirm with developer before continuing. See **Mid-Session Rollback Protocol** below. |
 | External dependency cannot be stubbed locally | Mark as `deployment-only` in `.scaffold/resource-implementation.yaml`, generate a no-op stub anyway, log blocker in `HANDOFF.md`, continue. |
-| Sub-phase has produced 15+ generated files or 3+ build cycles | Checkpoint `HANDOFF.md` mid-session. Do not wait for the gate. |
+| Sub-phase has produced 15+ generated files or 3+ build cycles | Commit and checkpoint `HANDOFF.md`. Do not wait for the gate. |
 | Multiple files touched by a single structural error | Don't patch-fix. Roll back, log, re-scaffold the slice. |
 | Missing required input (`ProjectName`, `packageStrategy` + `packagePrefix`, `customNugetFeeds` when feed/hybrid, at least one entity) | Ask developer before proceeding. |
 | Missing optional input (mode/profile/flag default) | Apply canonical default from [resource-implementation-schema.md](resource-implementation-schema.md), state assumption inline, record in `HANDOFF.md`. |
 
-Detail sections (Fail-Fast Protocol, Git Checkpoint Protocol, Missing-Inputs Protocol, Mid-Session Rollback Protocol, Mixed-Store Slice Gate) live in [../support/OPERATIONS.md](../support/OPERATIONS.md) - this table is the index.
+Detail sections (Fail-Fast Protocol, Git Checkpoint Protocol, Missing-Inputs Protocol, Mid-Session Rollback Protocol, Unattended Runs, Mixed-Store Slice Gate) live in [../support/OPERATIONS.md](../support/OPERATIONS.md) - this table is the index.
 
 ## Load-Set Sizing
 
@@ -151,6 +151,6 @@ Generate one complete slice, validate, then move to next slice.
 
 - Session model, phase router, conflict order: [../START-AI.md](../START-AI.md)
 - Validation gates and commands: [../support/execution-gates.md](../support/execution-gates.md)
-- Operational protocols (fail-fast, git checkpoint, missing-inputs, rollback, mixed-store gate, context budgets): [../support/OPERATIONS.md](../support/OPERATIONS.md)
+- Operational protocols (fail-fast, git checkpoint, missing-inputs, rollback, unattended, mixed-store gate, context budgets): [../support/OPERATIONS.md](../support/OPERATIONS.md)
 - HANDOFF template: [../support/HANDOFF.md](../support/HANDOFF.md)
 - Copy-paste phase prompts (human convenience): [../support/prompt-catalog.md](../support/prompt-catalog.md)

@@ -42,7 +42,13 @@ Follow the canonical Slice Execution Order in `.instructions/support/vertical-sl
 
 See `.instructions/support/execution-gates.md` section Core Loop. Scope test filter to the new entity (`FullyQualifiedName~{Entity}`).
 
-After the gate passes, optionally dispatch the read-only `scaffold-reviewer` agent over the slice's files and resolve its `blocker`/`major` findings before reporting.
+## Review
+
+After the gate passes, commit the slice on its session branch (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol) and review it before reporting. With the ecosystem `independent-review` skill installed, run its review rounds on the branch diff and add the read-only `scaffold-reviewer` agent as the ground-rule lens; without it, dispatch `scaffold-reviewer` alone over the slice's files. Fix every confirmed finding or rebut it with evidence; none at HIGH or MEDIUM stays open.
+
+## Unattended Runs
+
+When an issue-driven loop runs this workflow with no developer present, `.instructions/support/OPERATIONS.md` section Unattended Runs maps every ask-the-developer point, the push and PR gate, gates that need Docker or a database, and instruction gaps onto the loop.
 
 ## Several Entities
 

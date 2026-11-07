@@ -308,7 +308,7 @@ Phase 3 analyzes `.scaffold/resource-implementation.yaml` technology choices and
 
 ## Model Tier by Phase
 
-> **Quality first - the scaffold is built once and read for the project's life.** The default tier is **high-capability for every phase**. A cheaper tier is an opt-in cost lever only where the work is mechanical and fully build/test-verified; it is never a recommendation, and never appropriate on reasoning-heavy phases. When uncertain, stay higher. Model tier is operator- and harness-controlled (the operator selects it at session start, since the workflow is one phase per session); if your harness cannot select a model, ignore this section and continue. Per **GR-08** this guidance names capability tiers by characteristic only - never a model id or version, which would go stale on every release.
+> **Quality first - the scaffold is built once and read for the project's life.** The default tier is **high-capability for every phase**. A cheaper tier is an opt-in cost lever only where the work is mechanical and fully build/test-verified; it is never a recommendation, and never appropriate on reasoning-heavy phases. When uncertain, stay higher. Model tier is operator- and harness-controlled (the operator selects it at session start, since the workflow is one phase per session); if your harness cannot select a model, ignore this section and continue. A harness or operator routing table (such as the ecosystem `orchestrated-refactor` model table) wins over this section where it is more specific; reviewers come from a different model family than the writer when one is available. Per **GR-08** this guidance names capability tiers by characteristic only - never a model id or version, which would go stale on every release.
 
 ### Tiers
 
@@ -415,6 +415,7 @@ These references are for **maintaining and developing the instruction set itself
 - [support/taskflow-proof-map.md](support/taskflow-proof-map.md) - fast reference-app proof map from instruction concern to TaskFlow area
 - [support/multi-agent.md](support/multi-agent.md) - optional, harness-gated guidance for fanning out independent work-items within a phase (orchestrator + workers + `scaffold-reviewer`) as one `orchestrated-refactor` run, and `.tmp/` scratch/worktree cleanup
 - [vendor/](vendor/SOURCES.json) - vendored `engineering-criteria` (the bar generated code and `scaffold-reviewer` are held to) and `orchestrated-refactor` (fan-out mechanics) skills, read in place (never installed as harness skills). Generated from their source repo by `maintenance/sync-vendor.py`; never edit them by hand
+- Ecosystem skills, if available: when the harness has the ecosystem skills from the private `efreeman518/workstation` repository installed, scaffold workflows use them by name - `independent-review` for slice and phase review (with `scaffold-reviewer` as its ground-rule lens), `root-cause` for failures that survive the fix-pass budget, and the installed `orchestrated-refactor` and `engineering-criteria` over the vendored copies. Without them, each workflow names its own fallback
 
 Useful script entrypoints:
 

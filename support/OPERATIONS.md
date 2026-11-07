@@ -13,23 +13,24 @@ After every build:
 - **Missing package in `Directory.Packages.props`**: add at latest stable version, restore, rebuild.
 - **Infrastructure issue** (feed auth, env vars, Docker, certs, SQL/cloud access): do not loop fixes. Document the blocker in `HANDOFF.md`, point the engineer to [execution-gates.md](execution-gates.md).
 
-Rule: one fix pass for new errors; one extra pass allowed for mechanical propagation of the same root-cause fix. Otherwise, write the blocker.
+Rule: one fix pass for new errors; one extra pass allowed for mechanical propagation of the same root-cause fix. When the budget is spent on a code failure, diagnose first (the ecosystem `root-cause` skill when available, else by hand): read the primary error, prove the cause, fix it there with a test that fails without the fix. Write the blocker only when the cause is outside the session or stays unproven. Never mask a failure (catch-and-ignore, sleeps, blanket reruns, skipped or weakened tests).
 
 ## Git Checkpoint Protocol
 
-Create a checkpoint after each successful sub-phase gate.
+Every session works on its own branch, so a checkpoint is a plain commit.
 
-- Prefer a `git commit` when the developer has approved committing.
-- Otherwise record the exact suggested commit command in `HANDOFF.md` and ensure the working tree state is clearly described.
-- Do not run destructive git commands (`reset --hard`, `checkout .`, `branch -D`, `push --force`) without explicit developer approval.
+- **Branch first.** Each phase or sub-phase session and each slice starts on its own branch from the current default branch: on its clean checkout, `git pull --ff-only` then `git switch -c <type>/<slug>` (`feature/`, `fix/`, `chore/`, `docs/`); otherwise `git fetch origin` then `git worktree add .tmp/worktrees/<slug>-<suffix> -b <type>/<slug>-<suffix> origin/<default-branch>`, with 6 random hex characters as `<suffix>`. A phase building on an earlier unmerged branch starts from it and records that in `HANDOFF.md`. Never switch, stash, reset or clean a checkout holding uncommitted work or another branch; use a worktree.
+- **Commit at every green gate** (sub-phase gate, TDD green step, slice validation gate) with a plain-text message stating intent. The branch belongs to the session, so a commit needs no approval.
+- **The phase review gate is a pull request.** When the phase gate passes, the developer's gate decides pushing: with their approval (or, unattended, per section Unattended Runs) push the branch and open one PR to the default branch; without it, stop with the branch committed and record the branch name and push command in `HANDOFF.md`. The developer merges. Never commit or push to the default branch directly.
+- Destructive commands (`reset --hard`, `checkout .`, `clean`, `branch -D`, `push --force`) need the developer's explicit approval.
 
-If a sub-phase fails after the one-pass fix attempt:
+If a sub-phase fails after the fix-pass budget (and the diagnosis above):
 
-- isolate the broken changes from the last clean state,
-- log the blocker in `HANDOFF.md`,
+- keep the last green commit as the checkpoint: commit the failing work as `WIP: <what fails>` on top of it, never into a green-gate commit,
+- log the blocker in `HANDOFF.md`, naming the last green commit,
 - continue only with non-blocked work.
 
-Mid-session checkpoint trigger: 15+ generated files **or** 3+ build/fix cycles. Update `HANDOFF.md` immediately - do not wait for the gate.
+Mid-session checkpoint trigger: 15+ generated files **or** 3+ build/fix cycles. Commit (a `WIP:` commit when not green) and update `HANDOFF.md` immediately - do not wait for the gate.
 
 ## Missing-Inputs Protocol
 
@@ -49,19 +50,29 @@ When the AI discovers a fundamental assumption error (wrong entity design, incor
 
 1. **Stop generating.** Do not continue building on a flawed assumption.
 2. **Assess scope:** Identify all files generated since the last git checkpoint that are affected by the error.
-3. **Checkpoint recovery prep:**
+3. **Checkpoint recovery prep:** commit the current work so nothing is lost, then find the last green checkpoint. Never `git stash`: the stash stack is shared by every worktree and session of the repository.
    ```powershell
-   git stash          # save current work
-   git log --oneline -5  # find last clean checkpoint
+   git add -A; git commit -m "WIP: <the flawed assumption>"
+   git log --oneline -5  # find the last green checkpoint
    ```
 4. **Decide recovery path:**
-   - **Isolated error** (affects 1-2 files): `git stash pop`, fix the affected files, rebuild and re-test.
-   - **Structural error** (wrong entity shape, missing relationship, bad inheritance): ask the developer before discarding work. Prefer `git stash branch recovery/<short-name>` or a targeted revert over `git checkout <last-checkpoint>`.
+   - **Isolated error** (affects 1-2 files): fix the affected files on top of the WIP commit, rebuild and re-test; the next green commit supersedes it.
+   - **Structural error** (wrong entity shape, missing relationship, bad inheritance): ask the developer before discarding work. Start a recovery branch from the last green checkpoint (`git switch -c <type>/<slug>-redo <checkpoint>`), keeping the WIP branch for reference, or `git revert` the affected commits. Never `reset --hard` a branch that holds the work.
    - **Domain misunderstanding** (entity purpose is wrong): go back to Phase 1 output, clarify with the user, update `.scaffold/domain-specification.yaml`, `.scaffold/UBIQUITOUS-LANGUAGE.md`, and `.scaffold/DESIGN-DECISIONS.md`, then re-scaffold the slice from scratch.
 5. **Document in HANDOFF.md:** Record what was rolled back and why, so the next session doesn't repeat the mistake.
 6. **Re-enter at the corrected sub-phase** using the Phase 5 file table in `ai/SKILL.md`.
 
 > **Rule:** Never patch-fix a structural error across 3+ files. It is faster and safer to rollback and re-scaffold than to chase cascading fixes.
+
+## Unattended Runs
+
+An issue-driven loop with no developer present (the ecosystem's autotriage feature loop, for one) may run `/vertical-slice` or a fan-out from an approved specification. The loop's own instructions own asking, pushing, merging, deploying and the files it may not change; where they and a scaffold rule differ, the loop's win on those points only. The scaffold's human touchpoints map onto it:
+
+- **Stop and ask becomes the loop's question.** A missing required input, a blocking `[OPEN QUESTION]` (GR-10), an assumption the checklist does not allow, or an unavailable required model tier is posted where the loop asks (the linked issue), and the run stops. Never guess past it.
+- **The approved specification stands in for the developer's phase-gate approval** to commit, push the session branch and open the PR. The developer's PR review is the gate; the loop never merges.
+- **Gates the run cannot execute go to CI.** A gate that needs Docker, Testcontainers, Aspire or a database runs in the PR's CI; the PR body names each such gate and the CI job that runs it. A gate with no CI job is reported as not run, never as passed.
+- **Phase-1 artifact updates** the slice needs (GR-01) land in the same PR, before the code.
+- **Instruction gaps** are appended to `.scaffold/INSTRUCTION-GAPS.md` as usual and listed in the PR body. `.instructions/` stays read-only (GR-07); the loop's gate also rejects a PR that changes it.
 
 ## Mixed-Store Slice Gate
 
