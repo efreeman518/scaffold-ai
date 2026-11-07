@@ -1886,38 +1886,48 @@ class GoldenPathTests(unittest.TestCase):
     def test_git_state_issues(self):
         tmp = Path(tempfile.mkdtemp(prefix="tooling-git-gate-"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
-
-        isolated = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+        # git_state_issues inherits os.environ, so the isolation must cover it too, not only the setup calls.
+        isolated = mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+        isolated.start()
+        self.addCleanup(isolated.stop)
 
         def git(*args):
             subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
-                           cwd=str(tmp), check=True, capture_output=True, env=isolated)
+                           cwd=str(tmp), check=True, capture_output=True)
+
+        def handoff(branch):
+            (tmp / "HANDOFF.md").write_text(f'scaffoldBranch: "{branch}"\n', encoding="utf-8")
+
+        def issues():
+            return " ".join(goldenpath.git_state_issues(tmp))
 
         git("init", "-q", "-b", "main")
-        (tmp / "a.txt").write_text("a\n", encoding="utf-8")
+        handoff("")
         git("add", "-A")
         git("commit", "-q", "-m", "base")
-        self.assertIn("golden.defaultBranch not recorded", " ".join(goldenpath.git_state_issues(tmp)))
-        git("config", "golden.defaultBranch", "main")
+        self.assertIn("left on main, not a scaffold/ branch", issues())
+
+        git("switch", "-q", "-c", "scaffold/golden")
+        self.assertIn("scaffoldBranch does not name scaffold/golden", issues())
+        handoff("scaffold/golden")
+        self.assertIn("uncommitted changes", issues())
+        git("commit", "-q", "-am", "phase 3")
         self.assertEqual(goldenpath.git_state_issues(tmp), [])
 
-        git("switch", "-q", "-c", "feature/phase-3")
-        (tmp / "b.txt").write_text("b\n", encoding="utf-8")
-        issues = " ".join(goldenpath.git_state_issues(tmp))
-        self.assertIn("uncommitted changes", issues)
-        self.assertIn("left on feature/phase-3, not main", issues)
+        git("switch", "-q", "-c", "feature/widget")
+        (tmp / "w.txt").write_text("w\n", encoding="utf-8")
         git("add", "-A")
-        git("commit", "-q", "-m", "phase 3")
-        git("switch", "-q", "main")
-        self.assertIn("not merged into main: feature/phase-3", " ".join(goldenpath.git_state_issues(tmp)))
-        git("merge", "-q", "--ff-only", "feature/phase-3")
+        git("commit", "-q", "-m", "slice")
+        git("switch", "-q", "scaffold/golden")
+        self.assertIn("not merged into scaffold/golden: feature/widget", issues())
+        git("merge", "-q", "--ff-only", "feature/widget")
         self.assertEqual(goldenpath.git_state_issues(tmp), [])
 
     def test_gate_fails_on_git_state(self):
         # A green build and green tests still fail the gate while git_state_issues reports anything.
         tmp = Path(tempfile.mkdtemp(prefix="tooling-git-wiring-"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
-        issue = "git: session branch(es) not merged into main: feature/x"
+        issue = "git: branch(es) not merged into scaffold/golden: feature/x"
         with mock.patch.object(goldenpath, "git_state_issues", return_value=[issue]), \
                 mock.patch.object(goldenpath, "run_gate_cmd", return_value=(True, "")):
             ok, notes = goldenpath.gate("5a", tmp)

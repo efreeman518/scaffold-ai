@@ -116,7 +116,7 @@ currentSubPhase: ""
 scaffoldMode: full
 testingProfile: balanced
 contractsScaffolded: false
-sessionBranch: ""
+scaffoldBranch: ""
 enabledFeatures:
   includeApi: true
   useAspire: true
@@ -194,13 +194,13 @@ def extract_prompts() -> dict[str, str]:
             prompt = (prompt
                       .replace(SLICE_ENTITY_PLACEHOLDER, SLICE_ENTITY)
                       .replace(SLICE_EXISTING_PLACEHOLDER, SLICE_EXISTING_ENTITY))
-        # The workspace has no remote and no developer: each gate's approval is given here, so the
-        # session merges its branch locally (OPERATIONS.md Git Checkpoint Protocol) and the next
-        # phase starts from the default branch. The phase gates, not a PR review, judge this run.
+        # The workspace has no remote and no developer: each gate's approval is given here, so phases
+        # stay on the scaffold branch and a slice merges back into it locally (OPERATIONS.md Git
+        # Checkpoint Protocol). The phase gates, not a review, judge this run.
         prompt += ("\nGit: this workspace has no remote and the developer approves every gate in advance. "
-                   "Follow .instructions/support/OPERATIONS.md section Git Checkpoint Protocol, skip its "
-                   "pre-PR review, and once the gate passes merge the session branch into the default "
-                   "branch locally with git merge --ff-only.")
+                   "Follow .instructions/support/OPERATIONS.md section Git Checkpoint Protocol and skip its "
+                   "review step. A slice merges its branch into the scaffold branch locally with "
+                   "git merge --ff-only once its gate passes, and the session ends on the scaffold branch.")
         prompts[phase] = prompt
     return prompts
 
@@ -475,22 +475,24 @@ def snapshot_migrations(target: Path) -> set[str]:
 
 
 def git_state_issues(target: Path) -> list[str]:
-    """The Git Checkpoint Protocol leaves each session's work merged into the default branch: a clean tree
-    on the branch the baseline commit started, with no local branch holding unmerged commits."""
+    """The Git Checkpoint Protocol leaves every phase's work committed on the scaffold branch HANDOFF.md
+    names, with each slice branch merged into it: a clean tree and no local branch holding unmerged commits."""
     def git(*args: str) -> str:
         return subprocess.run(["git", *args], cwd=str(target), capture_output=True, text=True).stdout.strip()
     issues: list[str] = []
     if git("status", "--porcelain"):
         issues.append("git: uncommitted changes left in the workspace")
-    default = git("config", "--get", "golden.defaultBranch")
-    if not default:
-        return issues + ["git: golden.defaultBranch not recorded (the workspace predates this check; recreate it)"]
     current = git("rev-parse", "--abbrev-ref", "HEAD")
-    if current != default:
-        issues.append(f"git: workspace left on {current}, not {default} (session branch not merged)")
-    unmerged = git("branch", "--no-merged", default, "--format=%(refname:short)").split()
+    if not current.startswith("scaffold/"):
+        return issues + [f"git: workspace left on {current}, not a scaffold/ branch"]
+    handoff = target / "HANDOFF.md"
+    named = re.search(r'^scaffoldBranch:\s*"?([^"\s#]+)', handoff.read_text(encoding="utf-8", errors="replace"),
+                      re.MULTILINE) if handoff.exists() else None
+    if not named or named.group(1) != current:
+        issues.append(f"git: HANDOFF.md scaffoldBranch does not name {current}")
+    unmerged = git("branch", "--no-merged", current, "--format=%(refname:short)").split()
     if unmerged:
-        issues.append(f"git: session branch(es) not merged into {default}: {', '.join(unmerged)}")
+        issues.append(f"git: branch(es) not merged into {current}: {', '.join(unmerged)}")
     return issues
 
 
@@ -672,7 +674,7 @@ def main() -> int:
                   f"{DEFAULT_MAX_TURNS[phase]}, timeout {args.timeout_minutes}m) ---")
             print(prompts[phase])
         print("\n--- gates ---")
-        print("every gate: clean tree on the default branch, every session branch merged (Git Checkpoint Protocol)")
+        print("every gate: clean tree on the scaffold branch HANDOFF.md names, every slice branch merged into it (Git Checkpoint Protocol)")
         print("3: implementation-plan.md exists + HANDOFF currentPhase=4")
         print("4: canonical root solution/config + src/tests projects + dotnet build + HANDOFF contractsScaffolded=true")
         print("5a: dotnet build + dotnet test --filter TestCategory=Unit")
@@ -707,10 +709,6 @@ def main() -> int:
             step = subprocess.run(cmd, cwd=str(target), capture_output=True, text=True)
             if step.returncode != 0:
                 fail(f"{' '.join(cmd)} failed in {target}:\n{step.stdout}\n{step.stderr}")
-        # Recorded so each phase gate can check the session merged back into this branch.
-        branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(target),
-                                capture_output=True, text=True, check=True).stdout.strip()
-        subprocess.run(["git", "config", "golden.defaultBranch", branch], cwd=str(target), check=True)
     else:
         log(f"resuming existing workspace: {target}")
         require_own_repository(target)

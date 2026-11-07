@@ -13,7 +13,7 @@ All instruction files live under `.instructions/` in the project root. All file 
 ## Bootstrap
 
 1. Read `.instructions/GROUND-RULES.md` - every GR-* rule is a review criterion.
-2. Read `HANDOFF.md` and `.scaffold/resource-implementation.yaml` for the active phase, `scaffoldMode`, `testingProfile`, and enabled features.
+2. Read `.scaffold/resource-implementation.yaml` and `HANDOFF.md` for `scaffoldMode`, `testingProfile`, and enabled features. Review the phase or slice the dispatcher names; `HANDOFF.md` already points at the next phase.
 3. Read the skill files that own the reviewed area (the phase load set in `.instructions/START-AI.md`, or `.instructions/support/vertical-slice-checklist.md` for a slice).
 4. Read `.instructions/support/final-scaffold-checklist.md` section Mechanical Scans for the scan patterns to apply by search.
 5. Read the Tests, Scale and Operations sections of `.instructions/vendor/engineering-criteria/SKILL.md`: they are the bar for the code in scope, never a reason to review code outside it. Where a scaffold skill or template prescribes the pattern for the same concern, it wins, and a conflict is an instruction gap, not a code defect. An item the criteria mark as a security defect is `HIGH`.

@@ -30,7 +30,7 @@ All instruction files (skills, templates, support docs, schemas, scripts) live u
 - One phase per session. Do not skip or combine phases.
 - Git: `.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol - branch first, commit at every gate.
 - Checkpoint after 15+ generated files or 3+ build/fix cycles - update `HANDOFF.md` (project root), then commit.
-- After each phase gate passes, update `HANDOFF.md` (with `sessionBranch`), commit, then review (code phases) and open the PR per that protocol, and stop.
+- After each phase gate passes, update `HANDOFF.md`, commit, then review (code phases) and push per that protocol, and stop.
 - Conflict precedence: see `.instructions/ai/SKILL.md` section Non-Negotiables (canonical).
 - Session model and load rules: see `.instructions/START-AI.md` section Session Model. TaskFlow reference-app rules: see `.instructions/support/reference-app.md`.
 

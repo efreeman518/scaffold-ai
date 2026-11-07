@@ -214,7 +214,7 @@ A vertical slice is TDD-complete when:
 - [ ] Service tests exist and pass (5b)
 - [ ] Endpoint tests exist and pass (5b)
 - [ ] **Each of the above has a recorded RED before its GREEN** - command, exit code, failing test names, and failing count pasted per rule 2. A slice whose only recorded run is green was not written test-first, whatever order the files appear in.
-- [ ] No production implementation file for this slice was written or changed before its tests reached a recorded RED (rule 6). `git log --stat` on the session branch shows the test-only commit ahead of the implementation commit.
+- [ ] No production implementation file for this slice was written or changed before its tests reached a recorded RED (rule 6). `git log --stat` on the working branch shows the test-only commit ahead of the implementation commit.
 - [ ] At least one vertical tracer behavior was proven through the public contract or endpoint before broad layer expansion
 - [ ] All no-op stubs for this entity are replaced with real implementations
 - [ ] `{Entity}Builder.Build()` is activated and returns a valid entity

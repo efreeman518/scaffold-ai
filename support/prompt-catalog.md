@@ -131,7 +131,7 @@ Gate: `dotnet build` + `dotnet test --filter TestCategory=Endpoint` (auth) + `do
 ```text
 Load .instructions/support/final-scaffold-checklist.md.
 Walk through the checklist manually: build, test, run smoke checks for each enabled host.
-Record exact results, blockers, and deployment-only residuals in HANDOFF.md. When acceptance passes, set workflowStatus: complete, currentPhase: 5, and currentSubPhase: complete.
+Record exact results, blockers, and deployment-only residuals in HANDOFF.md. When acceptance passes, set workflowStatus: complete, currentPhase: 5, and currentSubPhase: complete, then commit and push per .instructions/support/OPERATIONS.md Git Checkpoint Protocol; the scaffold branch's PR is ready to merge.
 ```
 
 ## Resume From HANDOFF
@@ -147,15 +147,16 @@ Read workflowStatus first. If complete, leave the scaffold workflow and use ordi
 Load .instructions/START-AI.md. No HANDOFF.md needed - this is an add-entity operation.
 Add entity {Entity} to the existing solution using .instructions/support/vertical-slice-checklist.md fast-path.
 Follow patterns established by {ExistingEntity}.
-Branch, commit, review and open the PR per .instructions/support/OPERATIONS.md Git Checkpoint Protocol.
+Start the slice branch, commit, review and open the PR per .instructions/support/OPERATIONS.md Git Checkpoint Protocol.
 ```
 
 ## Fresh-Session Review
 
-Fallback for the pre-PR review (`support/OPERATIONS.md` section Git Checkpoint Protocol) when the
+Fallback for the pre-push review (`support/OPERATIONS.md` section Git Checkpoint Protocol) when the
 harness can dispatch neither `independent-review` nor `scaffold-reviewer`: a reader with no
-generation context catches spec drift the generating session cannot see. It reports findings
-only; the generating session fixes or rebuts each one, and none at HIGH or MEDIUM stays open.
+generation context catches spec drift the generating session cannot see. The developer runs it in
+a new session on the branch and pastes its report into the next working session, which fixes or
+rebuts each finding before anything else; none at HIGH or MEDIUM stays open.
 
 ```text
 Do not modify any file. Review the diff of branch {Branch} against the default branch, for {Scope}.

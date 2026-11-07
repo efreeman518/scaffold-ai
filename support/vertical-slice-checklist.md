@@ -12,7 +12,7 @@ Use this when adding a new entity to an **already-scaffolded** solution. Skip fu
 
 ### Pre-Flight
 
-- [ ] Start the session branch first ([OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol); commit at the gate and open the PR there after the review below
+- [ ] Start or resume the slice branch first ([OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol); commit at the gate, then review and open the PR per that protocol
 - [ ] When the slice comes from an add-entity issue ([../templates/add-entity-issue-template.md](../templates/add-entity-issue-template.md)), take its fields as the answers below and ask only what it leaves open (an internal child with no owning root is open)
 - [ ] Solution builds clean: `dotnet build`
 - [ ] Identify existing: `RegisterServices.cs`, `{App}DbContextTrxn`, `{App}DbContextQuery`, `WebApplicationBuilderExtensions.cs`

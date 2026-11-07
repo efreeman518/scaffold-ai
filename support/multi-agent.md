@@ -12,7 +12,7 @@ Workers carry the Tests, Scale and Operations sections of [../vendor/engineering
 
 The rules below override the skill where they differ and bind every run as SCOPE constraints:
 
-- **Git follows [OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol.** The orchestrator works on its own session branch. Worker branches start from that branch's HEAD, which holds the frozen shared core (a deliberate stack), not from `origin/<default-branch>`, in the skill's manual worktrees under `.tmp/worktrees/`. The orchestrator integrates the slice branches into its session branch locally, which is part of the run the developer approved at dispatch. Pushing that branch and opening its PR follow the protocol's Review, then a pull request rule (this run's review round is that review) (unattended: section Unattended Runs there); the developer merges.
+- **Git follows [OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol.** The orchestrator works on the scaffold branch (a slice batch: its slice branch). Worker branches start from that branch's HEAD, which holds the frozen shared core (a deliberate stack), not from `origin/<default-branch>`, in the skill's manual worktrees under `.tmp/worktrees/`. The orchestrator integrates the slice branches into its branch locally, which is part of the run the developer approved at dispatch. Pushing that branch and opening its PR follow the protocol's Review, then a pull request rule (this run's review round is that review) (unattended: section Unattended Runs there).
 - **Discovered work stays inside the phase.** The skill folds in only concerns within this phase's scope; anything else goes to `HANDOFF.md` or `.scaffold/INSTRUCTION-GAPS.md`, except a security or data-exposure defect, which goes only to the developer (unattended: in the run's result to the loop, for its owner), never into a tracked file, PR or issue.
 - **Its tracked handoff is a run section in `HANDOFF.md`**, written by the orchestrator only; the phase's gate evidence stays where [execution-gates.md](execution-gates.md) puts it.
 - **One slice per independent work-item.** A host slice's DONE is its standalone gate from [execution-gates.md](execution-gates.md); tests that need the AppHost registration go green in the orchestrator's mesh gate. An entity slice's DONE is the one in the vertical-slice workflow's Several Entities section.
@@ -81,7 +81,7 @@ The orchestrator completes and freezes these, then dispatches the per-host worke
 Before the orchestrator spawns any worker:
 
 - [ ] The shared backend phases for this work (5a/5b) passed their gates.
-- [ ] Every artifact shared *across* the target work-items is complete, frozen and committed on the orchestrator's session branch, so every worker branch contains it (shared contracts/client, shared component/theme library, common wiring).
+- [ ] Every artifact shared *across* the target work-items is complete, frozen and committed on the orchestrator's branch, so every worker branch contains it (shared contracts/client, shared component/theme library, common wiring).
 - [ ] Each fan-out unit is an independent deployable host (or a genuinely independent entity/slice), not a target or route within one host.
 - [ ] Workers are constrained to disjoint write paths; all shared writes are reserved for the orchestrator's serialized merge step (vertical-slice batches: each worker's own entity lines only).
 - [ ] `.tmp/` is gitignored, so worker worktrees and run state stay out of every diff.
@@ -92,7 +92,7 @@ All agent and subagent scratch lives under the repo-root `.tmp/`, which the app 
 
 | What | Where |
 |---|---|
-| Worker worktree | `.tmp/worktrees/<slug>-<suffix>` on its own branch from the session branch's HEAD, which holds the frozen shared core: `git worktree add .tmp/worktrees/<slug>-<suffix> -b <type>/<slug>-<suffix> HEAD`, where `<suffix>` is 6 random hex characters so concurrent sessions never collide |
+| Worker worktree | `.tmp/worktrees/<slug>-<suffix>` on its own branch from the orchestrator's branch HEAD, which holds the frozen shared core: `git worktree add .tmp/worktrees/<slug>-<suffix> -b <type>/<slug>-<suffix> HEAD`, where `<suffix>` is 6 random hex characters so concurrent sessions never collide |
 | `orchestrated-refactor` run state (slice handoffs, review inputs and reports) | `.tmp/orchestrated-refactor/<run-id>/`, removed by that run after the phase gate (a vertical-slice batch: after its gate rerun is reported), once its worktrees are removed, so the developer can read its review reports at the gate; `clean-tmp.py` does not touch it, so an abandoned run's folder is removed by hand after its worktrees are gone |
 | Worker logs, prompts, handoff notes, reports outside a run | `.tmp/sessions/<session-id>/` - outside every worktree, so they never enter a diff |
 | Test results | `tests/TestResults/<project>/` (`<suite>/` for subset scripts), not `.tmp/` - see [../skills/testing-quality.md](../skills/testing-quality.md) |

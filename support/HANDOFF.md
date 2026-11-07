@@ -36,7 +36,7 @@ hostGates:                 # Phase 5c per-host status: not-started | scaffolded 
   blazorUI: not-started
   reactUI: not-started
   notifications: not-started
-sessionBranch: ""          # set when the session branch is created; the next session resumes on it or waits for its merge
+scaffoldBranch: ""         # scaffold/<project>: every phase session works on it (support/OPERATIONS.md Git Checkpoint Protocol)
 resumeCommand: ""          # exact prompt to paste at the next session start
 toolingNotes: ""           # CLIs/MCPs discovered in Phase 3; note any missing or unavailable
 instructionGapsPath: ".scaffold/INSTRUCTION-GAPS.md"
