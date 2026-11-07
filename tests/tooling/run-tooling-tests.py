@@ -448,8 +448,8 @@ class WorkflowStateContractTests(unittest.TestCase):
         router = (REPO_ROOT / "START-AI.md").read_text(encoding="utf-8")
         self.assertRegex(router, r"`currentSubPhase: final-validation` loads only `support/final-scaffold-checklist\.md`")
         # The checklist runs in that session alone, never inside the final sub-phase.
-        for rel in ("ai/SKILL.md", "support/HANDOFF.md", "support/final-scaffold-checklist.md", "support/execution-gates.md"):
-            self.assertNotIn("At the final enabled Phase 5 sub-phase", (REPO_ROOT / rel).read_text(encoding="utf-8"), rel)
+        for rel in ("ai/SKILL.md", "support/HANDOFF.md", "support/execution-gates.md", "support/golden-path-sample.md"):
+            self.assertNotRegex((REPO_ROOT / rel).read_text(encoding="utf-8"), r"(final|all) enabled Phase 5 sub-phase", rel)
 
     def test_golden_path_fixture_starts_active(self):
         self.assertIn("workflowStatus: active", goldenpath.HANDOFF_FIXTURE)
@@ -1475,8 +1475,9 @@ class FindScaffoldBranchTests(unittest.TestCase):
     REPO = "acme/app"
 
     @staticmethod
-    def pr(state: str, created: str = "2026-01-01T00:00:00Z", fork: bool = False, oid: str = "abc") -> dict:
-        return {"state": state, "createdAt": created, "isCrossRepository": fork, "headRefOid": oid}
+    def pr(state: str, created: str = "2026-01-01T00:00:00Z", fork: bool = False, oid: str = "abc",
+           base: str = "main") -> dict:
+        return {"state": state, "createdAt": created, "isCrossRepository": fork, "headRefOid": oid, "baseRefName": base}
 
     def runner(self, prs: dict, url: str = "https://github.com/acme/app.git", refs: list[str] | None = None,
                failures: dict | None = None, ahead: str = "0"):
@@ -1495,6 +1496,7 @@ class FindScaffoldBranchTests(unittest.TestCase):
             if cmd[:3] == ["git", "remote", "get-url"]:
                 return subprocess.CompletedProcess(cmd, 0 if url else 2, url + "\n", "" if url else "error: No such remote 'origin'")
             if cmd[:2] == ["git", "fetch"]:
+                self.assertEqual(cmd[-1], find_branch.SCAFFOLD_REFSPEC)
                 return subprocess.CompletedProcess(cmd, 0, "", "")
             if cmd[:3] == ["gh", "repo", "view"]:
                 self.assertEqual(cmd[3], self.REPO)
@@ -1502,7 +1504,7 @@ class FindScaffoldBranchTests(unittest.TestCase):
             if cmd[:2] == ["git", "for-each-ref"]:
                 return subprocess.CompletedProcess(cmd, 0, "\n".join(refs), "")
             if cmd[:3] == ["gh", "pr", "list"]:
-                self.assertEqual((cmd[cmd.index("--repo") + 1], cmd[cmd.index("--base") + 1]), (self.REPO, "main"))
+                self.assertEqual(cmd[cmd.index("--repo") + 1], self.REPO)
                 return subprocess.CompletedProcess(cmd, 0, json.dumps(prs[cmd[cmd.index("--head") + 1]]), "")
             if cmd[:3] == ["git", "rev-list", "--count"]:
                 return subprocess.CompletedProcess(cmd, 0, ahead + "\n", "")
@@ -1537,6 +1539,15 @@ class FindScaffoldBranchTests(unittest.TestCase):
         self.assertEqual(self.find({"scaffold/app": reopened})[0]["result"], "live")
         fork = [self.pr("OPEN", "2026-01-01T00:00:00Z"), self.pr("MERGED", "2026-03-01T00:00:00Z", fork=True)]
         self.assertEqual(self.find({"scaffold/app": fork})[0]["result"], "live")
+        # An older PR reopened after a newer one closed: any open PR means live.
+        reopened_older = [self.pr("OPEN", "2026-01-01T00:00:00Z"), self.pr("CLOSED", "2026-02-01T00:00:00Z")]
+        self.assertEqual(self.find({"scaffold/app": reopened_older})[0]["result"], "live")
+
+    def test_deciding_pr_into_another_base_asks(self):
+        # e.g. the default branch was renamed after the scaffold PR merged into the old name.
+        outcome = self.find({"scaffold/app": [self.pr("MERGED", base="master")]})[0]
+        self.assertEqual(outcome["result"], "ask")
+        self.assertIn("targets master", outcome["reason"])
 
     def test_merged_branch_with_later_commits_asks(self):
         outcome = self.find({"scaffold/app": [self.pr("MERGED")]}, ahead="2")[0]
@@ -1549,15 +1560,31 @@ class FindScaffoldBranchTests(unittest.TestCase):
         self.assertEqual(outcome["result"], "none")
         self.assertEqual(self.count(calls, ["gh", "pr", "list"]), 1)
         self.assertEqual(self.count(calls, ["git", "rev-list"]), 2)  # both copies checked against the merged head
+        remote_only = self.find({"scaffold/app": [self.pr("OPEN")]}, refs=["refs/remotes/origin/scaffold/app"])[0]
+        self.assertEqual(remote_only["branch"], "scaffold/app")
 
     def test_origin_must_be_github(self):
-        self.assertIn("no origin", self.find({"scaffold/app": []}, url="")[0]["reason"])
-        self.assertIn("not a GitHub", self.find({"scaffold/app": []}, url="https://gitlab.com/acme/app.git")[0]["reason"])
-        self.assertEqual(self.find({"scaffold/app": []}, url="git@github.com:acme/app.git")[0]["result"], "live")
+        self.assertIn("No such remote", self.find({"scaffold/app": []}, url="")[0]["reason"])
+        for url in ("https://gitlab.com/acme/app.git", "https://notgithub.com/acme/app.git",
+                    "https://github.com.evil.example/acme/app.git"):
+            self.assertIn("not a GitHub", self.find({"scaffold/app": []}, url=url)[0]["reason"], url)
+        # A rejected URL is never echoed, since its userinfo can hold a token.
+        self.assertNotIn("s3cret", self.find({"scaffold/app": []}, url="https://u:s3cret@gitlab.com/a/b.git")[0]["reason"])
+        for url in ("git@github.com:acme/app.git", "ssh://git@github.com/acme/app.git",
+                    "https://u:s3cret@github.com/acme/app", "https://github.com/acme/app/"):
+            self.assertEqual(self.find({"scaffold/app": []}, url=url)[0]["result"], "live", url)
+
+    def test_each_failed_step_asks(self):
+        for prefix, what in (("gh repo view", "gh repo view failed"), ("git for-each-ref", "for-each-ref failed"),
+                             ("git rev-list", "rev-list for refs/heads/scaffold/app")):
+            outcome, _ = self.find({"scaffold/app": [self.pr("MERGED")]}, failures={prefix: [(128, "fatal: bad revision")]})
+            self.assertEqual(outcome["result"], "ask", prefix)
+            self.assertIn(what, outcome["reason"], prefix)
 
     def test_failed_or_unreadable_queries_ask_without_retry(self):
         for failure in ((1, "HTTP 401: Bad credentials"), (127, "gh not found on PATH"), (1, "HTTP 429: Too Many Requests"),
-                        (1, "API rate limit exceeded (HTTP 403)")):
+                        (1, "API rate limit exceeded (HTTP 403)"), (1, "HTTP 502: Bad Gateway (secondary rate limit)"),
+                        (1, "Could not resolve to a Repository with the name 'acme/api-502'")):
             outcome, calls = self.find({"scaffold/app": []}, failures={"gh pr list": [failure]})
             self.assertEqual(outcome["result"], "ask", failure)
             self.assertEqual(self.count(calls, ["gh", "pr", "list"]), 1, failure)
@@ -1572,10 +1599,23 @@ class FindScaffoldBranchTests(unittest.TestCase):
         down, calls = self.find({"scaffold/app": [self.pr("OPEN")]}, failures={"gh pr list": [(1, "HTTP 503")] * 3})
         self.assertEqual(down["result"], "ask")
         self.assertEqual(self.count(calls, ["gh", "pr", "list"]), find_branch.ATTEMPTS)
+        ok, calls = self.find({"scaffold/app": [self.pr("OPEN")]}, failures={"gh repo view": [(1, "HTTP 500: Internal Server Error")]})
+        self.assertEqual((ok["result"], self.count(calls, ["gh", "repo", "view"])), ("live", 2))
 
     def test_run_turns_missing_tool_into_failure(self):
         proc = find_branch.run(["scaffold-ai-no-such-tool"])
         self.assertEqual(proc.returncode, 127)
+
+    def test_run_timeout_ends_the_process_tree(self):
+        # The grandchild holds the output pipes, as git-remote-https does under git fetch.
+        script = ("import subprocess, sys, time; "
+                  "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], stdout=1, stderr=2); "
+                  "time.sleep(60)")
+        started = time.monotonic()
+        with mock.patch.object(find_branch, "TIMEOUT_SECONDS", 1):
+            proc = find_branch.run([sys.executable, "-c", script])
+        self.assertEqual(proc.returncode, 124)
+        self.assertLess(time.monotonic() - started, 20)
 
     def test_main_exit_codes(self):
         for outcome, code in (({"result": "live"}, 0), ({"result": "none"}, 0), ({"result": "ask"}, 2)):

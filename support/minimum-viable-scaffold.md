@@ -40,7 +40,7 @@ The `--verify` flag checks every manifest-managed file and harness block. See [i
 
 ## The MVS prompt overlays
 
-Six AI sessions: one per phase for Phases 1-4, plus separate sessions for Phase 5a and Phase 5b (Phase 5 always runs one sub-phase per session). MVS skips 5c, 5d, and 5e - see section Why this works.
+Seven AI sessions: one per phase for Phases 1-4, separate sessions for Phase 5a and Phase 5b (Phase 5 always runs one sub-phase per session), then the Final Scaffold Validation session from [prompt-catalog.md](prompt-catalog.md), which 5b's gate commit hands off to with `currentSubPhase: final-validation`. MVS skips 5c, 5d, and 5e - see section Why this works.
 
 Generic phase prompts live in [prompt-catalog.md](prompt-catalog.md). For each session, paste that phase's prompt, append the MVS overlay below, fill placeholders, run the gate, update `HANDOFF.md`, then commit, review and push per [OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol. This file owns only the API-only, single-entity deltas.
 
@@ -204,7 +204,7 @@ dotnet run --project src\Host\Aspire\AppHost
 # POST {api-url}/api/v1/{entity-route} -> 201 + Location header
 ```
 
-If Aspire is deliberately disabled, configure the API's SQL connection names to an explicit reachable SQL endpoint before running it directly. Missing SQL configuration is a failed MVS prerequisite, not a lazy-optional fallback. If all checks pass, MVS is complete.
+If Aspire is deliberately disabled, configure the API's SQL connection names to an explicit reachable SQL endpoint before running it directly. Missing SQL configuration is a failed MVS prerequisite, not a lazy-optional fallback. If all checks pass, the Final Scaffold Validation session records them and sets `workflowStatus: complete`; MVS is then complete.
 
 The CI `--dry-run` is an extraction smoke only: it proves prompt and YAML extraction without invoking an agent, .NET, Docker, or SQL. Before an instruction-set release, run the non-dry-run golden path with a real supported agent and retain its build, Unit, Endpoint, health, and SQL-backed CRUD results as release evidence.
 

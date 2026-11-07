@@ -45,7 +45,7 @@ instructionGapsPath: ".scaffold/INSTRUCTION-GAPS.md"
 
 ## Production Deployment TODOs
 
-Populated by the **Final Scaffold Validation session** as the first section a developer reads; leave as `<not yet at final sub-phase>` until then. The scaffold is complete and runnable locally (stubs/emulators), but it is **not deployable** until every item here is done. Derive the list from [final-scaffold-checklist.md](final-scaffold-checklist.md) section Post-Scaffold Deployment Handoff and the Deferred External Dependencies table below; typical entries:
+Populated by the **Final Scaffold Validation session** as the first section a developer reads; leave as `<not yet at final validation>` until then. The scaffold is complete and runnable locally (stubs/emulators), but it is **not deployable** until every item here is done. Derive the list from [final-scaffold-checklist.md](final-scaffold-checklist.md) section Post-Scaffold Deployment Handoff and the Deferred External Dependencies table below; typical entries:
 
 - [ ] Provision live Azure infrastructure (hand-written Bicep deploy or `azd provision` - see `skills/iac.md`)
 - [ ] Set CI/CD secrets, variables, and environments; enable `push` triggers on `cd.yml`/`provision.yml` (currently `workflow_dispatch`-only)

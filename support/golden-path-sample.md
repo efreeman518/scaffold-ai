@@ -438,7 +438,7 @@ dotnet restore
 dotnet build
 ```
 
-After the final enabled Phase 5 sub-phase:
+In the Final Scaffold Validation session, after the last enabled sub-phase:
 
 ```powershell
 dotnet restore
