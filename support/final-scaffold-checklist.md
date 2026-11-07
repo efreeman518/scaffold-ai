@@ -1,6 +1,6 @@
 # Final Scaffold Checklist
 
-Load this file after the final enabled Phase 5 sub-phase. It converts "the scaffold seems done" into objective checks.
+Load this file in the Final Scaffold Validation session (`currentSubPhase: final-validation`), after the final enabled Phase 5 sub-phase. It converts "the scaffold seems done" into objective checks.
 
 This is not production-readiness. It verifies that the generated app is a consistent, runnable scaffold.
 

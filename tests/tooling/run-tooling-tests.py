@@ -57,6 +57,7 @@ reference_validator = load_module("reference_validator", REPO_ROOT / "scripts" /
 goldenpath = load_module("goldenpath", REPO_ROOT / "tests" / "golden-path" / "run-golden-path.py")
 ontology = load_module("ontology", REPO_ROOT / "scripts" / "generate-ontology.py")
 clean_tmp = load_module("clean_tmp", REPO_ROOT / "scripts" / "clean-tmp.py")
+find_branch = load_module("find_branch", REPO_ROOT / "scripts" / "find-scaffold-branch.py")
 
 
 class InstallerTests(unittest.TestCase):
@@ -437,6 +438,15 @@ class WorkflowStateContractTests(unittest.TestCase):
         self.assertLess(status_index, phase_index)
         self.assertIn("complete -> Scaffold workflow is terminal", router)
         self.assertIn("ordinary repository maintenance", router)
+
+    def test_final_validation_is_a_resumable_state(self):
+        # The final sub-phase hands off to a separate Final Scaffold Validation session, so HANDOFF.md
+        # needs a value an ordinary resume routes to the final checklist.
+        handoff = (REPO_ROOT / "support" / "HANDOFF.md").read_text(encoding="utf-8")
+        self.assertIn("| final-validation | complete", handoff)
+        self.assertIn("sets `currentSubPhase: final-validation`", (REPO_ROOT / "ai" / "SKILL.md").read_text(encoding="utf-8"))
+        router = (REPO_ROOT / "START-AI.md").read_text(encoding="utf-8")
+        self.assertRegex(router, r"`currentSubPhase: final-validation` walks through `support/final-scaffold-checklist\.md`")
 
     def test_golden_path_fixture_starts_active(self):
         self.assertIn("workflowStatus: active", goldenpath.HANDOFF_FIXTURE)
@@ -1457,6 +1467,78 @@ WORKBOARD_SPEC_HEADING = "### `.scaffold/domain-specification.yaml`"
 
 
 @unittest.skipUnless(importlib.util.find_spec("yaml"), "pyyaml not installed")
+class FindScaffoldBranchTests(unittest.TestCase):
+    """Live-branch classification of the Git Checkpoint Protocol, start step 2."""
+
+    @staticmethod
+    def runner(prs: dict, remotes: str = "origin\n", refs: list[str] | None = None, failures: dict | None = None):
+        # prs maps a branch name to its newest PR state ("" = no PR); failures maps a command prefix to
+        # a queue of stderr strings returned (rc 1) before that command succeeds.
+        refs = refs if refs is not None else [f"refs/heads/{n}" for n in prs]
+        failures = failures or {}
+        calls: list[list[str]] = []
+
+        def run(cmd: list[str]) -> subprocess.CompletedProcess:
+            calls.append(cmd)
+            for prefix, queue in failures.items():
+                if " ".join(cmd).startswith(prefix) and queue:
+                    return subprocess.CompletedProcess(cmd, 1, "", queue.pop(0))
+            if cmd[:2] == ["git", "remote"]:
+                return subprocess.CompletedProcess(cmd, 0, remotes, "")
+            if cmd[:2] == ["git", "fetch"]:
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+            if cmd[:2] == ["git", "for-each-ref"]:
+                return subprocess.CompletedProcess(cmd, 0, "\n".join(refs), "")
+            if cmd[:3] == ["gh", "pr", "list"]:
+                state = prs[cmd[cmd.index("--head") + 1]]
+                return subprocess.CompletedProcess(cmd, 0, json.dumps([{"state": state}] if state else []), "")
+            raise AssertionError(cmd)
+
+        return run, calls
+
+    def find(self, *args, **kwargs):
+        run, calls = self.runner(*args, **kwargs)
+        return find_branch.find(run, sleep=lambda _s: None), calls
+
+    def test_classification(self):
+        self.assertEqual(self.find({"scaffold/app": ""})[0]["branch"], "scaffold/app")
+        self.assertEqual(self.find({"scaffold/app": "OPEN"})[0]["result"], "live")
+        merged = self.find({"scaffold/app": "MERGED"})[0]
+        self.assertEqual((merged["result"], merged["merged"]), ("none", ["scaffold/app"]))
+        self.assertEqual(self.find({"scaffold/app": "CLOSED"})[0]["result"], "ask")
+        both = self.find({"scaffold/a": "OPEN", "scaffold/b": ""})[0]
+        self.assertEqual(both["result"], "ask")
+        self.assertIn("more than one", both["reason"])
+        mixed = self.find({"scaffold/old": "MERGED", "scaffold/new": "OPEN"})[0]
+        self.assertEqual((mixed["branch"], mixed["merged"]), ("scaffold/new", ["scaffold/old"]))
+        self.assertEqual(self.find({})[0]["result"], "none")
+
+    def test_local_and_remote_copies_are_one_name(self):
+        outcome, calls = self.find({"scaffold/app": "OPEN"},
+                                   refs=["refs/heads/scaffold/app", "refs/remotes/origin/scaffold/app"])
+        self.assertEqual(outcome["result"], "live")
+        self.assertEqual(sum(1 for c in calls if c[:3] == ["gh", "pr", "list"]), 1)
+
+    def test_no_origin_and_failed_queries_ask(self):
+        self.assertIn("no origin", self.find({"scaffold/app": ""}, remotes="upstream\n")[0]["reason"])
+        auth = self.find({"scaffold/app": ""}, failures={"gh pr list": ["HTTP 401: Bad credentials"]})
+        self.assertEqual(auth[0]["result"], "ask")
+        self.assertEqual(sum(1 for c in auth[1] if c[:3] == ["gh", "pr", "list"]), 1)  # not transient: no retry
+
+    def test_transient_failures_retry_then_succeed_or_ask(self):
+        ok, calls = self.find({"scaffold/app": "OPEN"}, failures={"git fetch": ["fatal: Connection reset by peer"]})
+        self.assertEqual(ok["result"], "live")
+        self.assertEqual(sum(1 for c in calls if c[:2] == ["git", "fetch"]), 2)
+        down = self.find({"scaffold/app": "OPEN"}, failures={"gh pr list": ["HTTP 503"] * 3})[0]
+        self.assertEqual(down["result"], "ask")
+
+    def test_main_exit_codes(self):
+        for outcome, code in (({"result": "live"}, 0), ({"result": "none"}, 0), ({"result": "ask"}, 2)):
+            with mock.patch.object(find_branch, "find", return_value=outcome), \
+                    mock.patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(find_branch.main(), code)
+
+
 class OntologyGeneratorTests(unittest.TestCase):
     """Drive scripts/generate-ontology.py against the WorkBoard fixture plus synthetic mutations."""
 
