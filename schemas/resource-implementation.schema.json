@@ -143,15 +143,14 @@
       "uniqueItems": true,
       "items": { "type": "string", "minLength": 1 },
       "default": ["NonAzure"],
-      "description": "Named presets of defaults for independent provider switches. NonAzure (default) and Azure (explicit opt-in) are the proven strict lanes; Portable is a deprecated input alias for NonAzure. A lane is not a runtime branch outside the lane resolver and AppHost topology map."
+      "description": "Named presets of defaults for independent provider switches. NonAzure (default) and Azure (explicit opt-in) are the proven strict lanes. A lane is not a runtime branch outside the lane resolver and AppHost topology map."
     },
     "hostingLaneDefaults": {
       "type": "object",
       "minProperties": 1,
       "properties": {
         "Azure": { "$ref": "#/$defs/azureHostingLaneDefault" },
-        "NonAzure": { "$ref": "#/$defs/nonAzureHostingLaneDefault" },
-        "Portable": { "$ref": "#/$defs/nonAzureHostingLaneDefault", "deprecated": true }
+        "NonAzure": { "$ref": "#/$defs/nonAzureHostingLaneDefault" }
       },
       "additionalProperties": { "$ref": "#/$defs/hostingLaneDefault" },
       "description": "Per-lane compatible defaults and owned deployment target. Environment/configuration values may select only an allowed arm in the active lane; unknown or cross-lane values fail startup."
@@ -166,12 +165,7 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": {
-        "oneOf": [
-          { "type": "string", "enum": ["Cosmos", "PostgreSqlJsonb", "MongoDb"] },
-          { "const": "Relational", "deprecated": true, "description": "Deprecated one-release alias for PostgreSqlJsonb." }
-        ]
-      }
+      "items": { "type": "string", "enum": ["Cosmos", "PostgreSqlJsonb", "MongoDb"] }
     },
     "auditProviders": {
       "type": "array",
@@ -420,12 +414,7 @@
         "databaseProvider": { "type": "string", "enum": ["SqlServer", "PostgreSql"] },
         "messagingProvider": { "type": "string", "enum": ["ServiceBus", "RabbitMq"] },
         "storageProvider": { "type": "string", "enum": ["AzureBlob", "S3"] },
-        "readModelProvider": {
-          "oneOf": [
-            { "type": "string", "enum": ["Cosmos", "PostgreSqlJsonb", "MongoDb"] },
-            { "const": "Relational", "deprecated": true, "description": "Deprecated one-release alias for PostgreSqlJsonb." }
-          ]
-        },
+        "readModelProvider": { "type": "string", "enum": ["Cosmos", "PostgreSqlJsonb", "MongoDb"] },
         "auditProvider": { "type": "string", "enum": ["AzureTable", "Relational"] },
         "searchProvider": { "type": "string", "enum": ["AzureAiSearch", "PgVector", "Sql", "None"] },
         "aiProvider": { "type": "string", "enum": ["AzureInference", "OpenAICompatible", "None"] },
