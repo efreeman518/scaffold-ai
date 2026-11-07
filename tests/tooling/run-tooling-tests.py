@@ -549,6 +549,15 @@ class ReferenceValidatorTests(unittest.TestCase):
         errors = reference_validator.check_declared_evidence(self.tmp, custom_missing_defaults)
         self.assertTrue(any("hostingLaneDefaults.PrivateCloud is required" in error for error in errors))
 
+        custom_wrong_target = {
+            "hostingLanes": ["PrivateCloud"],
+            "deployTargets": ["DockerCompose"],
+            "hostingLaneDefaults": {"PrivateCloud": {"deploymentTarget": "Kubernetes"}},
+        }
+        errors = reference_validator.check_declared_evidence(self.tmp, custom_wrong_target)
+        self.assertTrue(any("lane PrivateCloud: deploymentTarget 'Kubernetes' must appear in deployTargets" in error
+                            for error in errors))
+
         lane_tests = self.tmp / "tests" / "Test.Unit" / "Hosting" / "HostingLaneContractTests.cs"
         lane_tests.write_text(
             lane_tests.read_text(encoding="utf-8").replace(

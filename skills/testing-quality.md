@@ -45,7 +45,7 @@ Assert:
 - Required: every test project writes results to its own `tests/TestResults/<project>/`, never the caller's CWD, the repo root or the project folder. A fixed per-project location keeps parallel project runs from overwriting each other's results and keeps CI artifact upload paths, local reruns, and cleanup pointing at one folder no matter where `dotnet test` runs from. `.gitignore` already keeps `TestResults/` out of commits.
 - In the test-scoped `tests/Directory.Build.props` (create it with an `<Import>` of the parent `Directory.Build.props` via `GetPathOfFileAbove` when absent), set `<VSTestResultsDirectory>$(MSBuildThisFileDirectory)TestResults/$(MSBuildProjectName)</VSTestResultsDirectory>` in an unconditional PropertyGroup. Do not gate it on `IsTestProject`: the test SDK defines that property after `Directory.Build.props` is evaluated, so the condition is always false there. The property is inert for non-test projects under `tests/`.
 - `$(MSBuildThisFileDirectory)` resolves to the props file's own absolute directory and `$(MSBuildProjectName)` to the evaluating project, so each test project writes to `tests/TestResults/<project>`. `VSTestResultsDirectory` is the property the VSTest MSBuild task maps to `--results-directory`.
-- When the repo opts into Microsoft.Testing.Platform (`global.json` `test.runner`), VSTest properties do not apply: append `--results-directory $(MSBuildThisFileDirectory)TestResults/$(MSBuildProjectName)` to `TestingPlatformCommandLineArguments` in the same props file. A per-project command line may pass `--results-directory tests/TestResults/<project>` instead; a solution-level run must not, since every project would share it.
+- When the repo opts into Microsoft.Testing.Platform (`global.json` `test.runner`), VSTest properties do not apply: append `--results-directory "$(MSBuildThisFileDirectory)TestResults/$(MSBuildProjectName)"` (quoted, so a repo path with spaces stays one argument) to `TestingPlatformCommandLineArguments` in the same props file. A per-project command line may pass `--results-directory tests/TestResults/<project>` instead; a solution-level run must not, since every project would share it.
 - CI passes no competing `--results-directory` and uploads from `tests/TestResults/**`; producer and uploader must use the same resolved path (section Uno WASM: Browser Diagnostics).
 - Scripts that run a subset (mobile, browser, live-provider) write under `tests/TestResults/<suite>/`, never a `TestResults` folder inside a project.
 - Caveat: a raw `dotnet vstest <dll>` call bypasses MSBuild and honors only its own `--ResultsDirectory` flag.
@@ -360,7 +360,7 @@ Any generated helper that drives a hosted IdP's real login pages (Entra, B2C, Au
 
 ### Playwright Config Output Location
 
-Set `outputDir` under `tests/Test.PlaywrightUI`, not under app project directories.
+Set `outputDir` to `tests/TestResults/playwright/` (resolved from the repo root, like the subset scripts above), not under the test or app project directories.
 
 ## Visual Studio & VS Code Test Explorer
 

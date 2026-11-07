@@ -2,7 +2,7 @@
 
 GitHub issue form for requesting one entity vertical slice. It collects the inputs the vertical-slice Pre-Flight ([../support/vertical-slice-checklist.md](../support/vertical-slice-checklist.md)) would otherwise ask for, so an issue-driven run (an ecosystem feature loop, for one) can plan the slice without a question round, and an attended `/vertical-slice` session can start from the issue.
 
-Copy the block below to `.github/ISSUE_TEMPLATE/add-entity.yml` in the app. The `feature` label keeps the request out of bug triage; move it to wherever the app's feature work starts (a project board column, for one).
+Copy the block below to `.github/ISSUE_TEMPLATE/add-entity.yml` in the app, and create the `feature` label first (`gh label create feature`): a form applies only labels that already exist. The label keeps the request out of bug triage; move it to wherever the app's feature work starts (a project board column, for one).
 
 ```yaml
 name: Add entity
