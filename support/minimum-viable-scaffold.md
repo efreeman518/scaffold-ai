@@ -42,7 +42,7 @@ The `--verify` flag checks every manifest-managed file and harness block. See [i
 
 Six AI sessions: one per phase for Phases 1-4, plus separate sessions for Phase 5a and Phase 5b (Phase 5 always runs one sub-phase per session). MVS skips 5c, 5d, and 5e - see section Why this works.
 
-Generic phase prompts live in [prompt-catalog.md](prompt-catalog.md). For each session, paste that phase's prompt, append the MVS overlay below, fill placeholders, run the gate, update `HANDOFF.md`, and close. This file owns only the API-only, single-entity deltas.
+Generic phase prompts live in [prompt-catalog.md](prompt-catalog.md). For each session, paste that phase's prompt, append the MVS overlay below, fill placeholders, run the gate, update `HANDOFF.md`, then commit, review and push per [OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol. This file owns only the API-only, single-entity deltas.
 
 ### Phase 1 - Domain Discovery (one entity)
 

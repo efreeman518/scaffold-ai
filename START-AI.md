@@ -61,7 +61,7 @@ Is HANDOFF.md present?
   YES -> Read workflowStatus first.
          complete -> Scaffold workflow is terminal. Return to ordinary repository maintenance; do not load phase files.
                      New-entity work still routes to support/vertical-slice-checklist.md fast-path.
-         active   -> Resume from currentPhase/currentSubPhase. Skip the routing decision; still read
+         active   -> Fix `review pending` Blockers, then resume currentPhase/currentSubPhase; read
                      that phase's Phase Router row for its load set.
          missing  -> Legacy HANDOFF: infer active unless currentSubPhase is complete, then treat as complete.
   NO  -> New project          -> Phase Router

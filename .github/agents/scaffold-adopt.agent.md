@@ -22,7 +22,7 @@ All instruction files live under `.instructions/` in the project root. All file 
 
 ## Pre-Flight
 
-Start the scaffold branch (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol), then run every checkbox in `.instructions/ai/adopt-codebase.md` section Pre-Flight before reading any source files. Do not proceed on a red build - the developer fixes it first.
+Start the scaffold branch (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol), then run every checkbox in `.instructions/ai/adopt-codebase.md` section Pre-Flight before reading any source files. Do not proceed on a red build - the developer fixes the default branch first (the scaffold branch starts from it).
 
 ## Execution Order
 

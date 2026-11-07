@@ -116,7 +116,7 @@ currentSubPhase: ""
 scaffoldMode: full
 testingProfile: balanced
 contractsScaffolded: false
-scaffoldBranch: ""
+scaffoldBranch: "scaffold/workboard"
 enabledFeatures:
   includeApi: true
   useAspire: true
@@ -477,16 +477,21 @@ def snapshot_migrations(target: Path) -> set[str]:
 def git_state_issues(target: Path) -> list[str]:
     """The Git Checkpoint Protocol leaves every phase's work committed on the scaffold branch HANDOFF.md
     names, with each slice branch merged into it: a clean tree and no local branch holding unmerged commits."""
-    def git(*args: str) -> str:
-        return subprocess.run(["git", *args], cwd=str(target), capture_output=True, text=True).stdout.strip()
     issues: list[str] = []
+
+    def git(*args: str) -> str:
+        proc = subprocess.run(["git", *args], cwd=str(target), capture_output=True, text=True)
+        if proc.returncode != 0:
+            # A failed query must not read as a clean tree or a merged branch.
+            issues.append(f"git: `git {' '.join(args)}` failed: {proc.stderr.strip()}")
+        return proc.stdout.strip()
     if git("status", "--porcelain"):
         issues.append("git: uncommitted changes left in the workspace")
     current = git("rev-parse", "--abbrev-ref", "HEAD")
     if not current.startswith("scaffold/"):
         return issues + [f"git: workspace left on {current}, not a scaffold/ branch"]
     handoff = target / "HANDOFF.md"
-    named = re.search(r'^scaffoldBranch:\s*"?([^"\s#]+)', handoff.read_text(encoding="utf-8", errors="replace"),
+    named = re.search(r'''^scaffoldBranch:\s*["']?([^"'\s#]+)''', handoff.read_text(encoding="utf-8", errors="replace"),
                       re.MULTILINE) if handoff.exists() else None
     if not named or named.group(1) != current:
         issues.append(f"git: HANDOFF.md scaffoldBranch does not name {current}")
@@ -512,7 +517,7 @@ def gate(phase: str, target: Path, pre_migrations: set[str] | None = None) -> tu
         if not re.search(r"currentPhase:\s*[\"']?4", handoff):
             ok = False
             notes.append("HANDOFF currentPhase did not advance to 4")
-        notes.append("plan exists + HANDOFF advanced + branch merged" if ok else "phase 3 gate failed")
+        notes.append("plan exists + HANDOFF advanced + work committed on the scaffold branch" if ok else "phase 3 gate failed")
         return ok, notes
 
     slnx = find_solution(target)
@@ -704,7 +709,10 @@ def main() -> int:
         if init.returncode != 0:
             fail(f"git init failed in {target}:\n{init.stderr}")
         require_own_repository(target)
-        for cmd in (["git", "add", "."], ["git", "commit", "-m", "golden-path fixture baseline"]):
+        # Phases 1-2 are fixtures here, so the baseline stands in for the Phase 1 session that creates the
+        # scaffold branch (OPERATIONS.md Git Checkpoint Protocol): later phases only find and resume it.
+        for cmd in (["git", "add", "."], ["git", "commit", "-m", "golden-path fixture baseline"],
+                    ["git", "switch", "-c", "scaffold/workboard"]):
             # The protocol branches from this baseline commit, so a missing git identity fails here, not mid-phase.
             step = subprocess.run(cmd, cwd=str(target), capture_output=True, text=True)
             if step.returncode != 0:

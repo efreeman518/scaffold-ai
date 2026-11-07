@@ -131,7 +131,7 @@ Gate: `dotnet build` + `dotnet test --filter TestCategory=Endpoint` (auth) + `do
 ```text
 Load .instructions/support/final-scaffold-checklist.md.
 Walk through the checklist manually: build, test, run smoke checks for each enabled host.
-Record exact results, blockers, and deployment-only residuals in HANDOFF.md. When acceptance passes, set workflowStatus: complete, currentPhase: 5, and currentSubPhase: complete, then commit and push per .instructions/support/OPERATIONS.md Git Checkpoint Protocol; the scaffold branch's PR is ready to merge.
+Record exact results, blockers, and deployment-only residuals in HANDOFF.md. When acceptance passes and git branch --no-merged on the scaffold branch lists no slice branch, set workflowStatus: complete, currentPhase: 5, and currentSubPhase: complete, then commit and push per .instructions/support/OPERATIONS.md Git Checkpoint Protocol; the scaffold branch's PR is ready to merge.
 ```
 
 ## Resume From HANDOFF
@@ -159,7 +159,7 @@ a new session on the branch and pastes its report into the next working session,
 rebuts each finding before anything else; none at HIGH or MEDIUM stays open.
 
 ```text
-Do not modify any file. Review the diff of branch {Branch} against the default branch, for {Scope}.
+Do not modify any file. Review the diff {Base}...{Branch} for {Scope}; {Base} is the previous phase's gate commit for a phase, or the branch a slice started from.
 - A slice ({Entity}, following {ExistingEntity}): load .instructions/support/vertical-slice-checklist.md; every applicable checklist item satisfied, wiring present, Phase-1 artifacts (.scaffold/) updated for {Entity} (GR-01).
 - A phase (4, 5a-5e): load that phase's files from .instructions/START-AI.md Phase Router (Phase 5: the .instructions/ai/SKILL.md Phase 5 file table) and .instructions/support/execution-gates.md; every output and gate check of the phase met.
 In both: boundaries respect .instructions/GROUND-RULES.md (GR-14 aggregate rules); patterns match the existing code; no dead stubs or leftover TODOs.

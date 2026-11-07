@@ -433,7 +433,7 @@ class WorkflowStateContractTests(unittest.TestCase):
     def test_router_checks_workflow_status_before_phase_fields(self):
         router = (REPO_ROOT / "START-AI.md").read_text(encoding="utf-8")
         status_index = router.index("Read workflowStatus first")
-        phase_index = router.index("Resume from currentPhase/currentSubPhase")
+        phase_index = router.index("resume currentPhase/currentSubPhase")
         self.assertLess(status_index, phase_index)
         self.assertIn("complete -> Scaffold workflow is terminal", router)
         self.assertIn("ordinary repository maintenance", router)
@@ -1895,8 +1895,8 @@ class GoldenPathTests(unittest.TestCase):
             subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
                            cwd=str(tmp), check=True, capture_output=True)
 
-        def handoff(branch):
-            (tmp / "HANDOFF.md").write_text(f'scaffoldBranch: "{branch}"\n', encoding="utf-8")
+        def handoff(branch, quote='"'):
+            (tmp / "HANDOFF.md").write_text(f"scaffoldBranch: {quote}{branch}{quote}  # comment\n", encoding="utf-8")
 
         def issues():
             return " ".join(goldenpath.git_state_issues(tmp))
@@ -1913,6 +1913,10 @@ class GoldenPathTests(unittest.TestCase):
         self.assertIn("uncommitted changes", issues())
         git("commit", "-q", "-am", "phase 3")
         self.assertEqual(goldenpath.git_state_issues(tmp), [])
+        for quote in ("'", ""):
+            handoff("scaffold/golden", quote)
+            git("commit", "-q", "-am", f"quote {quote!r}")
+            self.assertEqual(goldenpath.git_state_issues(tmp), [])
 
         git("switch", "-q", "-c", "feature/widget")
         (tmp / "w.txt").write_text("w\n", encoding="utf-8")
@@ -1922,6 +1926,11 @@ class GoldenPathTests(unittest.TestCase):
         self.assertIn("not merged into scaffold/golden: feature/widget", issues())
         git("merge", "-q", "--ff-only", "feature/widget")
         self.assertEqual(goldenpath.git_state_issues(tmp), [])
+
+        outside = Path(tempfile.mkdtemp(prefix="tooling-git-none-"))
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        with mock.patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(outside.parent)}):
+            self.assertIn("failed", " ".join(goldenpath.git_state_issues(outside)))
 
     def test_gate_fails_on_git_state(self):
         # A green build and green tests still fail the gate while git_state_issues reports anything.
