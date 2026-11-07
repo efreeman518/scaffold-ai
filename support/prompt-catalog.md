@@ -149,16 +149,17 @@ Add entity {Entity} to the existing solution using .instructions/support/vertica
 Follow patterns established by {ExistingEntity}.
 ```
 
-## Slice Review (Optional Second Session)
+## Slice Review (Fresh Session)
 
-Optional independent review of a completed slice in a fresh session: a reader with no
-generation context catches spec drift the generating session cannot see. Report findings
-only - fixes belong to a follow-up session.
+Fallback for the vertical-slice Review step when the harness can dispatch neither
+`independent-review` nor `scaffold-reviewer`: a reader with no generation context catches
+spec drift the generating session cannot see. It reports findings only; the generating
+session fixes or rebuts each one, and none at HIGH or MEDIUM stays open.
 
 ```text
 Load .instructions/support/vertical-slice-checklist.md. Do not modify any file.
 Review the {Entity} slice just added to this solution:
 1. Spec compliance - every applicable checklist item satisfied; wiring updates present; Phase-1 artifacts (.scaffold/) updated for {Entity} (GR-01).
 2. Code quality - boundaries respect GR-14 (aggregate rules); patterns match {ExistingEntity}; no dead stubs or leftover TODOs.
-Report findings as a numbered list with file paths; end with PASS or FAIL.
+Report findings as a numbered list, each with severity (HIGH, MEDIUM or LOW), file path and scenario; end with VERDICT: CLEAN or VERDICT: FINDINGS.
 ```

@@ -13,15 +13,15 @@ After every build:
 - **Missing package in `Directory.Packages.props`**: add at latest stable version, restore, rebuild.
 - **Infrastructure issue** (feed auth, env vars, Docker, certs, SQL/cloud access): do not loop fixes. Document the blocker in `HANDOFF.md`, point the engineer to [execution-gates.md](execution-gates.md).
 
-Rule: one fix pass for new errors; one extra pass allowed for mechanical propagation of the same root-cause fix. When the budget is spent on a code failure, diagnose first (the ecosystem `root-cause` skill when available, else by hand): read the primary error, prove the cause, fix it there with a test that fails without the fix. Write the blocker only when the cause is outside the session or stays unproven. Never mask a failure (catch-and-ignore, sleeps, blanket reruns, skipped or weakened tests).
+Rule: one fix pass for new errors; one extra pass allowed for mechanical propagation of the same root-cause fix. When the budget is spent on a code failure, diagnose first (the ecosystem `root-cause` skill when available, else by hand): read the primary error, prove the cause, fix it there, with a test that fails without the fix when the failure is behavioral. One diagnosis per failure: write the blocker when the cause is outside the session, stays unproven, or its fix does not turn the gate green. Never mask a failure (catch-and-ignore, sleeps, blanket reruns, skipped or weakened tests).
 
 ## Git Checkpoint Protocol
 
 Every session works on its own branch, so a checkpoint is a plain commit.
 
-- **Branch first.** Each phase or sub-phase session and each slice starts on its own branch from the current default branch: on its clean checkout, `git pull --ff-only` then `git switch -c <type>/<slug>` (`feature/`, `fix/`, `chore/`, `docs/`); otherwise `git fetch origin` then `git worktree add .tmp/worktrees/<slug>-<suffix> -b <type>/<slug>-<suffix> origin/<default-branch>`, with 6 random hex characters as `<suffix>`. A phase building on an earlier unmerged branch starts from it and records that in `HANDOFF.md`. Never switch, stash, reset or clean a checkout holding uncommitted work or another branch; use a worktree.
-- **Commit at every green gate** (sub-phase gate, TDD green step, slice validation gate) with a plain-text message stating intent. The branch belongs to the session, so a commit needs no approval.
-- **The phase review gate is a pull request.** When the phase gate passes, the developer's gate decides pushing: with their approval (or, unattended, per section Unattended Runs) push the branch and open one PR to the default branch; without it, stop with the branch committed and record the branch name and push command in `HANDOFF.md`. The developer merges. Never commit or push to the default branch directly.
+- **Branch first.** Each phase or sub-phase session and each slice starts its own branch from a base: the branch `HANDOFF.md` records as `sessionBranch` while unmerged (the next phase builds on its output), else the default branch (`git pull --ff-only` it when it has an upstream). On the checkout holding the base - clean, or holding only the freshly installed payload, which becomes the first commit - run `git switch -c <type>/<slug>` (`feature/`, `fix/`, `chore/`, `docs/`). Elsewhere use a worktree, `git worktree add .tmp/worktrees/<slug>-<suffix> -b <type>/<slug>-<suffix> <base>` (`<suffix>`: 6 random hex characters), work and write `HANDOFF.md` there, and name its path in `resumeCommand`. Record the branch as `sessionBranch`. Never switch to another existing branch, stash, reset or clean a checkout holding uncommitted work.
+- **Commit at every green gate** (sub-phase gate, the TDD RED test-only commit and GREEN step, slice validation gate) with a plain-text message stating intent. The branch belongs to the session, so a commit needs no approval.
+- **The phase or slice review gate is a pull request.** When the gate passes, the developer's approval decides pushing: with it (unattended: section Unattended Runs) push the branch and open one PR, to its base branch while that is unmerged (retarget it to the default branch once the base merges), else to the default branch. Without approval or without a remote, stop with the branch committed and record the branch name and push command in `HANDOFF.md` or the slice report. The developer merges. Never commit or push to the default branch directly.
 - Destructive commands (`reset --hard`, `checkout .`, `clean`, `branch -D`, `push --force`) need the developer's explicit approval.
 
 If a sub-phase fails after the fix-pass budget (and the diagnosis above):
@@ -52,12 +52,13 @@ When the AI discovers a fundamental assumption error (wrong entity design, incor
 2. **Assess scope:** Identify all files generated since the last git checkpoint that are affected by the error.
 3. **Checkpoint recovery prep:** commit the current work so nothing is lost, then find the last green checkpoint. Never `git stash`: the stash stack is shared by every worktree and session of the repository.
    ```powershell
-   git add -A; git commit -m "WIP: <the flawed assumption>"
+   git status  # stage only the files this session generated, never stray local config or secrets
+   git add <generated paths>; git commit -m "WIP: <the flawed assumption>"
    git log --oneline -5  # find the last green checkpoint
    ```
 4. **Decide recovery path:**
    - **Isolated error** (affects 1-2 files): fix the affected files on top of the WIP commit, rebuild and re-test; the next green commit supersedes it.
-   - **Structural error** (wrong entity shape, missing relationship, bad inheritance): ask the developer before discarding work. Start a recovery branch from the last green checkpoint (`git switch -c <type>/<slug>-redo <checkpoint>`), keeping the WIP branch for reference, or `git revert` the affected commits. Never `reset --hard` a branch that holds the work.
+   - **Structural error** (wrong entity shape, missing relationship, bad inheritance): ask the developer before discarding work. Start a recovery branch from the last green checkpoint (`git switch -c <type>/<slug>-redo-<suffix> <checkpoint>`, a new 6-hex suffix), record it as `sessionBranch` in `HANDOFF.md` and open the PR from it, keeping the WIP branch for reference; or `git revert` the affected commits. Never `reset --hard` a branch that holds the work.
    - **Domain misunderstanding** (entity purpose is wrong): go back to Phase 1 output, clarify with the user, update `.scaffold/domain-specification.yaml`, `.scaffold/UBIQUITOUS-LANGUAGE.md`, and `.scaffold/DESIGN-DECISIONS.md`, then re-scaffold the slice from scratch.
 5. **Document in HANDOFF.md:** Record what was rolled back and why, so the next session doesn't repeat the mistake.
 6. **Re-enter at the corrected sub-phase** using the Phase 5 file table in `ai/SKILL.md`.
@@ -66,10 +67,10 @@ When the AI discovers a fundamental assumption error (wrong entity design, incor
 
 ## Unattended Runs
 
-An issue-driven loop with no developer present (the ecosystem's autotriage feature loop, for one) may run `/vertical-slice` or a fan-out from an approved specification. The loop's own instructions own asking, pushing, merging, deploying and the files it may not change; where they and a scaffold rule differ, the loop's win on those points only. The scaffold's human touchpoints map onto it:
+An issue-driven loop with no developer present (the ecosystem's autotriage feature loop, for one) may run `/vertical-slice` or a fan-out from an approved specification. The loop's own instructions win wherever they and a scaffold rule differ: they own the run's branch and worktree (Branch first does not apply), continuing a pushed branch, pushing, review lenses, asking, merging, deploying and the files it may not change. The scaffold's human touchpoints map onto it:
 
 - **Stop and ask becomes the loop's question.** A missing required input, a blocking `[OPEN QUESTION]` (GR-10), an assumption the checklist does not allow, or an unavailable required model tier is posted where the loop asks (the linked issue), and the run stops. Never guess past it.
-- **The approved specification stands in for the developer's phase-gate approval** to commit, push the session branch and open the PR. The developer's PR review is the gate; the loop never merges.
+- **The approved specification stands in for the developer's phase-gate approval** to push the run's branch and open the PR. The developer's PR review is the gate; the loop never merges.
 - **Gates the run cannot execute go to CI.** A gate that needs Docker, Testcontainers, Aspire or a database runs in the PR's CI; the PR body names each such gate and the CI job that runs it. A gate with no CI job is reported as not run, never as passed.
 - **Phase-1 artifact updates** the slice needs (GR-01) land in the same PR, before the code.
 - **Instruction gaps** are appended to `.scaffold/INSTRUCTION-GAPS.md` as usual and listed in the PR body. `.instructions/` stays read-only (GR-07); the loop's gate also rejects a PR that changes it.

@@ -40,7 +40,7 @@ See `.instructions/support/execution-gates.md` section Core Loop. Scope test fil
 
 ## Review
 
-After the gate passes, commit the slice on its session branch (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol) and review it before reporting. With the ecosystem `independent-review` skill installed, run its review rounds on the branch diff and add the read-only `scaffold-reviewer` agent as the ground-rule lens; without it, dispatch `scaffold-reviewer` alone over the slice's files. Fix every confirmed finding or rebut it with evidence; none at HIGH or MEDIUM stays open.
+After the gate passes, commit the slice on its session branch (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol) and review it before reporting. With the ecosystem `independent-review` skill installed, run its review rounds on the branch diff and add the read-only `scaffold-reviewer` agent as the ground-rule lens; without it, dispatch `scaffold-reviewer` alone over the slice's files. Fix every confirmed finding or rebut it with evidence; none at HIGH or MEDIUM stays open. Then the slice's review gate is a pull request, as for a phase gate in that protocol.
 
 ## Unattended Runs
 
@@ -64,4 +64,4 @@ If any instruction behavior turned out missing, ambiguous, or wrong this session
 
 ## Output
 
-Report which files were created, which wiring steps completed, and the gate result (`dotnet build` + `dotnet test`).
+Report which files were created, which wiring steps completed, the gate result (`dotnet build` + `dotnet test`), the review result, and the session branch with its worktree path (if any) and its PR link or push command.
