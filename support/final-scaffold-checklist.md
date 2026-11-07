@@ -163,7 +163,7 @@ Get-ChildItem src, tests -Recurse -Filter *.cs |
 The installer writes the scaffold-routing block into `AGENTS.md` and
 `.github/copilot-instructions.md` inside `<!-- ai-scaffold: start --> ... <!-- ai-scaffold: end -->`
 markers; `CLAUDE.md`'s marked block is a single `@AGENTS.md` import, so Claude Code
-reads whatever `AGENTS.md` says. At the final enabled Phase 5 sub-phase, give these
+reads whatever `AGENTS.md` says. In the Final Scaffold Validation session, give these
 always-loaded files a steady-state shape so ordinary post-scaffold sessions are not
 taxed with one-time bootstrap routing.
 
@@ -192,7 +192,7 @@ safe there.
 
 ## Post-Scaffold Deployment Handoff
 
-Scaffold completion is local-complete per **GR-11**; deployment is a separate, human-triggered track. At the final enabled Phase 5 sub-phase, copy the applicable items below into the **Production Deployment TODOs** section at the top of `HANDOFF.md` (see [HANDOFF.md](HANDOFF.md)) so the remaining work is the first thing a developer reads. When the team is ready to go live:
+Scaffold completion is local-complete per **GR-11**; deployment is a separate, human-triggered track. In the Final Scaffold Validation session, copy the applicable items below into the **Production Deployment TODOs** section at the top of `HANDOFF.md` (see [HANDOFF.md](HANDOFF.md)) so the remaining work is the first thing a developer reads. When the team is ready to go live:
 
 - **Provision live infrastructure per IaC** - [../skills/iac.md](../skills/iac.md) section Deployment, plus the manual items in section One-time, account-bound steps (resource group, federated credentials, registry wiring).
 - **Configure CI/CD** - [../skills/cicd.md](../skills/cicd.md) section Required Secrets, plus the Required Variables and Environments sections in the same file.

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Find the live scaffold branch for the Git Checkpoint Protocol (support/OPERATIONS.md, start step 2).
 
-Every `scaffold/*` name, local or on `origin`, is classified by its pull request:
-open, or no PR yet -> live; MERGED -> merged (the session deletes the local copy per the
-protocol's exemption); CLOSED -> ask. One live name is the answer, none means no live branch,
-two or more means ask. A repository without `origin`, or a `gh` query that fails, also means ask.
+Every `scaffold/*` name, local or on `origin`, is classified by its newest pull request from this
+repository (not a fork) into the default branch: open, or no PR yet -> live; MERGED with no commits
+past the merged head -> merged (the session deletes the local copy per the protocol's exemption);
+CLOSED, or MERGED with later commits -> ask. One live name is the answer, none means no live branch,
+two or more means ask. A repository without a GitHub `origin`, a missing `git` or `gh`, or a query
+that fails also means ask.
 
 Prints one JSON object: {"result": "live" | "none" | "ask", "branch": str | null,
-"merged": [names], "reason": str}. Exit code 0 for live or none, 2 for ask.
+"merged": [{"name": str, "headRefOid": str}], "reason": str}. Exit code 0 for live or none, 2 for ask.
 
 Usage (from the app repo root):
     python .instructions/scripts/find-scaffold-branch.py
@@ -16,6 +18,7 @@ Usage (from the app repo root):
 from __future__ import annotations
 
 import json
+import os
 import random
 import re
 import subprocess
@@ -25,62 +28,101 @@ from typing import Callable
 
 Runner = Callable[[list[str]], subprocess.CompletedProcess]
 
-# Transient network faults worth one more try; anything else (auth, unknown branch) fails fast.
+# Transient network faults worth another try; anything else fails fast to ask. Rate limits (HTTP 429,
+# "rate limit") are not retried: gh exposes no Retry-After, and GitHub's limits outlast a short backoff.
 TRANSIENT = re.compile(r"timed? ?out|connection (reset|refused)|could not resolve host|"
-                       r"temporarily unavailable|\b50[234]\b|rate limit|TLS handshake", re.IGNORECASE)
+                       r"temporarily unavailable|\b50[234]\b|TLS handshake", re.IGNORECASE)
+RATE_LIMITED = re.compile(r"rate limit|\b429\b", re.IGNORECASE)
 ATTEMPTS = 3
+TIMEOUT_SECONDS = 120
+# English messages for the classifier, and no credential prompt that would hang a headless session.
+ENV = {**os.environ, "LC_ALL": "C", "LANG": "C", "GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1"}
+GITHUB_REMOTE = re.compile(r"github\.com[:/](?P<repo>[^/\s]+/[^/\s]+?)(?:\.git)?/?$")
 
 
 def run(cmd: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              env=ENV, timeout=TIMEOUT_SECONDS)
+    except FileNotFoundError:
+        return subprocess.CompletedProcess(cmd, 127, "", f"{cmd[0]} not found on PATH")
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(cmd, 124, "", f"timed out after {TIMEOUT_SECONDS}s")
 
 
 def run_with_retry(runner: Runner, cmd: list[str], sleep: Callable[[float], None] = time.sleep) -> subprocess.CompletedProcess:
-    """Run a network command, retrying only transient failures with exponential backoff and jitter."""
+    """Run a read-only network command, retrying only transient failures with exponential backoff and jitter."""
     for attempt in range(1, ATTEMPTS + 1):
         proc = runner(cmd)
-        if proc.returncode == 0 or attempt == ATTEMPTS or not TRANSIENT.search(proc.stderr or ""):
+        stderr = proc.stderr or ""
+        if (proc.returncode == 0 or attempt == ATTEMPTS
+                or not TRANSIENT.search(stderr) or RATE_LIMITED.search(stderr)):
             return proc
         delay = 2 ** attempt + random.uniform(0, 1)
-        print(f"retry {attempt}/{ATTEMPTS - 1} in {delay:.1f}s: {' '.join(cmd)}: {proc.stderr.strip()}", file=sys.stderr)
+        print(f"retry {attempt}/{ATTEMPTS - 1} in {delay:.1f}s: {' '.join(cmd)}: {stderr.strip()}", file=sys.stderr)
         sleep(delay)
     raise AssertionError("unreachable")
 
 
 def find(runner: Runner = run, sleep: Callable[[float], None] = time.sleep) -> dict:
-    def ask(reason: str, merged: list[str] | None = None) -> dict:
-        return {"result": "ask", "branch": None, "merged": merged or [], "reason": reason}
+    merged: list[dict] = []
 
-    remotes = runner(["git", "remote"])
-    if remotes.returncode != 0:
-        return ask(f"git remote failed: {remotes.stderr.strip()}")
-    if "origin" not in remotes.stdout.split():
+    def ask(reason: str) -> dict:
+        return {"result": "ask", "branch": None, "merged": merged, "reason": reason}
+
+    def failed(proc: subprocess.CompletedProcess, what: str) -> dict:
+        return ask(f"{what} failed: {(proc.stderr or '').strip()}")
+
+    url = runner(["git", "remote", "get-url", "origin"])
+    if url.returncode != 0:
         return ask("no origin remote: the protocol assumes a GitHub origin")
+    match = GITHUB_REMOTE.search(url.stdout.strip())
+    if not match:
+        return ask(f"origin is not a GitHub repository: {url.stdout.strip()}")
+    repo = match.group("repo")
     fetch = run_with_retry(runner, ["git", "fetch", "--prune", "origin"], sleep)
     if fetch.returncode != 0:
-        return ask(f"git fetch failed: {fetch.stderr.strip()}")
+        return failed(fetch, "git fetch")
+    default = run_with_retry(runner, ["gh", "repo", "view", repo, "--json", "defaultBranchRef",
+                                      "--jq", ".defaultBranchRef.name"], sleep)
+    if default.returncode != 0 or not default.stdout.strip():
+        return failed(default, "gh repo view")
+    base = default.stdout.strip()
     refs = runner(["git", "for-each-ref", "--format=%(refname)", "refs/heads/scaffold/", "refs/remotes/origin/scaffold/"])
     if refs.returncode != 0:
-        return ask(f"git for-each-ref failed: {refs.stderr.strip()}")
-    names = sorted({re.sub(r"^refs/(heads|remotes/origin)/", "", r) for r in refs.stdout.split()})
+        return failed(refs, "git for-each-ref")
+    by_name: dict[str, list[str]] = {}
+    for ref in refs.stdout.split():
+        by_name.setdefault(re.sub(r"^refs/(heads|remotes/origin)/", "", ref), []).append(ref)
 
     live: list[str] = []
-    merged: list[str] = []
-    for name in names:
-        proc = run_with_retry(runner, ["gh", "pr", "list", "--head", name, "--state", "all",
-                                       "--json", "state", "--limit", "1"], sleep)
+    for name in sorted(by_name):
+        proc = run_with_retry(runner, ["gh", "pr", "list", "--repo", repo, "--head", name, "--base", base,
+                                       "--state", "all", "--limit", "100",
+                                       "--json", "state,createdAt,isCrossRepository,headRefOid"], sleep)
         if proc.returncode != 0:
-            return ask(f"gh pr list for {name} failed: {proc.stderr.strip()}", merged)
-        prs = json.loads(proc.stdout or "[]")
-        state = prs[0]["state"] if prs else "NONE"
+            return failed(proc, f"gh pr list for {name}")
+        try:
+            prs = [p for p in json.loads(proc.stdout or "[]") if not p["isCrossRepository"]]
+        except (ValueError, KeyError, TypeError) as exc:
+            return ask(f"gh pr list for {name} returned unreadable output: {exc}")
+        newest = max(prs, key=lambda p: p["createdAt"], default=None)
+        state = newest["state"] if newest else "NONE"
         if state in ("OPEN", "NONE"):
             live.append(name)
         elif state == "MERGED":
-            merged.append(name)
+            oid = newest["headRefOid"]
+            for ref in by_name[name]:
+                ahead = runner(["git", "rev-list", "--count", f"{oid}..{ref}"])
+                if ahead.returncode != 0:
+                    return failed(ahead, f"git rev-list for {ref}")
+                if ahead.stdout.strip() != "0":
+                    return ask(f"{ref} has commits after its merged PR's head {oid}")
+            merged.append({"name": name, "headRefOid": oid})
         else:
-            return ask(f"{name}: its PR is {state}", merged)
+            return ask(f"{name}: its newest PR is {state}")
     if len(live) > 1:
-        return ask(f"more than one live scaffold branch: {', '.join(live)}", merged)
+        return ask(f"more than one live scaffold branch: {', '.join(live)}")
     if live:
         return {"result": "live", "branch": live[0], "merged": merged, "reason": "open PR or none yet"}
     return {"result": "none", "branch": None, "merged": merged, "reason": "no scaffold/* branch without a merged PR"}

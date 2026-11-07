@@ -582,4 +582,4 @@ See [OPERATIONS.md](OPERATIONS.md) section Mid-Session Rollback Protocol.
 
 ## Post-Scaffold Smoke Test
 
-After all enabled Phase 5 sub-phases, load [final-scaffold-checklist.md](final-scaffold-checklist.md), run its Required Commands and API Smoke, complete every applicable criterion, and record results in `HANDOFF.md` section Scaffold Acceptance. This file remains the owner for per-sub-phase gates, compiler-warning policy, and vulnerability-audit policy; the final checklist composes them without a second command copy here.
+In the Final Scaffold Validation session (`currentSubPhase: final-validation`), load [final-scaffold-checklist.md](final-scaffold-checklist.md), run its Required Commands and API Smoke, complete every applicable criterion, and record results in `HANDOFF.md` section Scaffold Acceptance. This file remains the owner for per-sub-phase gates, compiler-warning policy, and vulnerability-audit policy; the final checklist composes them without a second command copy here.

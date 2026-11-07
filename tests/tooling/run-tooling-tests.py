@@ -446,7 +446,10 @@ class WorkflowStateContractTests(unittest.TestCase):
         self.assertIn("| final-validation | complete", handoff)
         self.assertIn("sets `currentSubPhase: final-validation`", (REPO_ROOT / "ai" / "SKILL.md").read_text(encoding="utf-8"))
         router = (REPO_ROOT / "START-AI.md").read_text(encoding="utf-8")
-        self.assertRegex(router, r"`currentSubPhase: final-validation` walks through `support/final-scaffold-checklist\.md`")
+        self.assertRegex(router, r"`currentSubPhase: final-validation` loads only `support/final-scaffold-checklist\.md`")
+        # The checklist runs in that session alone, never inside the final sub-phase.
+        for rel in ("ai/SKILL.md", "support/HANDOFF.md", "support/final-scaffold-checklist.md", "support/execution-gates.md"):
+            self.assertNotIn("At the final enabled Phase 5 sub-phase", (REPO_ROOT / rel).read_text(encoding="utf-8"), rel)
 
     def test_golden_path_fixture_starts_active(self):
         self.assertIn("workflowStatus: active", goldenpath.HANDOFF_FIXTURE)
@@ -1466,14 +1469,19 @@ class CleanTmpTests(unittest.TestCase):
 WORKBOARD_SPEC_HEADING = "### `.scaffold/domain-specification.yaml`"
 
 
-@unittest.skipUnless(importlib.util.find_spec("yaml"), "pyyaml not installed")
 class FindScaffoldBranchTests(unittest.TestCase):
     """Live-branch classification of the Git Checkpoint Protocol, start step 2."""
 
+    REPO = "acme/app"
+
     @staticmethod
-    def runner(prs: dict, remotes: str = "origin\n", refs: list[str] | None = None, failures: dict | None = None):
-        # prs maps a branch name to its newest PR state ("" = no PR); failures maps a command prefix to
-        # a queue of stderr strings returned (rc 1) before that command succeeds.
+    def pr(state: str, created: str = "2026-01-01T00:00:00Z", fork: bool = False, oid: str = "abc") -> dict:
+        return {"state": state, "createdAt": created, "isCrossRepository": fork, "headRefOid": oid}
+
+    def runner(self, prs: dict, url: str = "https://github.com/acme/app.git", refs: list[str] | None = None,
+               failures: dict | None = None, ahead: str = "0"):
+        # prs maps a branch name to its PR list; failures maps a command prefix to a queue of
+        # (returncode, stderr) results returned before that command succeeds.
         refs = refs if refs is not None else [f"refs/heads/{n}" for n in prs]
         failures = failures or {}
         calls: list[list[str]] = []
@@ -1482,16 +1490,22 @@ class FindScaffoldBranchTests(unittest.TestCase):
             calls.append(cmd)
             for prefix, queue in failures.items():
                 if " ".join(cmd).startswith(prefix) and queue:
-                    return subprocess.CompletedProcess(cmd, 1, "", queue.pop(0))
-            if cmd[:2] == ["git", "remote"]:
-                return subprocess.CompletedProcess(cmd, 0, remotes, "")
+                    code, err = queue.pop(0)
+                    return subprocess.CompletedProcess(cmd, code, "", err)
+            if cmd[:3] == ["git", "remote", "get-url"]:
+                return subprocess.CompletedProcess(cmd, 0 if url else 2, url + "\n", "" if url else "error: No such remote 'origin'")
             if cmd[:2] == ["git", "fetch"]:
                 return subprocess.CompletedProcess(cmd, 0, "", "")
+            if cmd[:3] == ["gh", "repo", "view"]:
+                self.assertEqual(cmd[3], self.REPO)
+                return subprocess.CompletedProcess(cmd, 0, "main\n", "")
             if cmd[:2] == ["git", "for-each-ref"]:
                 return subprocess.CompletedProcess(cmd, 0, "\n".join(refs), "")
             if cmd[:3] == ["gh", "pr", "list"]:
-                state = prs[cmd[cmd.index("--head") + 1]]
-                return subprocess.CompletedProcess(cmd, 0, json.dumps([{"state": state}] if state else []), "")
+                self.assertEqual((cmd[cmd.index("--repo") + 1], cmd[cmd.index("--base") + 1]), (self.REPO, "main"))
+                return subprocess.CompletedProcess(cmd, 0, json.dumps(prs[cmd[cmd.index("--head") + 1]]), "")
+            if cmd[:3] == ["git", "rev-list", "--count"]:
+                return subprocess.CompletedProcess(cmd, 0, ahead + "\n", "")
             raise AssertionError(cmd)
 
         return run, calls
@@ -1500,37 +1514,68 @@ class FindScaffoldBranchTests(unittest.TestCase):
         run, calls = self.runner(*args, **kwargs)
         return find_branch.find(run, sleep=lambda _s: None), calls
 
+    @staticmethod
+    def count(calls, prefix):
+        return sum(1 for c in calls if c[:len(prefix)] == prefix)
+
     def test_classification(self):
-        self.assertEqual(self.find({"scaffold/app": ""})[0]["branch"], "scaffold/app")
-        self.assertEqual(self.find({"scaffold/app": "OPEN"})[0]["result"], "live")
-        merged = self.find({"scaffold/app": "MERGED"})[0]
-        self.assertEqual((merged["result"], merged["merged"]), ("none", ["scaffold/app"]))
-        self.assertEqual(self.find({"scaffold/app": "CLOSED"})[0]["result"], "ask")
-        both = self.find({"scaffold/a": "OPEN", "scaffold/b": ""})[0]
+        self.assertEqual(self.find({"scaffold/app": []})[0]["branch"], "scaffold/app")
+        self.assertEqual(self.find({"scaffold/app": [self.pr("OPEN")]})[0]["result"], "live")
+        merged = self.find({"scaffold/app": [self.pr("MERGED", oid="f00")]})[0]
+        self.assertEqual((merged["result"], merged["merged"]), ("none", [{"name": "scaffold/app", "headRefOid": "f00"}]))
+        self.assertEqual(self.find({"scaffold/app": [self.pr("CLOSED")]})[0]["result"], "ask")
+        both = self.find({"scaffold/a": [self.pr("OPEN")], "scaffold/b": []})[0]
         self.assertEqual(both["result"], "ask")
         self.assertIn("more than one", both["reason"])
-        mixed = self.find({"scaffold/old": "MERGED", "scaffold/new": "OPEN"})[0]
-        self.assertEqual((mixed["branch"], mixed["merged"]), ("scaffold/new", ["scaffold/old"]))
+        mixed = self.find({"scaffold/old": [self.pr("MERGED")], "scaffold/new": [self.pr("OPEN")]})[0]
+        self.assertEqual((mixed["branch"], [m["name"] for m in mixed["merged"]]), ("scaffold/new", ["scaffold/old"]))
         self.assertEqual(self.find({})[0]["result"], "none")
 
-    def test_local_and_remote_copies_are_one_name(self):
-        outcome, calls = self.find({"scaffold/app": "OPEN"},
-                                   refs=["refs/heads/scaffold/app", "refs/remotes/origin/scaffold/app"])
-        self.assertEqual(outcome["result"], "live")
-        self.assertEqual(sum(1 for c in calls if c[:3] == ["gh", "pr", "list"]), 1)
+    def test_newest_own_pr_decides(self):
+        # A newer PR reopened from a merged branch makes it live; a fork PR with the same head name is ignored.
+        reopened = [self.pr("MERGED", "2026-01-01T00:00:00Z"), self.pr("OPEN", "2026-02-01T00:00:00Z")]
+        self.assertEqual(self.find({"scaffold/app": reopened})[0]["result"], "live")
+        fork = [self.pr("OPEN", "2026-01-01T00:00:00Z"), self.pr("MERGED", "2026-03-01T00:00:00Z", fork=True)]
+        self.assertEqual(self.find({"scaffold/app": fork})[0]["result"], "live")
 
-    def test_no_origin_and_failed_queries_ask(self):
-        self.assertIn("no origin", self.find({"scaffold/app": ""}, remotes="upstream\n")[0]["reason"])
-        auth = self.find({"scaffold/app": ""}, failures={"gh pr list": ["HTTP 401: Bad credentials"]})
-        self.assertEqual(auth[0]["result"], "ask")
-        self.assertEqual(sum(1 for c in auth[1] if c[:3] == ["gh", "pr", "list"]), 1)  # not transient: no retry
+    def test_merged_branch_with_later_commits_asks(self):
+        outcome = self.find({"scaffold/app": [self.pr("MERGED")]}, ahead="2")[0]
+        self.assertEqual(outcome["result"], "ask")
+        self.assertIn("commits after its merged PR", outcome["reason"])
+
+    def test_local_and_remote_copies_are_one_name(self):
+        outcome, calls = self.find({"scaffold/app": [self.pr("MERGED")]},
+                                   refs=["refs/heads/scaffold/app", "refs/remotes/origin/scaffold/app"])
+        self.assertEqual(outcome["result"], "none")
+        self.assertEqual(self.count(calls, ["gh", "pr", "list"]), 1)
+        self.assertEqual(self.count(calls, ["git", "rev-list"]), 2)  # both copies checked against the merged head
+
+    def test_origin_must_be_github(self):
+        self.assertIn("no origin", self.find({"scaffold/app": []}, url="")[0]["reason"])
+        self.assertIn("not a GitHub", self.find({"scaffold/app": []}, url="https://gitlab.com/acme/app.git")[0]["reason"])
+        self.assertEqual(self.find({"scaffold/app": []}, url="git@github.com:acme/app.git")[0]["result"], "live")
+
+    def test_failed_or_unreadable_queries_ask_without_retry(self):
+        for failure in ((1, "HTTP 401: Bad credentials"), (127, "gh not found on PATH"), (1, "HTTP 429: Too Many Requests"),
+                        (1, "API rate limit exceeded (HTTP 403)")):
+            outcome, calls = self.find({"scaffold/app": []}, failures={"gh pr list": [failure]})
+            self.assertEqual(outcome["result"], "ask", failure)
+            self.assertEqual(self.count(calls, ["gh", "pr", "list"]), 1, failure)
+        run, _ = self.runner({"scaffold/app": []})
+        garbled = lambda cmd: (subprocess.CompletedProcess(cmd, 0, "<html>", "") if cmd[:3] == ["gh", "pr", "list"] else run(cmd))
+        self.assertIn("unreadable", find_branch.find(garbled, sleep=lambda _s: None)["reason"])
 
     def test_transient_failures_retry_then_succeed_or_ask(self):
-        ok, calls = self.find({"scaffold/app": "OPEN"}, failures={"git fetch": ["fatal: Connection reset by peer"]})
+        ok, calls = self.find({"scaffold/app": [self.pr("OPEN")]}, failures={"git fetch": [(124, "timed out after 120s")]})
         self.assertEqual(ok["result"], "live")
-        self.assertEqual(sum(1 for c in calls if c[:2] == ["git", "fetch"]), 2)
-        down = self.find({"scaffold/app": "OPEN"}, failures={"gh pr list": ["HTTP 503"] * 3})[0]
+        self.assertEqual(self.count(calls, ["git", "fetch"]), 2)
+        down, calls = self.find({"scaffold/app": [self.pr("OPEN")]}, failures={"gh pr list": [(1, "HTTP 503")] * 3})
         self.assertEqual(down["result"], "ask")
+        self.assertEqual(self.count(calls, ["gh", "pr", "list"]), find_branch.ATTEMPTS)
+
+    def test_run_turns_missing_tool_into_failure(self):
+        proc = find_branch.run(["scaffold-ai-no-such-tool"])
+        self.assertEqual(proc.returncode, 127)
 
     def test_main_exit_codes(self):
         for outcome, code in (({"result": "live"}, 0), ({"result": "none"}, 0), ({"result": "ask"}, 2)):
@@ -1539,6 +1584,7 @@ class FindScaffoldBranchTests(unittest.TestCase):
                 self.assertEqual(find_branch.main(), code)
 
 
+@unittest.skipUnless(importlib.util.find_spec("yaml"), "pyyaml not installed")
 class OntologyGeneratorTests(unittest.TestCase):
     """Drive scripts/generate-ontology.py against the WorkBoard fixture plus synthetic mutations."""
 

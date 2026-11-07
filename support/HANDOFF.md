@@ -45,7 +45,7 @@ instructionGapsPath: ".scaffold/INSTRUCTION-GAPS.md"
 
 ## Production Deployment TODOs
 
-Populated by the **final enabled Phase 5 sub-phase session** as the first section a developer reads; leave as `<not yet at final sub-phase>` until then. The scaffold is complete and runnable locally (stubs/emulators), but it is **not deployable** until every item here is done. Derive the list from [final-scaffold-checklist.md](final-scaffold-checklist.md) section Post-Scaffold Deployment Handoff and the Deferred External Dependencies table below; typical entries:
+Populated by the **Final Scaffold Validation session** as the first section a developer reads; leave as `<not yet at final sub-phase>` until then. The scaffold is complete and runnable locally (stubs/emulators), but it is **not deployable** until every item here is done. Derive the list from [final-scaffold-checklist.md](final-scaffold-checklist.md) section Post-Scaffold Deployment Handoff and the Deferred External Dependencies table below; typical entries:
 
 - [ ] Provision live Azure infrastructure (hand-written Bicep deploy or `azd provision` - see `skills/iac.md`)
 - [ ] Set CI/CD secrets, variables, and environments; enable `push` triggers on `cd.yml`/`provision.yml` (currently `workflow_dispatch`-only)
@@ -107,7 +107,7 @@ Out of scope for this session - do not attempt unless explicitly re-scoped:
 ## Notes
 
 - Keep `domain-specification.yaml`, `resource-implementation.yaml`, `UBIQUITOUS-LANGUAGE.md`, and `DESIGN-DECISIONS.md` under `.scaffold/` in the target project. `HANDOFF.md` itself stays at project root.
-- Keep `workflowStatus: active` while scaffold work remains. The final enabled sub-phase, once reviewed, sets `currentSubPhase: final-validation`. After final acceptance, set `workflowStatus: complete`, `currentPhase: 5`, and `currentSubPhase: complete`; subsequent sessions use ordinary repository maintenance instead of the phase router.
+- Keep `workflowStatus: active` while scaffold work remains. The final enabled sub-phase's gate commit sets `currentSubPhase: final-validation`. After final acceptance, set `workflowStatus: complete`, `currentPhase: 5`, and `currentSubPhase: complete`; subsequent sessions use ordinary repository maintenance instead of the phase router.
 - `currentPhase` and `currentSubPhase` always describe the next work to run, not the phase just completed. Record completed gate evidence in `Completed` and `Validation` per [execution-gates.md](execution-gates.md) section Verification Evidence Rule (observed output only, never anticipated).
 - At Phase 1 close, summarize unresolved/deferred design decisions and confirm they do not block Phase 2.
 - Keep `enabledFeatures` flags in sync with `.scaffold/resource-implementation.yaml` canonical hosting/IaC/AI toggles.
@@ -190,7 +190,7 @@ For each enabled optional host, record its individual gate result. Use `validate
 
 ## Scaffold Acceptance
 
-Filled out at the end of the final enabled Phase 5 sub-phase, before closing the scaffold. Records evidence for [final-scaffold-checklist.md](final-scaffold-checklist.md); it does not redefine the criteria.
+Filled out in the Final Scaffold Validation session, before closing the scaffold. Records evidence for [final-scaffold-checklist.md](final-scaffold-checklist.md); it does not redefine the criteria.
 
 | Gate | Command | Result | Notes |
 |------|---------|--------|-------|

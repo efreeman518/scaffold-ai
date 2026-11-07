@@ -75,6 +75,7 @@ Start every Phase 5 sub-phase with:
 Load .instructions/START-AI.md, run its session start steps, then read HANDOFF.md from the project root.
 Run the Tooling Check for this sub-phase.
 Read the Phase 5 file table in .instructions/ai/SKILL.md and load the files for the current sub-phase.
+The final enabled sub-phase sets currentSubPhase: final-validation in its HANDOFF.md update.
 ```
 
 Then append the relevant sub-phase block below.

@@ -101,7 +101,7 @@ Before generating code in each Phase 5 sub-phase, ask the following clarificatio
 
 5. **5e - Integration (Auth + AI):**
    - **Ask clarification questions first:** authentication provider, custom claims/roles, B2B vs B2C, token expiry. If AI in scope: AI search scope/filters, agent capabilities, content ingestion, cost/latency.
-   - Finalize identity (replace earlier stubs with config-driven scaffold principal). When `includeAiServices: true`, scaffold AI search and/or agents - load only the templates matching the enabled capability - and scaffold the `AiProviderInfo` + `GET /api/v1/ai/status` provider signal by default (the live-AI lane gate and an ops signal; owner [../skills/ai-integration.md](../skills/ai-integration.md)). Gate: see [../support/execution-gates.md](../support/execution-gates.md) section 5e. Live search/agent checks run only when endpoints are provisioned; live AI proof is Azure AI Foundry only and runs in `Test.Aspire`. The final enabled sub-phase, once reviewed, sets `currentSubPhase: final-validation` (Final Scaffold Validation, `support/prompt-catalog.md`).
+   - Finalize identity (replace earlier stubs with config-driven scaffold principal). When `includeAiServices: true`, scaffold AI search and/or agents - load only the templates matching the enabled capability - and scaffold the `AiProviderInfo` + `GET /api/v1/ai/status` provider signal by default (the live-AI lane gate and an ops signal; owner [../skills/ai-integration.md](../skills/ai-integration.md)). Gate: see [../support/execution-gates.md](../support/execution-gates.md) section 5e. Live search/agent checks run only when endpoints are provisioned; live AI proof is Azure AI Foundry only and runs in `Test.Aspire`. The final enabled sub-phase's gate commit sets `currentSubPhase: final-validation` (Final Scaffold Validation, `support/prompt-catalog.md`).
 
 ## Template Usage
 
@@ -143,7 +143,7 @@ Generate one complete slice, validate, then move to next slice.
 
 ## Scaffold Definition of Done
 
-**GR-11** is the binding summary. [../support/final-scaffold-checklist.md](../support/final-scaffold-checklist.md) owns the complete final acceptance criteria and composite commands; [../support/execution-gates.md](../support/execution-gates.md) owns per-sub-phase gates and command policy. At the final enabled Phase 5 sub-phase, load the checklist, complete every applicable item, and record evidence plus named deferrals in `HANDOFF.md` section Scaffold Acceptance. A green build alone never proves completion.
+**GR-11** is the binding summary. [../support/final-scaffold-checklist.md](../support/final-scaffold-checklist.md) owns the complete final acceptance criteria and composite commands; [../support/execution-gates.md](../support/execution-gates.md) owns per-sub-phase gates and command policy. The Final Scaffold Validation session loads the checklist, completes every applicable item, and records evidence plus named deferrals in `HANDOFF.md` section Scaffold Acceptance. A green build alone never proves completion.
 
 ---
 
