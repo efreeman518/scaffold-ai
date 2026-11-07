@@ -26,14 +26,14 @@ All instruction files live under `.instructions/` in the project root. All file 
 
 ## Pre-Flight
 
-Run every checkbox in `.instructions/ai/adopt-codebase.md` section Pre-Flight before reading any source files. Do not proceed on a red build - the developer fixes it or branches from a known-good commit first.
+Start the session branch (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol), then run every checkbox in `.instructions/ai/adopt-codebase.md` section Pre-Flight before reading any source files. Do not proceed on a red build - the developer fixes it or branches from a known-good commit first.
 
 ## Execution Order
 
 1. Walk the Inspection Order in `.instructions/ai/adopt-codebase.md` section Inspection Order. After each pass, recap findings to the developer using the Branch Recap Format from `.instructions/ai/shared-understanding-interview.md` section Branch Recap Format, then ask them to confirm or correct.
 2. For each inferred design decision, run the Decision Confirmation Loop in `.instructions/ai/adopt-codebase.md` section Decision Confirmation Loop.
 3. Write the three artifacts under `.scaffold/` (create it if absent) per the schema/templates referenced in `.instructions/ai/adopt-codebase.md` section Output Artifacts.
-4. Write `HANDOFF.md` at project root with `workflowStatus: active`, `currentPhase: 2`, `currentSubPhase: ""`, `contractsScaffolded: false`, and a section Completed note: "Phase 1 adopted from existing codebase via `ai/adopt-codebase.md` inference."
+4. Write `HANDOFF.md` at project root with `workflowStatus: active`, `currentPhase: 2`, `currentSubPhase: ""`, `contractsScaffolded: false`, and a section Completed note: "Phase 1 adopted from existing codebase via `ai/adopt-codebase.md` inference." Keep `sessionBranch` set, then commit and open the PR per that protocol.
 5. Stop. The next session resumes at Phase 2 (Resource Definition) exactly as for a greenfield project.
 
 ## Validation Gate

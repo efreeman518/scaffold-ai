@@ -27,7 +27,7 @@ The rules below override the skill where they differ and bind every run as SCOPE
 
 ## The model: orchestrator + work-item workers + independent reviewer
 
-The developer-facing agent is the orchestrator. It dispatches subagents, collects their results, performs the merge and the gate itself, then updates `HANDOFF.md` and closes. Subagents never talk to the developer.
+The developer-facing agent is the orchestrator. It dispatches subagents, collects their results, performs the merge and the gate itself, then updates `HANDOFF.md`, commits and finishes per [OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol. Subagents never talk to the developer.
 
 Decompose work **by independent work-item (fan-out), not by role.**
 
@@ -74,7 +74,7 @@ The orchestrator completes and freezes these, then dispatches the per-host worke
 3. It starts one `orchestrated-refactor` run with **one slice per host**: SCOPE is that host's disjoint files with the frozen shared layer read-only, DONE is the host's standalone gate (TDD where applicable).
 4. Workers finish; the orchestrator integrates the slices, performs the single serialized Aspire AppHost registration pass itself, and runs the mesh gate (`dotnet run` + health) per [execution-gates.md](execution-gates.md).
 5. The run's review round covers the integrated result, with `scaffold-reviewer` as an extra read-only lens for ground-rule / architecture-test compliance.
-6. Orchestrator updates `hostGates` in `HANDOFF.md`, records gate evidence per [execution-gates.md](execution-gates.md) section Verification Evidence Rule, removes the merged worker worktrees per section Agent Scratch, and closes. The next phase is a fresh orchestrator.
+6. Orchestrator updates `hostGates` in `HANDOFF.md`, records gate evidence per [execution-gates.md](execution-gates.md) section Verification Evidence Rule, removes the merged worker worktrees per section Agent Scratch, commits and finishes per the Git Checkpoint Protocol. The next phase is a fresh orchestrator.
 
 ## Pre-dispatch checklist
 

@@ -125,7 +125,7 @@ Record the developer's answer in the final `DESIGN-DECISIONS.md`. Decisions wher
 
 When inference completes and the three artifacts are written:
 
-1. Write `HANDOFF.md` at project root with `currentPhase: 2`, `currentSubPhase: ""`, `contractsScaffolded: false`. Note in section Completed: "Phase 1 adopted from existing codebase via `ai/adopt-codebase.md` inference."
+1. Write `HANDOFF.md` at project root with `currentPhase: 2`, `currentSubPhase: ""`, `contractsScaffolded: false` and `sessionBranch`. Note in section Completed: "Phase 1 adopted from existing codebase via `ai/adopt-codebase.md` inference." Commit on the session branch and open the PR per `support/OPERATIONS.md` section Git Checkpoint Protocol.
 2. Stop. The next session resumes at Phase 2 (Resource Definition) by reading the freshly written `.scaffold/DESIGN-DECISIONS.md` and `.scaffold/domain-specification.yaml`, exactly as a greenfield project would.
 3. New entities going forward use `/vertical-slice`; the existing Phase-1 Artifact Lifecycle Rule keeps the three artifacts current.
 

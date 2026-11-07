@@ -1882,13 +1882,16 @@ class GoldenPathTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+    @unittest.skipUnless(shutil.which("git"), "git not installed")
     def test_git_state_issues(self):
         tmp = Path(tempfile.mkdtemp(prefix="tooling-git-gate-"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
 
+        isolated = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
         def git(*args):
-            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=str(tmp),
-                           check=True, capture_output=True)
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+                           cwd=str(tmp), check=True, capture_output=True, env=isolated)
 
         git("init", "-q", "-b", "main")
         (tmp / "a.txt").write_text("a\n", encoding="utf-8")
@@ -1909,6 +1912,17 @@ class GoldenPathTests(unittest.TestCase):
         self.assertIn("not merged into main: feature/phase-3", " ".join(goldenpath.git_state_issues(tmp)))
         git("merge", "-q", "--ff-only", "feature/phase-3")
         self.assertEqual(goldenpath.git_state_issues(tmp), [])
+
+    def test_gate_fails_on_git_state(self):
+        # A green build and green tests still fail the gate while git_state_issues reports anything.
+        tmp = Path(tempfile.mkdtemp(prefix="tooling-git-wiring-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        issue = "git: session branch(es) not merged into main: feature/x"
+        with mock.patch.object(goldenpath, "git_state_issues", return_value=[issue]), \
+                mock.patch.object(goldenpath, "run_gate_cmd", return_value=(True, "")):
+            ok, notes = goldenpath.gate("5a", tmp)
+        self.assertFalse(ok)
+        self.assertIn(issue, notes)
 
     def test_gate_phase3(self):
         tmp = Path(tempfile.mkdtemp(prefix="tooling-gate-"))

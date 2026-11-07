@@ -672,6 +672,7 @@ def main() -> int:
                   f"{DEFAULT_MAX_TURNS[phase]}, timeout {args.timeout_minutes}m) ---")
             print(prompts[phase])
         print("\n--- gates ---")
+        print("every gate: clean tree on the default branch, every session branch merged (Git Checkpoint Protocol)")
         print("3: implementation-plan.md exists + HANDOFF currentPhase=4")
         print("4: canonical root solution/config + src/tests projects + dotnet build + HANDOFF contractsScaffolded=true")
         print("5a: dotnet build + dotnet test --filter TestCategory=Unit")

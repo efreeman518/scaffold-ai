@@ -12,7 +12,7 @@ Bootstrap for `.instructions/` payloads. Load this file first when scaffold work
 
 ## Session Model
 
-Each phase - and each Phase 5 sub-phase - runs in its own AI session. Each works on its own git branch (`support/OPERATIONS.md` section Git Checkpoint Protocol, loaded every session). When complete, write/update `HANDOFF.md` in the target project root and close the session. The next session starts fresh from `START-AI.md` + `HANDOFF.md` only.
+Each phase - and each Phase 5 sub-phase - runs in its own AI session. Each works on its own git branch (`support/OPERATIONS.md` section Git Checkpoint Protocol). When complete, update `HANDOFF.md` in the target project root, commit and close. The next session starts fresh.
 
 ## Session Close
 
@@ -21,11 +21,11 @@ Before writing `HANDOFF.md` at session close, do a quick instruction-set check: 
 - **Installed app:** append to `.scaffold/INSTRUCTION-GAPS.md` at the project root (create `.scaffold/` if absent). Treat `.instructions/` files as read-only during scaffold work.
 - **This instruction repo:** fold the fix directly into the owning instruction file (maintainer skill `/fold-feedback`).
 
-This is a capture step, not a fix step (in a consumer app) - one line is enough; a maintainer triages and folds it back later. Then update `HANDOFF.md` and close.
+This is a capture step, not a fix step (in a consumer app) - one line is enough; a maintainer triages and folds it back later. Then update `HANDOFF.md`, commit and close.
 
 ## Initial Load Rule
 
-Start each session with `START-AI.md` (this file) and `HANDOFF.md` in the target project root (if present - it is the resume contract). Then load only files needed for the current phase. Generate code only in the target project.
+Start each session with `START-AI.md` (this file), `HANDOFF.md` in the target project root (if present - it is the resume contract) and the Git Checkpoint Protocol. Then load only files needed for the current phase. Generate code only in the target project.
 
 ## File Loading Rule
 

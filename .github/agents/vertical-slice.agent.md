@@ -25,7 +25,7 @@ All instruction files live under `.instructions/` in the project root. All file 
 
 Before generating any files:
 
-- [ ] Start the session branch (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol) before the first commit
+- [ ] Start the session branch (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol) first
 - [ ] Verify the solution builds clean: `dotnet build`
 - [ ] Locate existing `RegisterServices.cs`, both DbContext files, and `WebApplicationBuilderExtensions.cs`
 - [ ] If adding to a domain with existing entities, review their patterns for consistency
