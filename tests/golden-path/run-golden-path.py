@@ -193,6 +193,13 @@ def extract_prompts() -> dict[str, str]:
             prompt = (prompt
                       .replace(SLICE_ENTITY_PLACEHOLDER, SLICE_ENTITY)
                       .replace(SLICE_EXISTING_PLACEHOLDER, SLICE_EXISTING_ENTITY))
+        # The workspace has no remote and no developer: each gate's approval is given here, so the
+        # session merges its branch locally (OPERATIONS.md Git Checkpoint Protocol) and the next
+        # phase starts from the default branch. The phase gates, not a PR review, judge this run.
+        prompt += ("\nGit: this workspace has no remote and the developer approves every gate in advance. "
+                   "Follow .instructions/support/OPERATIONS.md section Git Checkpoint Protocol, skip its "
+                   "pre-PR review, and once the gate passes merge the session branch into the default "
+                   "branch locally with git merge --ff-only.")
         prompts[phase] = prompt
     return prompts
 

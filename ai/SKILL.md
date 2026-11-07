@@ -12,7 +12,7 @@ Fast-lookup answer to "what do I do next?" - refer to this before scrolling for 
 
 | Situation | Action |
 |---|---|
-| Build green after a sub-phase | Commit, update `HANDOFF.md`, close session. |
+| Build green after a sub-phase | Update `HANDOFF.md`, commit, close session. |
 | Build red, fixable in one focused pass | Fix, rebuild. If still red, diagnose. |
 | Build red, second pass purely propagates the same fix (rename/namespace/file-move cascade) | One extra pass allowed. If new failure modes appear, diagnose. |
 | Build red after fix attempt(s) with new errors | Diagnose (Fail-Fast Protocol); else `HANDOFF.md` blocker. Do not loop. |

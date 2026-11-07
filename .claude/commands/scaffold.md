@@ -29,8 +29,8 @@ All instruction files (skills, templates, support docs, schemas, scripts) live u
 - Generate only inside the project root: production code in `src/`, test code in sibling `tests/`, and solution/config files at root. Never modify files under `.instructions/`; record instruction gaps in `.scaffold/INSTRUCTION-GAPS.md` (create `.scaffold/` at project root if absent).
 - One phase per session. Do not skip or combine phases.
 - Git: `.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol - branch first, commit at every green gate.
-- Checkpoint after 15+ generated files or 3+ build/fix cycles - commit and update `HANDOFF.md` (project root).
-- After each phase gate passes, commit, update `HANDOFF.md` (with `sessionBranch`), push and open the PR when the developer approves, and stop.
+- Checkpoint after 15+ generated files or 3+ build/fix cycles - update `HANDOFF.md` (project root), then commit.
+- After each phase gate passes, update `HANDOFF.md` (with `sessionBranch`), commit, then review and open the PR per that protocol, and stop.
 - Conflict precedence: see `.instructions/ai/SKILL.md` section Non-Negotiables (canonical).
 - Session model and load rules: see `.instructions/START-AI.md` section Session Model. TaskFlow reference-app rules: see `.instructions/support/reference-app.md`.
 

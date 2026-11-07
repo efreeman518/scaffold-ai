@@ -12,7 +12,7 @@ Bootstrap for `.instructions/` payloads. Load this file first when scaffold work
 
 ## Session Model
 
-Each phase - and each Phase 5 sub-phase - runs in its own AI session. Each works on its own git branch (`support/OPERATIONS.md` section Git Checkpoint Protocol). When complete, write/update `HANDOFF.md` in the target project root and close the session. The next session starts fresh from `START-AI.md` + `HANDOFF.md` only.
+Each phase - and each Phase 5 sub-phase - runs in its own AI session. Each works on its own git branch per `support/OPERATIONS.md` section Git Checkpoint Protocol, which every session loads. When complete, write/update `HANDOFF.md` in the target project root and close the session. The next session starts fresh from `START-AI.md` + `HANDOFF.md` only.
 
 ## Session Close
 

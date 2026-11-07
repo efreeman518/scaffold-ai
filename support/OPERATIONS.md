@@ -9,7 +9,7 @@ The Phase 5 **Decision Table** at the top of [../ai/SKILL.md](../ai/SKILL.md) is
 After every build:
 
 - **Code-generation issue** (usings/references/DI/wiring/packages): attempt one focused fix pass, rebuild.
-- **Deterministic mechanical cascade** (rename ripple, namespace cascade, file-move fallout from a single root cause): one extra pass allowed *only when* the second pass purely propagates the same fix and introduces no new logic. If the second pass surfaces new failure modes, stop and write the blocker.
+- **Deterministic mechanical cascade** (rename ripple, namespace cascade, file-move fallout from a single root cause): one extra pass allowed *only when* the second pass purely propagates the same fix and introduces no new logic. If the second pass surfaces new failure modes, stop and diagnose (Rule below).
 - **Missing package in `Directory.Packages.props`**: add at latest stable version, restore, rebuild.
 - **Infrastructure issue** (feed auth, env vars, Docker, certs, SQL/cloud access): do not loop fixes. Document the blocker in `HANDOFF.md`, point the engineer to [execution-gates.md](execution-gates.md).
 
@@ -19,9 +19,9 @@ Rule: one fix pass for new errors; one extra pass allowed for mechanical propaga
 
 Every session works on its own branch, so a checkpoint is a plain commit.
 
-- **Branch first.** Each phase or sub-phase session and each slice starts its own branch from a base: the branch `HANDOFF.md` records as `sessionBranch` while unmerged (the next phase builds on its output), else the default branch (`git pull --ff-only` it when it has an upstream). On the checkout holding the base - clean, or holding only the freshly installed payload, which becomes the first commit - run `git switch -c <type>/<slug>` (`feature/`, `fix/`, `chore/`, `docs/`). Elsewhere use a worktree, `git worktree add .tmp/worktrees/<slug>-<suffix> -b <type>/<slug>-<suffix> <base>` (`<suffix>`: 6 random hex characters), work and write `HANDOFF.md` there, and name its path in `resumeCommand`. Record the branch as `sessionBranch`. Never switch to another existing branch, stash, reset or clean a checkout holding uncommitted work.
-- **Commit at every green gate** (sub-phase gate, the TDD RED test-only commit and GREEN step, slice validation gate) with a plain-text message stating intent. The branch belongs to the session, so a commit needs no approval.
-- **The phase or slice review gate is a pull request.** When the gate passes, the developer's approval decides pushing: with it (unattended: section Unattended Runs) push the branch and open one PR, to its base branch while that is unmerged (retarget it to the default branch once the base merges), else to the default branch. Without approval or without a remote, stop with the branch committed and record the branch name and push command in `HANDOFF.md` or the slice report. The developer merges. Never commit or push to the default branch directly.
+- **Branch first, from the current default branch.** A phase or sub-phase session starts only once the previous session's branch (`HANDOFF.md` `sessionBranch`) is on the default branch - its PR merged (`gh pr view <branch> --json state`) or, without a remote, merged locally; otherwise stop and ask the developer to merge it. Each phase, sub-phase and slice then starts its own branch. On a clean checkout, or one holding only the freshly installed payload (which becomes the branch's first commit): `git switch <default-branch>`, `git pull --ff-only` when it has an upstream, then `git switch -c <type>/<slug>` (`feature/`, `fix/`, `chore/`, `docs/`). A checkout holding other uncommitted work gets a worktree instead: make sure `.gitignore` lists `.tmp/`, then `git fetch origin` and `git worktree add .tmp/worktrees/<slug>-<suffix> -b <type>/<slug>-<suffix> origin/<default-branch>` (`<suffix>`: 6 random hex characters), and report its path. Never stash, reset, clean or switch a checkout holding uncommitted work.
+- **Commit at every gate**: each green gate (sub-phase gate, TDD GREEN step, slice validation gate) and the TDD RED test-only commit, with a plain-text message stating intent. Update `HANDOFF.md` (`sessionBranch` included) before a gate commit, so the commit carries it. The branch belongs to the session, so a commit needs no approval.
+- **Review, then a pull request.** A phase that wrote code (4, 5a-5e) and every slice is reviewed before its PR: the ecosystem `independent-review` skill when installed, with `scaffold-reviewer` as its ground-rule lens; else `scaffold-reviewer` alone; else [prompt-catalog.md](prompt-catalog.md) section Slice Review in a fresh session. No HIGH or MEDIUM finding stays open. Then the developer's approval decides pushing (unattended: section Unattended Runs): push the branch and open one PR to the default branch, which the developer merges. Without approval, stop with the branch committed and its push command in `HANDOFF.md` or the slice report. Without a remote, the developer's approval merges it locally instead (`git switch <default-branch>`, then `git merge --ff-only <branch>`). Never commit to the default branch directly.
 - Destructive commands (`reset --hard`, `checkout .`, `clean`, `branch -D`, `push --force`) need the developer's explicit approval.
 
 If a sub-phase fails after the fix-pass budget (and the diagnosis above):
@@ -30,7 +30,7 @@ If a sub-phase fails after the fix-pass budget (and the diagnosis above):
 - log the blocker in `HANDOFF.md`, naming the last green commit,
 - continue only with non-blocked work.
 
-Mid-session checkpoint trigger: 15+ generated files **or** 3+ build/fix cycles. Commit (a `WIP:` commit when not green) and update `HANDOFF.md` immediately - do not wait for the gate.
+Mid-session checkpoint trigger: 15+ generated files **or** 3+ build/fix cycles. Update `HANDOFF.md`, then commit (a `WIP:` commit when not green) immediately - do not wait for the gate.
 
 ## Missing-Inputs Protocol
 
@@ -57,8 +57,8 @@ When the AI discovers a fundamental assumption error (wrong entity design, incor
    git log --oneline -5  # find the last green checkpoint
    ```
 4. **Decide recovery path:**
-   - **Isolated error** (affects 1-2 files): fix the affected files on top of the WIP commit, rebuild and re-test; the next green commit supersedes it.
-   - **Structural error** (wrong entity shape, missing relationship, bad inheritance): ask the developer before discarding work. Start a recovery branch from the last green checkpoint (`git switch -c <type>/<slug>-redo-<suffix> <checkpoint>`, a new 6-hex suffix), record it as `sessionBranch` in `HANDOFF.md` and open the PR from it, keeping the WIP branch for reference; or `git revert` the affected commits. Never `reset --hard` a branch that holds the work.
+   - **Isolated error** (affects 1-2 files): fix the affected files on top of the WIP commit, rebuild and re-test; the next green commit becomes the checkpoint (the WIP commit stays in the branch history).
+   - **Structural error** (wrong entity shape, missing relationship, bad inheritance): ask the developer before discarding work. Start a recovery branch from the last green checkpoint (`git switch -c <type>/<slug>-redo-<suffix> <checkpoint>`, a new 6-hex suffix), record it as `sessionBranch` in `HANDOFF.md` and open the PR from it, keeping the WIP branch for reference until that PR merges, then delete it; or `git revert` the affected commits. Never `reset --hard` a branch that holds the work.
    - **Domain misunderstanding** (entity purpose is wrong): go back to Phase 1 output, clarify with the user, update `.scaffold/domain-specification.yaml`, `.scaffold/UBIQUITOUS-LANGUAGE.md`, and `.scaffold/DESIGN-DECISIONS.md`, then re-scaffold the slice from scratch.
 5. **Document in HANDOFF.md:** Record what was rolled back and why, so the next session doesn't repeat the mistake.
 6. **Re-enter at the corrected sub-phase** using the Phase 5 file table in `ai/SKILL.md`.

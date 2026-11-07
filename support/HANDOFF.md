@@ -36,8 +36,8 @@ hostGates:                 # Phase 5c per-host status: not-started | scaffolded 
   blazorUI: not-started
   reactUI: not-started
   notifications: not-started
-sessionBranch: ""          # this session's git branch; the next session branches from it while it is unmerged
-resumeCommand: ""          # exact prompt to paste at the next session start (and the worktree path, if the session used one)
+sessionBranch: ""          # this session's git branch; the next session starts once it is merged
+resumeCommand: ""          # exact prompt to paste at the next session start
 toolingNotes: ""           # CLIs/MCPs discovered in Phase 3; note any missing or unavailable
 instructionGapsPath: ".scaffold/INSTRUCTION-GAPS.md"
 ```

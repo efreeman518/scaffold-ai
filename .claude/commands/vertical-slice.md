@@ -29,6 +29,7 @@ All instruction files live under `.instructions/` in the project root. All file 
 
 Before generating any files:
 
+- [ ] Start the session branch (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol) before the first commit
 - [ ] Verify the solution builds clean: `dotnet build`
 - [ ] Locate existing `RegisterServices.cs`, both DbContext files, and `WebApplicationBuilderExtensions.cs`
 - [ ] If adding to a domain with existing entities, review their patterns for consistency
@@ -44,11 +45,11 @@ See `.instructions/support/execution-gates.md` section Core Loop. Scope test fil
 
 ## Review
 
-After the gate passes, commit the slice on its session branch (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol) and review it before reporting. With the ecosystem `independent-review` skill installed, run its review rounds on the branch diff and add the read-only `scaffold-reviewer` agent as the ground-rule lens; without it, dispatch `scaffold-reviewer` alone over the slice's files. Fix every confirmed finding or rebut it with evidence; none at HIGH or MEDIUM stays open. Then the slice's review gate is a pull request, as for a phase gate in that protocol.
+After the gate passes, commit the slice on its session branch and review it before reporting (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol). With the ecosystem `independent-review` skill installed, run its review rounds on the branch diff and add the read-only `scaffold-reviewer` agent as the ground-rule lens; without it, dispatch `scaffold-reviewer` alone over the slice's files; a harness with neither runs `.instructions/support/prompt-catalog.md` section Slice Review in a fresh session. Fix every confirmed finding or rebut it with evidence; none at HIGH or MEDIUM stays open. Then open the slice's pull request per that protocol.
 
 ## Unattended Runs
 
-When an issue-driven loop runs this workflow with no developer present, `.instructions/support/OPERATIONS.md` section Unattended Runs maps every ask-the-developer point, the push and PR gate, gates that need Docker or a database, and instruction gaps onto the loop.
+When an issue-driven loop runs this workflow with no developer present, `.instructions/support/OPERATIONS.md` section Unattended Runs gives the loop the branch, worktree and review lenses, and maps every ask-the-developer point, the push and PR gate, gates that need Docker or a database, and instruction gaps onto the loop.
 
 ## Several Entities
 

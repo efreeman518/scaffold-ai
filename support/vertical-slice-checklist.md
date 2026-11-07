@@ -253,7 +253,7 @@ Skill: [ui-react.md](../skills/ui-react.md).
 
 ## Post-Generation Verification
 
-Review the slice per the vertical-slice workflow's Review section: `independent-review` when the ecosystem skills are installed, with `scaffold-reviewer` as its ground-rule lens, else `scaffold-reviewer` alone. A harness with neither runs [prompt-catalog.md](prompt-catalog.md) section Slice Review (Optional Second Session) in a fresh session.
+Review the slice per the vertical-slice workflow's Review section: `independent-review` when the ecosystem skills are installed, with `scaffold-reviewer` as its ground-rule lens, else `scaffold-reviewer` alone. A harness with neither runs [prompt-catalog.md](prompt-catalog.md) section Slice Review (Fresh Session) in a fresh session.
 
 ### DI and Routing
 
