@@ -33,6 +33,7 @@ body:
     id: parent
     attributes:
       label: Owning root (internal child only)
+      description: Required when the kind is an internal child - the aggregate root that owns it. The slice stops and asks when it is missing.
       placeholder: Customer
   - type: textarea
     id: properties

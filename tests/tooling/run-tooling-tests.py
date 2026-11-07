@@ -541,7 +541,6 @@ class ReferenceValidatorTests(unittest.TestCase):
         self.assertTrue(any("NonAzure.storageProvider must be 'S3'" in error for error in errors))
         self.assertTrue(any("NonAzure.deploymentTarget must be 'DockerCompose'" in error for error in errors))
 
-
         custom_missing_defaults = {
             "hostingLanes": ["PrivateCloud"],
             "deployTargets": ["Kubernetes"],
@@ -577,7 +576,7 @@ class ReferenceValidatorTests(unittest.TestCase):
         self.assertEqual(reference_validator.check_declared_evidence(self.tmp, {}), [])
 
     @unittest.skipUnless(importlib.util.find_spec("jsonschema"), "jsonschema not installed")
-    def test_read_model_schema_accepts_canonical_providers_and_deprecated_alias(self):
+    def test_read_model_schema_accepts_only_canonical_providers(self):
         import jsonschema
 
         schema = json.loads(
@@ -586,11 +585,14 @@ class ReferenceValidatorTests(unittest.TestCase):
         provider_schema = schema["properties"]["readModelProviders"]["items"]
         lane_default_schema = schema["$defs"]["hostingLaneDefault"]["properties"]["readModelProvider"]
 
-        for provider in ("Cosmos", "PostgreSqlJsonb", "MongoDb", "Relational"):
+        for provider in ("Cosmos", "PostgreSqlJsonb", "MongoDb"):
             jsonschema.validate(provider, provider_schema)
             jsonschema.validate(provider, lane_default_schema)
-        with self.assertRaises(jsonschema.ValidationError):
-            jsonschema.validate("UnknownDocumentStore", provider_schema)
+        for provider in ("Relational", "UnknownDocumentStore"):
+            with self.assertRaises(jsonschema.ValidationError):
+                jsonschema.validate(provider, provider_schema)
+            with self.assertRaises(jsonschema.ValidationError):
+                jsonschema.validate(provider, lane_default_schema)
 
     @unittest.skipUnless(importlib.util.find_spec("jsonschema"), "jsonschema not installed")
     def test_resource_schema_types_extensible_dependency_modes_and_strict_lanes(self):
