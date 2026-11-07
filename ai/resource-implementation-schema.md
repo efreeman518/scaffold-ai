@@ -322,7 +322,7 @@ Options: RabbitMQ (default lane), Azure Service Bus (Azure lane), Event Grid, Ev
 |---|---|---|
 | `deployTarget` | `DockerCompose` | `DockerCompose`, `ContainerApps`, `AppService`, `AKS` |
 | `deployTargets` | `[DockerCompose]` | `ContainerApps`, `AppService`, `AKS`, `DockerCompose`, `Kubernetes` |
-| `hostingLanes` | `[NonAzure]` | Named presets: the proven strict `NonAzure` default and the explicit opt-in `Azure` lane, or a project-defined lane; `Portable` is a deprecated input alias for `NonAzure` |
+| `hostingLanes` | `[NonAzure]` | Named presets: the proven strict `NonAzure` default and the explicit opt-in `Azure` lane, or a project-defined lane |
 | `hostingLaneDefaults` | one entry per lane | Per-lane compatible provider defaults and owned `deploymentTarget` |
 | `useAspire` | `true` | local orchestration |
 | `includeApi` | `true` | |
@@ -373,7 +373,7 @@ dataProtectionPersistence: [Redis, AzureBlob, None]
 deployTargets: [DockerCompose, ContainerApps]
 ```
 
-`NonAzure` (default) and `Azure` (opt-in) use the strict compatibility matrix in [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md). Environment/configuration overrides may select only an allowed arm in the active lane. Keep `Sql` search and `None` AI as the default until their optional provider is provisioned. `NonAzure` rejects Azure services and provider arms from both configuration and environment sources. Use a separately named lane for an intentional mixed-provider profile. `Portable` remains a one-release input alias for `NonAzure`; do not emit it as a canonical lane. `Relational` remains a one-release input alias for `PostgreSqlJsonb`. `MongoDb` is an explicit NonAzure read-model alternative, not the default.
+`NonAzure` (default) and `Azure` (opt-in) use the strict compatibility matrix in [../support/scalability-and-hosting.md](../support/scalability-and-hosting.md). Environment/configuration overrides may select only an allowed arm in the active lane. Keep `Sql` search and `None` AI as the default until their optional provider is provisioned. `NonAzure` rejects Azure services and provider arms from both configuration and environment sources. Use a separately named lane for an intentional mixed-provider profile. `MongoDb` is an explicit NonAzure read-model alternative, not the default.
 
 Record per-host runtime choices only when measured or required, and keep the common probe contract explicit:
 

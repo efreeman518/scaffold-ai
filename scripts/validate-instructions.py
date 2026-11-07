@@ -1067,6 +1067,7 @@ PHASE5_TEMPLATE_EXEMPT = {
     "ubiquitous-language-template",  # Phase 1 universal
     "index",  # the template index itself
     "test-templates",  # test-template routing index, not a code template
+    "add-entity-issue-template",  # app-repo issue form for slice requests, not a generation template
 }
 
 

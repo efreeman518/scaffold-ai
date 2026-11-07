@@ -66,12 +66,13 @@ What it places:
 
 **Merge mode** writes the durable harness block inside `<!-- ai-scaffold: start --> ... <!-- ai-scaffold: end -->` markers. Existing user content outside the markers is preserved (including the app-specific summary authored at scaffold completion), and an older unmarked scaffold-only copy is converted into a single marked block.
 
+Installs are content-aware for fresh and existing targets: identical target files are skipped (`[unchanged]`), differing ones are overwritten and listed (installed `.instructions/` is read-only per GR-07, so the source is SSOT), and `HANDOFF.md` is always left untouched.
+
 Flags:
 
 | Flag | Purpose |
 |---|---|
 | `--dry-run` | Print planned copies without writing anything. |
-| `--update` | Deprecated no-op, kept for compatibility. Installs are always content-aware: identical target files are skipped (`[unchanged]`), differing ones are overwritten and listed (installed `.instructions/` is read-only per GR-07, so the source is SSOT). `HANDOFF.md` is always left untouched. |
 | `--instructions-only` | Copy only `<app>/.instructions/`; skip `AGENTS.md`, `.claude/commands/`, `.claude/agents/`, and `.github/agents/` placement (useful if you manage those separately). |
 | `--verify` | After install, verify every manifest-managed file and marker block against its SHA-256 hash. Missing or changed managed content fails; unmanifested files warn and remain untouched. |
 | `--verify-only` | Skip install entirely; run the same manifest integrity check against an existing target. Verification scope follows the manifest's recorded scope (`full` or `instructions-only`). Useful in CI or to confirm an unfamiliar repo is correctly wired. |

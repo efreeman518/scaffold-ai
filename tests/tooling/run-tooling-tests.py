@@ -510,11 +510,6 @@ class ReferenceValidatorTests(unittest.TestCase):
         )
         self.assertTrue(any("src/Shared/TaskFlow.Hosting/HostingLane.cs" in error for error in errors))
         self.assertTrue(any("AppHostLaneTopologyTests.cs" in error for error in errors))
-        # The one-release Portable alias retains the same proof obligation.
-        alias_errors = reference_validator.check_declared_evidence(
-            self.tmp, {"hostingLanes": ["Portable", "Azure"]}
-        )
-        self.assertTrue(any("src/Shared/TaskFlow.Hosting/HostingLane.cs" in error for error in alias_errors))
         # Declared-config self-consistency is retained.
         errors = reference_validator.check_declared_evidence(
             self.tmp, {"includeNotifications": False, "notifications": [{"name": "x"}]}
@@ -546,14 +541,6 @@ class ReferenceValidatorTests(unittest.TestCase):
         self.assertTrue(any("NonAzure.storageProvider must be 'S3'" in error for error in errors))
         self.assertTrue(any("NonAzure.deploymentTarget must be 'DockerCompose'" in error for error in errors))
 
-        portable = {
-            "hostingLanes": ["Portable"],
-            "deployTargets": ["DockerCompose"],
-            "hostingLaneDefaults": {
-                "Portable": reference_validator.STRICT_LANE_DEFAULTS["NonAzure"],
-            },
-        }
-        self.assertEqual(reference_validator.check_declared_evidence(self.tmp, portable), [])
 
         custom_missing_defaults = {
             "hostingLanes": ["PrivateCloud"],
