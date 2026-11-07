@@ -28,7 +28,7 @@ Same three files as a greenfield Phase 1. Create `.scaffold/` at project root if
 
 ## Pre-Flight
 
-- [ ] Solution builds on the default branch: `dotnet build` exits 0. A non-building solution makes inference unreliable - the developer fixes the default branch first (the scaffold branch starts from it).
+- [ ] Solution builds on the updated default branch (an interrupted adoption: on the live scaffold branch): `dotnet build` exits 0. A non-building solution makes inference unreliable - the developer fixes the default branch first (the scaffold branch starts from it).
 - [ ] Start the scaffold branch (`support/OPERATIONS.md` section Git Checkpoint Protocol) before writing anything.
 - [ ] Locate the solution file: `*.slnx` (preferred) or `*.sln` at project root.
 - [ ] Identify the layer assignment of every project (Domain / Application / Infrastructure / Host / Test) by directory convention and project references.

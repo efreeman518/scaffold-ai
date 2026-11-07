@@ -194,13 +194,14 @@ def extract_prompts() -> dict[str, str]:
             prompt = (prompt
                       .replace(SLICE_ENTITY_PLACEHOLDER, SLICE_ENTITY)
                       .replace(SLICE_EXISTING_PLACEHOLDER, SLICE_EXISTING_ENTITY))
-        # The workspace has no remote and no developer: each gate's approval is given here, so phases
-        # stay on the scaffold branch and a slice merges back into it locally (OPERATIONS.md Git
-        # Checkpoint Protocol). The phase gates, not a review, judge this run.
+        # The protocol assumes a GitHub origin and asks otherwise; this headless run has neither a
+        # remote nor a developer, so it answers those questions here. The phase gates, not a review,
+        # judge this run.
         prompt += ("\nGit: this workspace has no remote and the developer approves every gate in advance. "
-                   "Follow .instructions/support/OPERATIONS.md section Git Checkpoint Protocol and skip its "
-                   "review step. A slice merges its branch into the scaffold branch locally with "
-                   "git merge --ff-only once its gate passes, and the session ends on the scaffold branch.")
+                   "Follow .instructions/support/OPERATIONS.md section Git Checkpoint Protocol, with these "
+                   "answers: the live scaffold branch is the one HANDOFF.md scaffoldBranch names; skip the "
+                   "fetch, pull, PR, push and review steps. A slice merges its branch into the scaffold branch "
+                   "with git merge --ff-only once its gate passes, and the session ends on the scaffold branch.")
         prompts[phase] = prompt
     return prompts
 
