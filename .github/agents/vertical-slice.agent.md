@@ -41,7 +41,7 @@ See `.instructions/support/execution-gates.md` section Core Loop. Scope test fil
 
 ## Review
 
-After the gate passes, commit the slice on its session branch and review it before reporting (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol). With the ecosystem `independent-review` skill installed, run its review rounds on the branch diff and add the read-only `scaffold-reviewer` agent as the ground-rule lens; without it, dispatch `scaffold-reviewer` alone over the slice's files; a harness with neither runs `.instructions/support/prompt-catalog.md` section Slice Review in a fresh session. Fix every confirmed finding or rebut it with evidence; none at HIGH or MEDIUM stays open. Then open the slice's pull request per that protocol.
+After the gate passes, commit the slice on its session branch and review it before reporting (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol). With the ecosystem `independent-review` skill installed, run its review rounds on the branch diff and add the read-only `scaffold-reviewer` agent as the ground-rule lens; without it, dispatch `scaffold-reviewer` alone over the slice's files; a harness with neither runs `.instructions/support/prompt-catalog.md` section Fresh-Session Review. Fix every confirmed finding or rebut it with evidence; none at HIGH or MEDIUM stays open. Rerun the Validation Gate, then open the slice's pull request per that protocol.
 
 ## Unattended Runs
 

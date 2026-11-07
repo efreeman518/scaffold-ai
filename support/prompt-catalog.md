@@ -27,7 +27,7 @@ Enterprise or analytics model alignment: {none | name the shared glossary, upstr
 Follow .instructions/ai/shared-understanding-interview.md before writing final artifacts.
 Create .scaffold/domain-specification.yaml, .scaffold/UBIQUITOUS-LANGUAGE.md, and .scaffold/DESIGN-DECISIONS.md (create the .scaffold/ directory at project root if absent).
 Review each artifact against the Phase 1 schema before closing the session.
-When the artifacts are complete and reviewed, write HANDOFF.md to the project root and close the session.
+When the artifacts are complete and reviewed, write HANDOFF.md to the project root, commit and finish per support/OPERATIONS.md Git Checkpoint Protocol, and close the session.
 ```
 
 ## Phase 2 - Resource Definition (Session 2)
@@ -39,7 +39,7 @@ Generate the resource implementation YAML per .instructions/ai/resource-implemen
 Read .scaffold/DESIGN-DECISIONS.md first and resolve any parent decisions that affect resource mapping.
 Mode: {full|lite|api-only}. Testing profile: {minimal|balanced|comprehensive}.
 Declare externalDependencyModes for every external dependency before finalizing.
-When the YAML is complete and reviewed, update HANDOFF.md and close the session.
+When the YAML is complete and reviewed, update HANDOFF.md, commit and finish per support/OPERATIONS.md Git Checkpoint Protocol, and close the session.
 ```
 
 ## Phase 3 - Implementation Plan (Session 3)
@@ -52,7 +52,7 @@ Read .scaffold/UBIQUITOUS-LANGUAGE.md and .scaffold/DESIGN-DECISIONS.md first. P
 Run the Phase 3 pre-flight from START-AI.md section Phase Router (branches on packageStrategy).
 Feed/hybrid: confirm the feed pre-flight passes (configure-ef-packages-feed.py --check-only exits 0); local needs no feed. Verify `dotnet ef` is available.
 Flag open questions before writing .scaffold/implementation-plan.md.
-When the plan is reviewed and open questions resolved, update HANDOFF.md and close the session.
+When the plan is reviewed and open questions resolved, update HANDOFF.md, commit and finish per support/OPERATIONS.md Git Checkpoint Protocol, and close the session.
 ```
 
 ## Phase 4 - Contract Scaffolding (Session 4)
@@ -64,7 +64,7 @@ Load the Phase 4 file set listed in START-AI.md section Phase Router.
 Generate the contract scaffold per .instructions/ai/contract-scaffolding.md:
   solution structure, interfaces, DTOs, entity shells, test infrastructure, no-op DI stubs.
 Gate: `dotnet build` succeeds on the full solution including test projects.
-When gate passes, set currentPhase: 5, currentSubPhase: 5a, and contractsScaffolded: true in HANDOFF.md and close the session.
+When gate passes, set currentPhase: 5, currentSubPhase: 5a, and contractsScaffolded: true in HANDOFF.md, commit, review and finish per support/OPERATIONS.md Git Checkpoint Protocol, and close the session.
 ```
 
 ## Phase 5 - Session Start
@@ -95,7 +95,7 @@ Follow .instructions/ai/tdd-protocol.md for application/API code: write service 
 write endpoint tests (red), implement endpoints (green). Replace no-op DI stubs with real implementations.
 Then scaffold the enabled runtime concerns ({gateway/aspire/caching/observability/security/multi-tenant}) and add their tests.
 Gate: `dotnet build` + `dotnet test --filter TestCategory=Unit|TestCategory=Endpoint` + app starts via Aspire (when enabled).
-When gate passes, update HANDOFF.md and close session.
+When gate passes, update HANDOFF.md, commit, review and finish per support/OPERATIONS.md Git Checkpoint Protocol, and close session.
 ```
 
 ### 5c - Optional Hosts (Tests-After)
@@ -115,7 +115,7 @@ Note: Uno UI is always a dedicated session within 5c. Use the same session start
 Unit/UI/endpoint/integration tests already exist from 5a/5b/5c.
 Scaffold quality gate tests (architecture, load, benchmarks, mutation per profile: {minimal|balanced|comprehensive}), IaC, CI/CD, Dockerfile.
 Run full regression: `dotnet test`. Also `az bicep build --file infra/main.bicep` (if IaC enabled).
-Update HANDOFF.md and close session.
+Update HANDOFF.md, commit, review and finish per support/OPERATIONS.md Git Checkpoint Protocol, and close session.
 ```
 
 ### 5e - Integration (Auth + AI)
@@ -123,7 +123,7 @@ Update HANDOFF.md and close session.
 ```text
 Finalize auth: replace stubs with config-driven scaffold principal ({Entra|OAuth2|social|hybrid}).
 If `includeAiServices: true`, also scaffold AI integration: {search indexing/agent service} as enabled in .scaffold/resource-implementation.yaml.
-Gate: `dotnet build` + `dotnet test --filter TestCategory=Endpoint` (auth) + `dotnet test --filter TestCategory=Unit` (AI). When all enabled capabilities pass, update HANDOFF.md and close session.
+Gate: `dotnet build` + `dotnet test --filter TestCategory=Endpoint` (auth) + `dotnet test --filter TestCategory=Unit` (AI). When all enabled capabilities pass, update HANDOFF.md, commit, review and finish per support/OPERATIONS.md Git Checkpoint Protocol, and close session.
 ```
 
 ## Final Scaffold Validation
@@ -149,17 +149,17 @@ Add entity {Entity} to the existing solution using .instructions/support/vertica
 Follow patterns established by {ExistingEntity}.
 ```
 
-## Slice Review (Fresh Session)
+## Fresh-Session Review
 
-Fallback for the vertical-slice Review step when the harness can dispatch neither
-`independent-review` nor `scaffold-reviewer`: a reader with no generation context catches
-spec drift the generating session cannot see. It reports findings only; the generating
-session fixes or rebuts each one, and none at HIGH or MEDIUM stays open.
+Fallback for the pre-PR review (`support/OPERATIONS.md` section Git Checkpoint Protocol) when the
+harness can dispatch neither `independent-review` nor `scaffold-reviewer`: a reader with no
+generation context catches spec drift the generating session cannot see. It reports findings
+only; the generating session fixes or rebuts each one, and none at HIGH or MEDIUM stays open.
 
 ```text
-Load .instructions/support/vertical-slice-checklist.md. Do not modify any file.
-Review the {Entity} slice just added to this solution:
-1. Spec compliance - every applicable checklist item satisfied; wiring updates present; Phase-1 artifacts (.scaffold/) updated for {Entity} (GR-01).
-2. Code quality - boundaries respect GR-14 (aggregate rules); patterns match {ExistingEntity}; no dead stubs or leftover TODOs.
+Do not modify any file. Review the diff of branch {Branch} against the default branch, for {Scope}.
+- A slice ({Entity}, following {ExistingEntity}): load .instructions/support/vertical-slice-checklist.md; every applicable checklist item satisfied, wiring present, Phase-1 artifacts (.scaffold/) updated for {Entity} (GR-01).
+- A phase (4, 5a-5e): load that phase's files from .instructions/START-AI.md Phase Router (Phase 5: the ai/SKILL.md Phase 5 file table) and .instructions/support/execution-gates.md; every output and gate check of the phase met.
+In both: boundaries respect GROUND-RULES.md (GR-14 aggregate rules); patterns match the existing code; no dead stubs or leftover TODOs.
 Report findings as a numbered list, each with severity (HIGH, MEDIUM or LOW), file path and scenario; end with VERDICT: CLEAN or VERDICT: FINDINGS.
 ```

@@ -12,13 +12,13 @@ Fast-lookup answer to "what do I do next?" - refer to this before scrolling for 
 
 | Situation | Action |
 |---|---|
-| Build green after a sub-phase | Update `HANDOFF.md`, commit, close session. |
+| Build green after a sub-phase | Update `HANDOFF.md`, commit, review, open the PR, close session. |
 | Build red, fixable in one focused pass | Fix, rebuild. If still red, diagnose. |
 | Build red, second pass purely propagates the same fix (rename/namespace/file-move cascade) | One extra pass allowed. If new failure modes appear, diagnose. |
-| Build red after fix attempt(s) with new errors | Diagnose (Fail-Fast Protocol); else `HANDOFF.md` blocker. Do not loop. |
+| Build red after fix attempt(s) with new errors | Diagnose (Fail-Fast Protocol), else `HANDOFF.md` blocker. Do not loop. |
 | Domain assumption looks wrong (entity shape, relationship) | Stop. Confirm with developer before continuing. See **Mid-Session Rollback Protocol** below. |
 | External dependency cannot be stubbed locally | Mark as `deployment-only` in `.scaffold/resource-implementation.yaml`, generate a no-op stub anyway, log blocker in `HANDOFF.md`, continue. |
-| Sub-phase has produced 15+ generated files or 3+ build cycles | Commit and checkpoint `HANDOFF.md`. Do not wait for the gate. |
+| Sub-phase has produced 15+ generated files or 3+ build cycles | Update `HANDOFF.md`, commit. Do not wait for the gate. |
 | Multiple files touched by a single structural error | Don't patch-fix. Roll back, log, re-scaffold the slice. |
 | Missing required input (`ProjectName`, `packageStrategy` + `packagePrefix`, `customNugetFeeds` when feed/hybrid, at least one entity) | Ask developer before proceeding. |
 | Missing optional input (mode/profile/flag default) | Apply canonical default from [resource-implementation-schema.md](resource-implementation-schema.md), state assumption inline, record in `HANDOFF.md`. |

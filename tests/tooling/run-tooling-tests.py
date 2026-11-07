@@ -1750,6 +1750,7 @@ class GoldenPathTests(unittest.TestCase):
     def test_gate_phase4_rejects_legacy_layout(self):
         tmp = Path(tempfile.mkdtemp(prefix="tooling-layout-gate-"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        self._skip_git_state()
         solution_xml = (
             '<Solution>\n'
             '  <Project Path="src/Product/Product.csproj" />\n'
@@ -1875,9 +1876,44 @@ class GoldenPathTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("MISSING production tree src/", notes)
 
+    def _skip_git_state(self):
+        # These tests cover the file and build gates; test_git_state_issues covers the git gate.
+        patcher = mock.patch.object(goldenpath, "git_state_issues", return_value=[])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_git_state_issues(self):
+        tmp = Path(tempfile.mkdtemp(prefix="tooling-git-gate-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+
+        def git(*args):
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=str(tmp),
+                           check=True, capture_output=True)
+
+        git("init", "-q", "-b", "main")
+        (tmp / "a.txt").write_text("a\n", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "-m", "base")
+        self.assertIn("golden.defaultBranch not recorded", " ".join(goldenpath.git_state_issues(tmp)))
+        git("config", "golden.defaultBranch", "main")
+        self.assertEqual(goldenpath.git_state_issues(tmp), [])
+
+        git("switch", "-q", "-c", "feature/phase-3")
+        (tmp / "b.txt").write_text("b\n", encoding="utf-8")
+        issues = " ".join(goldenpath.git_state_issues(tmp))
+        self.assertIn("uncommitted changes", issues)
+        self.assertIn("left on feature/phase-3, not main", issues)
+        git("add", "-A")
+        git("commit", "-q", "-m", "phase 3")
+        git("switch", "-q", "main")
+        self.assertIn("not merged into main: feature/phase-3", " ".join(goldenpath.git_state_issues(tmp)))
+        git("merge", "-q", "--ff-only", "feature/phase-3")
+        self.assertEqual(goldenpath.git_state_issues(tmp), [])
+
     def test_gate_phase3(self):
         tmp = Path(tempfile.mkdtemp(prefix="tooling-gate-"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        self._skip_git_state()
         (tmp / ".scaffold").mkdir(parents=True)
         (tmp / "HANDOFF.md").write_text('currentPhase: "4"\n', encoding="utf-8")
 

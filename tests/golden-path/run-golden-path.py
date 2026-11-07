@@ -116,6 +116,7 @@ currentSubPhase: ""
 scaffoldMode: full
 testingProfile: balanced
 contractsScaffolded: false
+sessionBranch: ""
 enabledFeatures:
   includeApi: true
   useAspire: true
@@ -473,10 +474,34 @@ def snapshot_migrations(target: Path) -> set[str]:
     }
 
 
+def git_state_issues(target: Path) -> list[str]:
+    """The Git Checkpoint Protocol leaves each session's work merged into the default branch: a clean tree
+    on the branch the baseline commit started, with no local branch holding unmerged commits."""
+    def git(*args: str) -> str:
+        return subprocess.run(["git", *args], cwd=str(target), capture_output=True, text=True).stdout.strip()
+    issues: list[str] = []
+    if git("status", "--porcelain"):
+        issues.append("git: uncommitted changes left in the workspace")
+    default = git("config", "--get", "golden.defaultBranch")
+    if not default:
+        return issues + ["git: golden.defaultBranch not recorded (the workspace predates this check; recreate it)"]
+    current = git("rev-parse", "--abbrev-ref", "HEAD")
+    if current != default:
+        issues.append(f"git: workspace left on {current}, not {default} (session branch not merged)")
+    unmerged = git("branch", "--no-merged", default, "--format=%(refname:short)").split()
+    if unmerged:
+        issues.append(f"git: session branch(es) not merged into {default}: {', '.join(unmerged)}")
+    return issues
+
+
 def gate(phase: str, target: Path, pre_migrations: set[str] | None = None) -> tuple[bool, list[str]]:
     notes: list[str] = []
     ok = True
     handoff = (target / "HANDOFF.md").read_text(encoding="utf-8", errors="replace") if (target / "HANDOFF.md").exists() else ""
+    git_issues = git_state_issues(target)
+    if git_issues:
+        ok = False
+        notes.extend(git_issues)
 
     if phase == "3":
         if not (target / ".scaffold" / "implementation-plan.md").exists():
@@ -485,14 +510,14 @@ def gate(phase: str, target: Path, pre_migrations: set[str] | None = None) -> tu
         if not re.search(r"currentPhase:\s*[\"']?4", handoff):
             ok = False
             notes.append("HANDOFF currentPhase did not advance to 4")
-        notes.append("plan exists + HANDOFF advanced" if ok else "phase 3 gate failed")
+        notes.append("plan exists + HANDOFF advanced + branch merged" if ok else "phase 3 gate failed")
         return ok, notes
 
     slnx = find_solution(target)
     build_cmd = ["dotnet", "build"] + ([str(slnx)] if slnx else [])
     build_ok, build_tail = run_gate_cmd(build_cmd, target)
     notes.append(f"dotnet build: {'PASS' if build_ok else 'FAIL'}\n{build_tail if not build_ok else ''}")
-    ok = build_ok
+    ok = ok and build_ok
 
     if phase == "4":
         layout_issues = canonical_layout_issues(target)
@@ -677,7 +702,14 @@ def main() -> int:
             fail(f"git init failed in {target}:\n{init.stderr}")
         require_own_repository(target)
         for cmd in (["git", "add", "."], ["git", "commit", "-m", "golden-path fixture baseline"]):
-            subprocess.run(cmd, cwd=str(target), capture_output=True)
+            # The protocol branches from this baseline commit, so a missing git identity fails here, not mid-phase.
+            step = subprocess.run(cmd, cwd=str(target), capture_output=True, text=True)
+            if step.returncode != 0:
+                fail(f"{' '.join(cmd)} failed in {target}:\n{step.stdout}\n{step.stderr}")
+        # Recorded so each phase gate can check the session merged back into this branch.
+        branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(target),
+                                capture_output=True, text=True, check=True).stdout.strip()
+        subprocess.run(["git", "config", "golden.defaultBranch", branch], cwd=str(target), check=True)
     else:
         log(f"resuming existing workspace: {target}")
         require_own_repository(target)

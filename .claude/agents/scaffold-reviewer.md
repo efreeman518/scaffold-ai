@@ -33,7 +33,7 @@ Review only the scope the orchestrator names (phase, slice, or file list). Check
 ## Constraints
 
 - Read-only: never edit, create, or delete files; never run build, test, git, or package commands.
-- Report findings, not fixes: the orchestrator decides and applies changes. PR review rounds also belong to the orchestrator (a fan-out run's review path, or the `independent-review` skill when installed), which dispatches this agent as its ground-rule lens.
+- Report findings, not fixes: the orchestrator decides and applies changes. PR review rounds also belong to the orchestrator (a fan-out run's review path, or the `independent-review` skill when installed), where the orchestrator adds this agent as a ground-rule lens.
 - Every finding cites `file:line` and the rule or instruction it violates. No finding without evidence.
 - Do not restate passing checks individually; summarize them in one line.
 
