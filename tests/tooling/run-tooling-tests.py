@@ -450,6 +450,8 @@ class WorkflowStateContractTests(unittest.TestCase):
         # The checklist runs in that session alone, never inside the final sub-phase.
         for rel in ("ai/SKILL.md", "support/HANDOFF.md", "support/execution-gates.md", "support/golden-path-sample.md"):
             self.assertNotRegex((REPO_ROOT / rel).read_text(encoding="utf-8"), r"(final|all) enabled Phase 5 sub-phase", rel)
+        checklist = (REPO_ROOT / "support" / "final-scaffold-checklist.md").read_text(encoding="utf-8")
+        self.assertNotIn("At the final enabled Phase 5 sub-phase", checklist)
 
     def test_golden_path_fixture_starts_active(self):
         self.assertIn("workflowStatus: active", goldenpath.HANDOFF_FIXTURE)
@@ -1496,7 +1498,7 @@ class FindScaffoldBranchTests(unittest.TestCase):
             if cmd[:3] == ["git", "remote", "get-url"]:
                 return subprocess.CompletedProcess(cmd, 0 if url else 2, url + "\n", "" if url else "error: No such remote 'origin'")
             if cmd[:2] == ["git", "fetch"]:
-                self.assertEqual(cmd[-1], find_branch.SCAFFOLD_REFSPEC)
+                self.assertEqual(cmd[4:], [find_branch.SCAFFOLD_REFSPEC, "+refs/heads/main:refs/remotes/origin/main"])
                 return subprocess.CompletedProcess(cmd, 0, "", "")
             if cmd[:3] == ["gh", "repo", "view"]:
                 self.assertEqual(cmd[3], self.REPO)
@@ -1580,6 +1582,10 @@ class FindScaffoldBranchTests(unittest.TestCase):
             outcome, _ = self.find({"scaffold/app": [self.pr("MERGED")]}, failures={prefix: [(128, "fatal: bad revision")]})
             self.assertEqual(outcome["result"], "ask", prefix)
             self.assertIn(what, outcome["reason"], prefix)
+        leaky = (128, "fatal: unable to access 'https://u:s3cret@github.com/acme/app.git/': Could not resolve host")
+        outcome, _ = self.find({"scaffold/app": []}, failures={"git fetch": [leaky] * find_branch.ATTEMPTS})
+        self.assertIn("git fetch failed", outcome["reason"])
+        self.assertNotIn("s3cret", outcome["reason"])
 
     def test_failed_or_unreadable_queries_ask_without_retry(self):
         for failure in ((1, "HTTP 401: Bad credentials"), (127, "gh not found on PATH"), (1, "HTTP 429: Too Many Requests"),
@@ -1599,8 +1605,9 @@ class FindScaffoldBranchTests(unittest.TestCase):
         down, calls = self.find({"scaffold/app": [self.pr("OPEN")]}, failures={"gh pr list": [(1, "HTTP 503")] * 3})
         self.assertEqual(down["result"], "ask")
         self.assertEqual(self.count(calls, ["gh", "pr", "list"]), find_branch.ATTEMPTS)
-        ok, calls = self.find({"scaffold/app": [self.pr("OPEN")]}, failures={"gh repo view": [(1, "HTTP 500: Internal Server Error")]})
-        self.assertEqual((ok["result"], self.count(calls, ["gh", "repo", "view"])), ("live", 2))
+        for err in ("HTTP 500: Internal Server Error", "non-200 OK status code: 502 Bad Gateway"):
+            ok, calls = self.find({"scaffold/app": [self.pr("OPEN")]}, failures={"gh repo view": [(1, err)]})
+            self.assertEqual((ok["result"], self.count(calls, ["gh", "repo", "view"])), ("live", 2), err)
 
     def test_run_turns_missing_tool_into_failure(self):
         proc = find_branch.run(["scaffold-ai-no-such-tool"])
@@ -1615,7 +1622,8 @@ class FindScaffoldBranchTests(unittest.TestCase):
         with mock.patch.object(find_branch, "TIMEOUT_SECONDS", 1):
             proc = find_branch.run([sys.executable, "-c", script])
         self.assertEqual(proc.returncode, 124)
-        self.assertLess(time.monotonic() - started, 20)
+        # Below the 10 s drain bound: only a killed grandchild releases the pipes this fast.
+        self.assertLess(time.monotonic() - started, 8)
 
     def test_main_exit_codes(self):
         for outcome, code in (({"result": "live"}, 0), ({"result": "none"}, 0), ({"result": "ask"}, 2)):

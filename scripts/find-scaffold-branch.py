@@ -32,7 +32,9 @@ Runner = Callable[[list[str]], subprocess.CompletedProcess]
 # Transient network faults worth another try; anything else fails fast to ask. Rate limits (HTTP 429,
 # "rate limit") are not retried: gh exposes no Retry-After, and GitHub's limits outlast a short backoff.
 TRANSIENT = re.compile(r"timed? ?out|connection (reset|refused)|could not resolve host|"
-                       r"temporarily unavailable|(HTTP|error:) 50[0234]\b|TLS handshake", re.IGNORECASE)
+                       r"temporarily unavailable|(HTTP|error:) 50[0234]\b|TLS handshake|"
+                       r"\b50[0234] (Bad Gateway|Internal Server Error|Service Unavailable|Gateway Timeout)",
+                       re.IGNORECASE)
 RATE_LIMITED = re.compile(r"rate limit|\b429\b", re.IGNORECASE)
 ATTEMPTS = 3
 TIMEOUT_SECONDS = 120
@@ -44,13 +46,22 @@ GITHUB_REMOTE = re.compile(r"^(?:https://(?:[^@/\s]+@)?github\.com/|(?:ssh://)?g
                            r"(?P<repo>[^/\s]+/[^/\s]+?)(?:\.git)?/?$")
 # An explicit refspec, so a single-branch clone still sees (and prunes) every scaffold branch on origin.
 SCAFFOLD_REFSPEC = "+refs/heads/scaffold/*:refs/remotes/origin/scaffold/*"
+USERINFO = re.compile(r"//[^@/\s]+@")
+
+
+def redact(text: str) -> str:
+    """Drop URL userinfo from tool output before it reaches the JSON reason or the log: it can hold a token."""
+    return USERINFO.sub("//", text)
 
 
 def kill_tree(pid: int) -> None:
     if os.name == "nt":
         subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
     else:
-        os.killpg(pid, signal.SIGKILL)
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # The group already exited; nothing is left to end.
 
 
 def run(cmd: list[str]) -> subprocess.CompletedProcess:
@@ -74,6 +85,9 @@ def run(cmd: list[str]) -> subprocess.CompletedProcess:
         except subprocess.TimeoutExpired:
             pass  # A process outside the tree still holds a pipe; the result is the timeout either way.
         return subprocess.CompletedProcess(cmd, 124, "", f"timed out after {TIMEOUT_SECONDS}s")
+    except BaseException:  # Ctrl-C and the like: do not leave the child running unseen.
+        kill_tree(proc.pid)
+        raise
     return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
 
@@ -90,7 +104,7 @@ def run_with_retry(runner: Runner, cmd: list[str], sleep: Callable[[float], None
                 or not TRANSIENT.search(stderr) or RATE_LIMITED.search(stderr)):
             return proc
         delay = 2 ** attempt + random.uniform(0, 1)
-        print(f"retry {attempt}/{ATTEMPTS - 1} in {delay:.1f}s: {' '.join(cmd)}: {stderr.strip()}", file=sys.stderr)
+        print(f"retry {attempt}/{ATTEMPTS - 1} in {delay:.1f}s: {' '.join(cmd)}: {redact(stderr.strip())}", file=sys.stderr)
         sleep(delay)
     raise AssertionError("unreachable")
 
@@ -102,7 +116,7 @@ def find(runner: Runner = run, sleep: Callable[[float], None] = time.sleep) -> d
         return {"result": "ask", "branch": None, "merged": merged, "reason": reason}
 
     def failed(proc: subprocess.CompletedProcess, what: str) -> dict:
-        return ask(f"{what} failed: {(proc.stderr or '').strip()}")
+        return ask(f"{what} failed: {redact((proc.stderr or '').strip())}")
 
     url = runner(["git", "remote", "get-url", "origin"])
     if url.returncode != 0:
@@ -112,14 +126,16 @@ def find(runner: Runner = run, sleep: Callable[[float], None] = time.sleep) -> d
         # The URL itself is not echoed: it can carry a token in its userinfo.
         return ask("origin is not a GitHub repository (a github.com https or ssh URL)")
     repo = match.group("repo")
-    fetch = run_with_retry(runner, ["git", "fetch", "--prune", "origin", SCAFFOLD_REFSPEC], sleep)
-    if fetch.returncode != 0:
-        return failed(fetch, "git fetch")
     default = run_with_retry(runner, ["gh", "repo", "view", repo, "--json", "defaultBranchRef",
                                       "--jq", ".defaultBranchRef.name"], sleep)
     if default.returncode != 0 or not default.stdout.strip():
         return failed(default, "gh repo view")
     base = default.stdout.strip()
+    # The default branch too: it holds a merge-committed scaffold head that a stale local copy is checked against.
+    fetch = run_with_retry(runner, ["git", "fetch", "--prune", "origin", SCAFFOLD_REFSPEC,
+                                    f"+refs/heads/{base}:refs/remotes/origin/{base}"], sleep)
+    if fetch.returncode != 0:
+        return failed(fetch, "git fetch")
     refs = runner(["git", "for-each-ref", "--format=%(refname)", "refs/heads/scaffold/", "refs/remotes/origin/scaffold/"])
     if refs.returncode != 0:
         return failed(refs, "git for-each-ref")
