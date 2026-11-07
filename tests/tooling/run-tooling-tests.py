@@ -1573,7 +1573,7 @@ class FindScaffoldBranchTests(unittest.TestCase):
         # A rejected URL is never echoed, since its userinfo can hold a token.
         self.assertNotIn("s3cret", self.find({"scaffold/app": []}, url="https://u:s3cret@gitlab.com/a/b.git")[0]["reason"])
         for url in ("git@github.com:acme/app.git", "ssh://git@github.com/acme/app.git",
-                    "https://u:s3cret@github.com/acme/app", "https://github.com/acme/app/"):
+                    "https://u:s3cret@github.com/acme/app", "https://github.com/acme/app/", "https://GitHub.com/acme/app.git"):
             self.assertEqual(self.find({"scaffold/app": []}, url=url)[0]["result"], "live", url)
 
     def test_each_failed_step_asks(self):
@@ -1582,6 +1582,10 @@ class FindScaffoldBranchTests(unittest.TestCase):
             outcome, _ = self.find({"scaffold/app": [self.pr("MERGED")]}, failures={prefix: [(128, "fatal: bad revision")]})
             self.assertEqual(outcome["result"], "ask", prefix)
             self.assertIn(what, outcome["reason"], prefix)
+        for empty in ("", "null"):
+            run, _ = self.runner({"scaffold/app": []})
+            no_default = lambda cmd: (subprocess.CompletedProcess(cmd, 0, empty + "\n", "") if cmd[:3] == ["gh", "repo", "view"] else run(cmd))
+            self.assertIn("no default branch", find_branch.find(no_default, sleep=lambda _s: None)["reason"], empty)
         leaky = (128, "fatal: unable to access 'https://u:s3cret@github.com/acme/app.git/': Could not resolve host")
         outcome, _ = self.find({"scaffold/app": []}, failures={"git fetch": [leaky] * find_branch.ATTEMPTS})
         self.assertIn("git fetch failed", outcome["reason"])
@@ -1605,7 +1609,8 @@ class FindScaffoldBranchTests(unittest.TestCase):
         down, calls = self.find({"scaffold/app": [self.pr("OPEN")]}, failures={"gh pr list": [(1, "HTTP 503")] * 3})
         self.assertEqual(down["result"], "ask")
         self.assertEqual(self.count(calls, ["gh", "pr", "list"]), find_branch.ATTEMPTS)
-        for err in ("HTTP 500: Internal Server Error", "non-200 OK status code: 502 Bad Gateway"):
+        for err in ("HTTP 500: Internal Server Error", "non-200 OK status code: 502 Bad Gateway",
+                    "dial tcp: lookup api.github.com: no such host"):
             ok, calls = self.find({"scaffold/app": [self.pr("OPEN")]}, failures={"gh repo view": [(1, err)]})
             self.assertEqual((ok["result"], self.count(calls, ["gh", "repo", "view"])), ("live", 2), err)
 

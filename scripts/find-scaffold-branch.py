@@ -32,7 +32,7 @@ Runner = Callable[[list[str]], subprocess.CompletedProcess]
 # Transient network faults worth another try; anything else fails fast to ask. Rate limits (HTTP 429,
 # "rate limit") are not retried: gh exposes no Retry-After, and GitHub's limits outlast a short backoff.
 TRANSIENT = re.compile(r"timed? ?out|connection (reset|refused)|could not resolve host|"
-                       r"temporarily unavailable|(HTTP|error:) 50[0234]\b|TLS handshake|"
+                       r"temporarily unavailable|(HTTP|error:) 50[0234]\b|TLS handshake|no such host|unexpected EOF|"
                        r"\b50[0234] (Bad Gateway|Internal Server Error|Service Unavailable|Gateway Timeout)",
                        re.IGNORECASE)
 RATE_LIMITED = re.compile(r"rate limit|\b429\b", re.IGNORECASE)
@@ -43,7 +43,7 @@ TIMEOUT_SECONDS = 120
 ENV = {**os.environ, "LC_ALL": "C", "LANG": "C", "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never",
        "GH_PROMPT_DISABLED": "1"}
 GITHUB_REMOTE = re.compile(r"^(?:https://(?:[^@/\s]+@)?github\.com/|(?:ssh://)?git@github\.com[:/])"
-                           r"(?P<repo>[^/\s]+/[^/\s]+?)(?:\.git)?/?$")
+                           r"(?P<repo>[^/\s]+/[^/\s]+?)(?:\.git)?/?$", re.IGNORECASE)
 # An explicit refspec, so a single-branch clone still sees (and prunes) every scaffold branch on origin.
 SCAFFOLD_REFSPEC = "+refs/heads/scaffold/*:refs/remotes/origin/scaffold/*"
 USERINFO = re.compile(r"//[^@/\s]+@")
@@ -74,8 +74,8 @@ def run(cmd: list[str]) -> subprocess.CompletedProcess:
         proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 text=True, encoding="utf-8", errors="replace", env=ENV,
                                 start_new_session=os.name != "nt")
-    except FileNotFoundError:
-        return subprocess.CompletedProcess(cmd, 127, "", f"{cmd[0]} not found on PATH")
+    except OSError as exc:  # Missing from PATH, or not runnable: the caller asks either way.
+        return subprocess.CompletedProcess(cmd, 127, "", f"{cmd[0]} could not start: {exc}")
     try:
         out, err = proc.communicate(timeout=TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
@@ -128,9 +128,11 @@ def find(runner: Runner = run, sleep: Callable[[float], None] = time.sleep) -> d
     repo = match.group("repo")
     default = run_with_retry(runner, ["gh", "repo", "view", repo, "--json", "defaultBranchRef",
                                       "--jq", ".defaultBranchRef.name"], sleep)
-    if default.returncode != 0 or not default.stdout.strip():
+    if default.returncode != 0:
         return failed(default, "gh repo view")
     base = default.stdout.strip()
+    if base in ("", "null"):
+        return ask(f"{repo} has no default branch yet: push it first (start step 1)")
     # The default branch too: it holds a merge-committed scaffold head that a stale local copy is checked against.
     fetch = run_with_retry(runner, ["git", "fetch", "--prune", "origin", SCAFFOLD_REFSPEC,
                                     f"+refs/heads/{base}:refs/remotes/origin/{base}"], sleep)

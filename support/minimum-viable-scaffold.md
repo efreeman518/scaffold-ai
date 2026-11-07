@@ -190,6 +190,14 @@ Wire both DbContexts to the Aspire SQL resource and run the AppHost startup, hea
 
 **Done when:** `dotnet build` green, `dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint"` green, the AppHost starts, `/healthz/live` plus `/healthz/ready` return 200, and one SQL-backed CRUD cycle works under `/api/v1/{entity-route}`.
 
+### Final Scaffold Validation
+
+Paste the Final Scaffold Validation prompt from [prompt-catalog.md](prompt-catalog.md), then append:
+
+```text
+Mode: minimum-viable-scaffold. Run the "You are done" check in .instructions/support/minimum-viable-scaffold.md as the build, test and smoke step; checklist items for hosts and features MVS skips are not applicable.
+```
+
 ## "You are done" check
 
 Run from the solution root:

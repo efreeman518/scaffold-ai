@@ -557,7 +557,7 @@ dotnet build .\{SolutionName}.slnx -m:1
 dotnet test .\{SolutionName}.slnx --no-build -m:1
 ```
 
-Plus a manual walk-through of [final-scaffold-checklist.md](final-scaffold-checklist.md) covering: solution structure shape, no-op stub coverage, host startup smoke checks, and HANDOFF.md completeness.
+The scaffold branch's PR also needs a manual walk-through of [final-scaffold-checklist.md](final-scaffold-checklist.md), in the Final Scaffold Validation session (a slice PR skips it), covering: solution structure shape, no-op stub coverage, host startup smoke checks, and HANDOFF.md completeness.
 
 If IaC is part of scope, run the IaC commands in section 5d - Quality Gates + Delivery for each declared deployment target.
 
