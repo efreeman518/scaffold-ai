@@ -129,16 +129,16 @@ Gate: `dotnet build` + `dotnet test --filter TestCategory=Endpoint` (auth) + `do
 ## Final Scaffold Validation
 
 ```text
-Load .instructions/support/final-scaffold-checklist.md.
+Load .instructions/START-AI.md, HANDOFF.md from the project root and .instructions/support/final-scaffold-checklist.md.
 Walk through the checklist manually: build, test, run smoke checks for each enabled host.
-Record exact results, blockers, and deployment-only residuals in HANDOFF.md. When acceptance passes and the Git Checkpoint Protocol's completion check passes, set workflowStatus: complete, currentPhase: 5, and currentSubPhase: complete, then commit and push per .instructions/support/OPERATIONS.md Git Checkpoint Protocol; then mark the scaffold branch's PR ready for review.
+Record exact results, blockers, and deployment-only residuals in HANDOFF.md. When acceptance passes, run the completion check in .instructions/support/OPERATIONS.md Git Checkpoint Protocol, which sets workflowStatus: complete, currentPhase: 5, and currentSubPhase: complete, commits, pushes and marks the scaffold branch's PR ready.
 ```
 
 ## Resume From HANDOFF
 
 ```text
 Load .instructions/START-AI.md and HANDOFF.md from the project root.
-Read workflowStatus first. If complete, leave the scaffold workflow and use ordinary repository maintenance. If active, resume from currentPhase/currentSubPhase, load the files listed in Next Load Set, and check Blockers.
+Read workflowStatus first. If complete, leave the scaffold workflow and use ordinary repository maintenance. If active, fix review pending Blockers first, then resume from currentPhase/currentSubPhase and load the files listed in Next Load Set.
 ```
 
 ## Add New Entity (Existing Project)
@@ -159,7 +159,7 @@ a new session on the branch and pastes its report into the next working session,
 rebuts each finding before anything else; none at HIGH or MEDIUM stays open.
 
 ```text
-Do not modify any file. Review the diff {Base}...{Branch} for {Scope}; {Base} is HANDOFF.md sessionBase for a phase, or the branch a slice started from.
+Do not modify any file. Review the diff {Base}...{Branch} for {Scope}; {Base} is HANDOFF.md reviewBase for a phase, or the branch a slice started from.
 - A slice ({Entity}, following {ExistingEntity}): load .instructions/support/vertical-slice-checklist.md; every applicable checklist item satisfied, wiring present, Phase-1 artifacts (.scaffold/) updated for {Entity} (GR-01).
 - A phase (4, 5a-5e): load that phase's files from .instructions/START-AI.md Phase Router (Phase 5: the .instructions/ai/SKILL.md Phase 5 file table) and .instructions/support/execution-gates.md; every output and gate check of the phase met.
 In both: boundaries respect .instructions/GROUND-RULES.md (GR-14 aggregate rules); patterns match the existing code; no dead stubs or leftover TODOs.

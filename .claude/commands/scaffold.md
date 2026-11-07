@@ -19,8 +19,8 @@ All instruction files (skills, templates, support docs, schemas, scripts) live u
 ## Bootstrap
 
 1. Read `.instructions/START-AI.md` - it is the canonical bootstrap - and follow its Session Start Router precisely.
-2. Check for `HANDOFF.md` in the project root (not inside `.instructions/`).
-   - If present: read `workflowStatus` first. `complete` exits the scaffold workflow into ordinary maintenance; `active` resumes from `currentPhase` / `currentSubPhase`. For a legacy file without the field, follow the fallback in `START-AI.md`.
+2. Run the start steps of `.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol, then check for `HANDOFF.md` in the project root (not inside `.instructions/`).
+   - If present: read `workflowStatus` first. `complete` exits the scaffold workflow into ordinary maintenance; `active` resumes from `currentPhase` / `currentSubPhase`.
    - If absent: new project - run the Phase Router.
 3. Load only the files listed for the current phase in the Phase Router. For Phase 5, use the Phase 5 file table in `.instructions/ai/SKILL.md`.
 

@@ -63,13 +63,12 @@ Is HANDOFF.md present?
                      New-entity work still routes to support/vertical-slice-checklist.md fast-path.
          active   -> Fix `review pending` Blockers, then resume currentPhase/currentSubPhase; read
                      that phase's Phase Router row for its load set.
-         missing  -> Legacy HANDOFF: infer active unless currentSubPhase is complete, then treat as complete.
   NO  -> New project          -> Phase Router
         New entity            -> load support/vertical-slice-checklist.md fast-path only
         Brownfield adoption   -> load ai/adopt-codebase.md (replaces Phase 1)
 ```
 
-`workflowStatus` is the terminal-state authority. `currentPhase: 5` plus `currentSubPhase: complete` remains a supported legacy completion signal, but new handoffs always write `workflowStatus: active | complete`.
+`workflowStatus: active | complete` is the terminal-state authority.
 
 First scaffold? The pruned API-only path with canonical prompt overlays is [support/minimum-viable-scaffold.md](support/minimum-viable-scaffold.md).
 

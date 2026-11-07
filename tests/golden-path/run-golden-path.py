@@ -135,7 +135,7 @@ testStatus:
   unitTests: not-started
   endpointTests: not-started
   integrationTests: not-started
-resumeCommand: "Load .instructions/START-AI.md and HANDOFF.md, resume at Phase 3."
+resumeCommand: "Load .instructions/START-AI.md, the Git Checkpoint Protocol and HANDOFF.md, resume at Phase 3."
 instructionGapsPath: ".scaffold/INSTRUCTION-GAPS.md"
 
 ## Completed
@@ -182,7 +182,7 @@ def extract_prompts() -> dict[str, str]:
             # unattended regression pre-approves it so HANDOFF can advance to 4.
             prompt += ("\nThis is an unattended regression run: the developer has already reviewed and "
                        "approved .scaffold/implementation-plan.md. Treat the developer-review gate as "
-                       "satisfied, set currentPhase: \"4\" in HANDOFF.md, and close the session.")
+                       "satisfied: set currentPhase: \"4\" in HANDOFF.md before the session's final commit.")
         if phase == "5b":
             if RUNTIME_PLACEHOLDER_5B not in prompt:
                 fail("5b runtime-concern placeholder missing from prompt-catalog.md - update RUNTIME_PLACEHOLDER_5B")

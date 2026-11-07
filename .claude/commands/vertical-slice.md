@@ -29,7 +29,7 @@ All instruction files live under `.instructions/` in the project root. All file 
 
 Before generating any files:
 
-- [ ] Start or resume the slice branch (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol) first; an orchestrator of several entities starts one `feature/batch-<first entity>` branch for the run
+- [ ] Start or resume the slice branch (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol) first; an orchestrator of several entities starts one `feature/batch-<first entity in alphabetical order, kebab case>` branch for the run
 - [ ] Verify the solution builds clean: `dotnet build`
 - [ ] Locate existing `RegisterServices.cs`, both DbContext files, and `WebApplicationBuilderExtensions.cs`
 - [ ] If adding to a domain with existing entities, review their patterns for consistency

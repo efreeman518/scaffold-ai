@@ -73,8 +73,8 @@ The orchestrator completes and freezes these, then dispatches the per-host worke
 2. It completes and freezes any artifact shared across those hosts (shared contracts/client, shared component lib, common client wiring).
 3. It starts one `orchestrated-refactor` run with **one slice per host**: SCOPE is that host's disjoint files with the frozen shared layer read-only, DONE is the host's standalone gate (TDD where applicable).
 4. Workers finish; the orchestrator integrates the slices, performs the single serialized Aspire AppHost registration pass itself, and runs the mesh gate (`dotnet run` + health) per [execution-gates.md](execution-gates.md).
-5. The run's review round covers the integrated result, with `scaffold-reviewer` as an extra read-only lens for ground-rule / architecture-test compliance.
-6. Orchestrator updates `hostGates` in `HANDOFF.md`, records gate evidence per [execution-gates.md](execution-gates.md) section Verification Evidence Rule, removes the merged worker worktrees per section Agent Scratch, commits and finishes per the Git Checkpoint Protocol. The next phase is a fresh orchestrator.
+5. Orchestrator updates `hostGates` in `HANDOFF.md`, records gate evidence per [execution-gates.md](execution-gates.md) section Verification Evidence Rule and commits the gate.
+6. The run's review round covers the integrated result, with `scaffold-reviewer` as an extra read-only lens for ground-rule / architecture-test compliance. The orchestrator removes the merged worker worktrees per section Agent Scratch and finishes per the Git Checkpoint Protocol. The next phase is a fresh orchestrator.
 
 ## Pre-dispatch checklist
 
@@ -101,7 +101,7 @@ All agent and subagent scratch lives under the repo-root `.tmp/`, which the app 
 Cleanup runs after the merge is verified, never before:
 
 1. Confirm the work merged: PR state `MERGED`, or the worktree `HEAD` is an ancestor of the branch it was integrated into (pass that branch to `clean-tmp.py --base` when it is not the default branch).
-2. `git worktree remove .tmp/worktrees/<slug>-<suffix>` without `--force`. A worktree with uncommitted or untracked changes stays and is reported.
+2. `git worktree remove .tmp/worktrees/<slug>-<suffix>` without `--force`, then `git branch -d <type>/<slug>-<suffix>`. A worktree with uncommitted or untracked changes stays and is reported; a discarded worker's unmerged branch is deleted only with the developer's approval.
 3. `git worktree prune`, then delete `.tmp/sessions/<session-id>/` once every worktree it served is gone.
 
 [../scripts/clean-tmp.py](../scripts/clean-tmp.py) applies the same rules: run it bare for a dry-run report, then with `--apply`.
