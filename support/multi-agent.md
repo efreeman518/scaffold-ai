@@ -104,7 +104,7 @@ Cleanup runs after the merge is verified, never before:
 2. `git worktree remove .tmp/worktrees/<slug>-<suffix>` without `--force`, then `git branch -d <type>/<slug>-<suffix>`. A worktree with uncommitted or untracked changes stays and is reported; a discarded worker's unmerged branch is deleted only with the developer's approval.
 3. `git worktree prune`, then delete `.tmp/sessions/<session-id>/` once every worktree it served is gone.
 
-[../scripts/clean-tmp.py](../scripts/clean-tmp.py) applies the same rules: run it bare for a dry-run report, then with `--apply`.
+[../scripts/clean-tmp.py](../scripts/clean-tmp.py) applies the worktree rules (it deletes no branch): run it bare for a dry-run report, then with `--apply`.
 
 - A worktree carries its own `global.json`, `Directory.Build.props`, `Directory.Packages.props`, and `.editorconfig`, so .NET lookups stop at the worktree root. NuGet merges every `nuget.config` up the tree, so the main checkout's copy also applies - harmless while both are the same file.
 - Harnesses that load instruction files from parent directories also see the main checkout's `AGENTS.md` / `CLAUDE.md`. When a work-item edits those files, tell the worker its worktree copy wins.

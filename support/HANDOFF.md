@@ -37,7 +37,7 @@ hostGates:                 # Phase 5c per-host status: not-started | scaffolded 
   reactUI: not-started
   notifications: not-started
 scaffoldBranch: ""         # scaffold/<project>: every phase session works on it (support/OPERATIONS.md Git Checkpoint Protocol)
-reviewBase: ""             # last commit a code review (or the scaffold branch start) covered; the next review diffs reviewBase..HEAD
+reviewBase: ""             # last commit a code review covered (Phase 4 sets it first); the next review diffs reviewBase..HEAD
 resumeCommand: ""          # exact prompt to paste at the next session start
 toolingNotes: ""           # CLIs/MCPs discovered in Phase 3; note any missing or unavailable
 instructionGapsPath: ".scaffold/INSTRUCTION-GAPS.md"

@@ -21,7 +21,7 @@ review, docs, and maintenance use regular project context.
 
 ### Agent scratch
 
-Worktrees, session logs, and reports from agents and subagents live under the gitignored repo-root `.tmp/`: worktrees in `.tmp/worktrees/<slug>-<6 random hex>` (the suffix also in the branch name), logs and handoffs in `.tmp/sessions/<id>/`, tool-specific reports in their own `.tmp/<tool>/` folder. After the merge is verified, clean up with `.instructions/scripts/clean-tmp.py --apply` (`--base <branch>` when the work merged into a branch other than the default, such as the scaffold branch). Rules: `.instructions/support/multi-agent.md` section Agent Scratch.
+Worktrees, session logs, and reports from agents and subagents live under the gitignored repo-root `.tmp/`: worktrees in `.tmp/worktrees/<slug>-<6 random hex>` (the suffix also in the branch name), logs and handoffs in `.tmp/sessions/<id>/`, tool-specific reports in their own `.tmp/<tool>/` folder. After the merge is verified, clean up with `.instructions/scripts/clean-tmp.py --apply` (`--base <branch>` when the work merged into a branch other than the default, such as the scaffold branch), then `git branch -d` the merged worker branches. Rules: `.instructions/support/multi-agent.md` section Agent Scratch.
 
 ### Context graph (graphify)
 
