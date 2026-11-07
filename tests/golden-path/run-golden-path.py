@@ -116,7 +116,7 @@ currentSubPhase: ""
 scaffoldMode: full
 testingProfile: balanced
 contractsScaffolded: false
-scaffoldBranch: "scaffold/workboard"
+scaffoldBranch: "scaffold/work-board"
 enabledFeatures:
   includeApi: true
   useAspire: true
@@ -712,7 +712,7 @@ def main() -> int:
         # Phases 1-2 are fixtures here, so the baseline stands in for the Phase 1 session that creates the
         # scaffold branch (OPERATIONS.md Git Checkpoint Protocol): later phases only find and resume it.
         for cmd in (["git", "add", "."], ["git", "commit", "-m", "golden-path fixture baseline"],
-                    ["git", "switch", "-c", "scaffold/workboard"]):
+                    ["git", "switch", "-c", "scaffold/work-board"]):
             # The protocol branches from this baseline commit, so a missing git identity fails here, not mid-phase.
             step = subprocess.run(cmd, cwd=str(target), capture_output=True, text=True)
             if step.returncode != 0:

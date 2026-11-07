@@ -1,6 +1,6 @@
 # HANDOFF.md
 
-Create this file in the **target project root** at the end of every phase and each Phase 5 sub-phase session. The next AI session loads `START-AI.md` + this file only - nothing else - and resumes from `currentPhase` / `currentSubPhase`.
+Create this file in the **target project root** at the end of every phase and each Phase 5 sub-phase session. The next AI session loads `START-AI.md`, the Git Checkpoint Protocol in `support/OPERATIONS.md` and this file - nothing else - and resumes from `currentPhase` / `currentSubPhase`.
 
 ```yaml
 workflowStatus: active      # active | complete - router checks this before phase fields
@@ -37,6 +37,7 @@ hostGates:                 # Phase 5c per-host status: not-started | scaffolded 
   reactUI: not-started
   notifications: not-started
 scaffoldBranch: ""         # scaffold/<project>: every phase session works on it (support/OPERATIONS.md Git Checkpoint Protocol)
+sessionBase: ""            # scaffold branch HEAD when this session started; its review diffs sessionBase..HEAD
 resumeCommand: ""          # exact prompt to paste at the next session start
 toolingNotes: ""           # CLIs/MCPs discovered in Phase 3; note any missing or unavailable
 instructionGapsPath: ".scaffold/INSTRUCTION-GAPS.md"
@@ -70,6 +71,7 @@ Three to five lines for the next agent resuming cold: what this session actually
 Load only these files next session (do not load anything else until this list is confirmed):
 
 - `START-AI.md`
+- `support/OPERATIONS.md` section Git Checkpoint Protocol
 - `HANDOFF.md`
 - <none>
 

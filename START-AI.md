@@ -25,7 +25,7 @@ This is a capture step, not a fix step (in a consumer app) - one line is enough;
 
 ## Initial Load Rule
 
-Start each session with `START-AI.md` (this file), `HANDOFF.md` in the target project root (if present - it is the resume contract) and the Git Checkpoint Protocol. Then load only files needed for the current phase. Generate code only in the target project.
+Start each session with `START-AI.md` (this file) and the Git Checkpoint Protocol, whose start steps run first, then the resume contract `HANDOFF.md` (if present). Then load only files needed for the current phase. Generate code only in the target project.
 
 ## File Loading Rule
 
