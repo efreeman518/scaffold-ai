@@ -12,7 +12,7 @@ Bootstrap for `.instructions/` payloads. Load this file first when scaffold work
 
 ## Session Model
 
-Each phase - and each Phase 5 sub-phase - runs in its own AI session. When complete, write/update `HANDOFF.md` in the target project root and close the session. The next session starts fresh from `START-AI.md` + `HANDOFF.md` only.
+Each phase - and each Phase 5 sub-phase - runs in its own AI session. All share one scaffold branch (`support/OPERATIONS.md` section Git Checkpoint Protocol). When complete, update `HANDOFF.md` in the target project root, commit and finish per that protocol. The next session starts fresh.
 
 ## Session Close
 
@@ -21,11 +21,11 @@ Before writing `HANDOFF.md` at session close, do a quick instruction-set check: 
 - **Installed app:** append to `.scaffold/INSTRUCTION-GAPS.md` at the project root (create `.scaffold/` if absent). Treat `.instructions/` files as read-only during scaffold work.
 - **This instruction repo:** fold the fix directly into the owning instruction file (maintainer skill `/fold-feedback`).
 
-This is a capture step, not a fix step (in a consumer app) - one line is enough; a maintainer triages and folds it back later. Then update `HANDOFF.md` and close.
+This is a capture step, not a fix step (in a consumer app) - one line is enough; a maintainer triages and folds it back later. Then update `HANDOFF.md`, commit and close.
 
 ## Initial Load Rule
 
-Start each session with `START-AI.md` (this file) and `HANDOFF.md` in the target project root (if present - it is the resume contract). Then load only files needed for the current phase. Generate code only in the target project.
+Start each session with `START-AI.md` (this file) and the Git Checkpoint Protocol, whose start steps run first, then the resume contract `HANDOFF.md` (if present). Then load only files needed for the current phase. Generate code only in the target project.
 
 ## File Loading Rule
 
@@ -61,15 +61,15 @@ Is HANDOFF.md present?
   YES -> Read workflowStatus first.
          complete -> Scaffold workflow is terminal. Return to ordinary repository maintenance; do not load phase files.
                      New-entity work still routes to support/vertical-slice-checklist.md fast-path.
-         active   -> Resume from currentPhase/currentSubPhase. Skip the routing decision; still read
+         active   -> New entity: support/vertical-slice-checklist.md fast-path. Otherwise fix
+                     `review pending` Blockers, then resume currentPhase/currentSubPhase; read
                      that phase's Phase Router row for its load set.
-         missing  -> Legacy HANDOFF: infer active unless currentSubPhase is complete, then treat as complete.
   NO  -> New project          -> Phase Router
         New entity            -> load support/vertical-slice-checklist.md fast-path only
         Brownfield adoption   -> load ai/adopt-codebase.md (replaces Phase 1)
 ```
 
-`workflowStatus` is the terminal-state authority. `currentPhase: 5` plus `currentSubPhase: complete` remains a supported legacy completion signal, but new handoffs always write `workflowStatus: active | complete`.
+`workflowStatus: active | complete` is the terminal-state authority.
 
 First scaffold? The pruned API-only path with canonical prompt overlays is [support/minimum-viable-scaffold.md](support/minimum-viable-scaffold.md).
 

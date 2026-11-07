@@ -55,7 +55,7 @@ C#-specific operator content:
 - [`support/taskflow-proof-map.md`](../support/taskflow-proof-map.md) - pointer to the TaskFlow reference app (Aspire + dual DbContext + YARP + Uno + Blazor + React).
 - [`support/scalability-and-hosting.md`](../support/scalability-and-hosting.md) - conditional scale, provider-switch, multi-lane, runtime, health, and proof rules.
 - [`support/reference-app.md`](../support/reference-app.md) - consultation rules for TaskFlow.
-- [`support/OPERATIONS.md`](../support/OPERATIONS.md) - fail-fast, git checkpoint, missing-inputs, rollback, mixed-store gate. C#-bound through its examples; the operational concepts are reusable.
+- [`support/OPERATIONS.md`](../support/OPERATIONS.md) - fail-fast, git checkpoint, missing-inputs, rollback, unattended runs, mixed-store gate. C#-bound through its examples; the operational concepts are reusable.
 - [`support/phase-1-worked-example.md`](../support/phase-1-worked-example.md) - transcript from the TaskFlow Phase 1 interview. Phase 1 itself is universal, but this example is a C#-bound illustration.
 
 ### `schemas/`

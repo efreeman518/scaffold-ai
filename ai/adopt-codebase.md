@@ -28,7 +28,8 @@ Same three files as a greenfield Phase 1. Create `.scaffold/` at project root if
 
 ## Pre-Flight
 
-- [ ] Solution builds: `dotnet build` exits 0. A non-building solution makes inference unreliable - the developer fixes it or branches from a known-good commit first.
+- [ ] Solution builds on the updated default branch (an interrupted adoption: on the live scaffold branch): `dotnet build` exits 0. A non-building solution makes inference unreliable - the developer fixes that branch first.
+- [ ] Start the scaffold branch (`support/OPERATIONS.md` section Git Checkpoint Protocol) before writing anything.
 - [ ] Locate the solution file: `*.slnx` (preferred) or `*.sln` at project root.
 - [ ] Identify the layer assignment of every project (Domain / Application / Infrastructure / Host / Test) by directory convention and project references.
 - [ ] Confirm with the developer: "I'm going to derive Phase-1 artifacts from the existing code. Code wins on any conflict with prior intent. OK to proceed?"
@@ -125,7 +126,7 @@ Record the developer's answer in the final `DESIGN-DECISIONS.md`. Decisions wher
 
 When inference completes and the three artifacts are written:
 
-1. Write `HANDOFF.md` at project root with `currentPhase: 2`, `currentSubPhase: ""`, `contractsScaffolded: false`. Note in section Completed: "Phase 1 adopted from existing codebase via `ai/adopt-codebase.md` inference."
+1. Write `HANDOFF.md` at project root with `workflowStatus: active`, `currentPhase: 2`, `currentSubPhase: ""`, `contractsScaffolded: false` and `scaffoldBranch`. Note in section Completed: "Phase 1 adopted from existing codebase via `ai/adopt-codebase.md` inference." Commit on the scaffold branch and push per `support/OPERATIONS.md` section Git Checkpoint Protocol.
 2. Stop. The next session resumes at Phase 2 (Resource Definition) by reading the freshly written `.scaffold/DESIGN-DECISIONS.md` and `.scaffold/domain-specification.yaml`, exactly as a greenfield project would.
 3. New entities going forward use `/vertical-slice`; the existing Phase-1 Artifact Lifecycle Rule keeps the three artifacts current.
 

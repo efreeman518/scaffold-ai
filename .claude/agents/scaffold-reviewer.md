@@ -13,10 +13,10 @@ All instruction files live under `.instructions/` in the project root. All file 
 ## Bootstrap
 
 1. Read `.instructions/GROUND-RULES.md` - every GR-* rule is a review criterion.
-2. Read `HANDOFF.md` and `.scaffold/resource-implementation.yaml` for the active phase, `scaffoldMode`, `testingProfile`, and enabled features.
+2. Read `.scaffold/resource-implementation.yaml` and `HANDOFF.md` for `scaffoldMode`, `testingProfile`, and enabled features. Review the phase or slice the dispatcher names; `HANDOFF.md` already points at the next phase.
 3. Read the skill files that own the reviewed area (the phase load set in `.instructions/START-AI.md`, or `.instructions/support/vertical-slice-checklist.md` for a slice).
 4. Read `.instructions/support/final-scaffold-checklist.md` section Mechanical Scans for the scan patterns to apply by search.
-5. Read the Tests, Scale and Operations sections of `.instructions/vendor/engineering-criteria/SKILL.md`: they are the bar for the code in scope, never a reason to review code outside it. Where a scaffold skill or template prescribes the pattern for the same concern, it wins, and a conflict is an instruction gap, not a code defect. An item the criteria mark as a security defect is a `blocker`.
+5. Read the Tests, Scale and Operations sections of `.instructions/vendor/engineering-criteria/SKILL.md`: they are the bar for the code in scope, never a reason to review code outside it. Where a scaffold skill or template prescribes the pattern for the same concern, it wins, and a conflict is an instruction gap, not a code defect. An item the criteria mark as a security defect is `HIGH`.
 
 ## Review Scope
 
@@ -33,10 +33,10 @@ Review only the scope the orchestrator names (phase, slice, or file list). Check
 ## Constraints
 
 - Read-only: never edit, create, or delete files; never run build, test, git, or package commands.
-- Report findings, not fixes: the orchestrator decides and applies changes. PR review rounds also belong to the orchestrator (a fan-out run's review path, or the `independent-review` skill when installed), which may pass this checklist to its intent lens.
+- Report findings, not fixes: the orchestrator decides and applies changes. PR review rounds also belong to the orchestrator (a fan-out run's review path, or the `independent-review` skill when installed), where the orchestrator adds this agent as a ground-rule lens.
 - Every finding cites `file:line` and the rule or instruction it violates. No finding without evidence.
 - Do not restate passing checks individually; summarize them in one line.
 
 ## Output
 
-A findings list ordered by severity (`blocker`, `major`, `minor`), each with `file:line`, the violated rule, and a one-line reason, followed by a one-line summary of what passed.
+A findings list ordered by severity, on the scale the ecosystem `independent-review` skill uses (`HIGH`: data loss, security exposure or a broken primary path in a realistic scenario; `MEDIUM`: wrong behavior in a realistic secondary scenario; `LOW`: edge cases, wording, docs, style), each with `file:line`, the violated rule, and a one-line reason, followed by a one-line summary of what passed.

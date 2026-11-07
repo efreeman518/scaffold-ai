@@ -116,6 +116,7 @@ Get-ChildItem src, tests -Recurse -Filter *.cs |
 - [ ] `.scaffold/UBIQUITOUS-LANGUAGE.md` and `.scaffold/DESIGN-DECISIONS.md` still match the generated entity, service, and endpoint names. Mechanical check: `python {instructionsRoot}/scripts/check-artifact-drift.py --root .` reports no drift (advisory - review each finding against GR-01: fix the artifact first, then code).
 - [ ] If `.scaffold/ontology/` exists, `python {instructionsRoot}/scripts/generate-ontology.py --root . --check` exits 0 (the projection was regenerated after the last spec change and never hand-edited).
 - [ ] Generated solution shape matches `skills/solution-structure.md` (no missing project, no orphan no-op stub).
+- [ ] The Git Checkpoint Protocol's completion check passes (no `review pending` blocker, no open PR against the scaffold branch, no unmerged slice branch) before the terminal state is set.
 - [ ] `HANDOFF.md` terminal state is current: final acceptance sets `workflowStatus: complete`, `currentPhase: 5`, and `currentSubPhase: complete`; gate results, blockers, and deployment-only residuals remain recorded.
 - [ ] `.scaffold/implementation-plan.md` open questions resolved or explicitly deferred with TODO.
 - [ ] Every enabled host has a recorded status in `HANDOFF.md`: `validated`, `partially-validated`, or `blocked` with reason.

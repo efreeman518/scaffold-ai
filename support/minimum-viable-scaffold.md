@@ -27,7 +27,7 @@ MVS is a profile, not a separate path. After MVS finishes you can promote to a r
 Same as the [README Prerequisites](../README.md#prerequisites), with these MVS-specific simplifications:
 
 - **Skip:** Uno templates, `uno-check`, Kiota, Functions Core Tools.
-- **Required:** latest stable .NET SDK, `git`, Python (for installer), and Docker for the default Aspire SQL container and SQL-backed tests. Package feed access is conditional on `packageStrategy` (chosen in Phase 2): `feed`/`hybrid` needs read access to the configured private feed (e.g., GitHub Packages for the canonical `EF.*` example); `local` needs only `nuget.org`.
+- **Required:** latest stable .NET SDK, `git`, a GitHub repository as `origin` with an authenticated `gh` (`gh auth status`), Python (for installer), and Docker for the default Aspire SQL container and SQL-backed tests. Package feed access is conditional on `packageStrategy` (chosen in Phase 2): `feed`/`hybrid` needs read access to the configured private feed (e.g., GitHub Packages for the canonical `EF.*` example); `local` needs only `nuget.org`.
 
 ## Install
 
@@ -42,7 +42,7 @@ The `--verify` flag checks every manifest-managed file and harness block. See [i
 
 Six AI sessions: one per phase for Phases 1-4, plus separate sessions for Phase 5a and Phase 5b (Phase 5 always runs one sub-phase per session). MVS skips 5c, 5d, and 5e - see section Why this works.
 
-Generic phase prompts live in [prompt-catalog.md](prompt-catalog.md). For each session, paste that phase's prompt, append the MVS overlay below, fill placeholders, run the gate, update `HANDOFF.md`, and close. This file owns only the API-only, single-entity deltas.
+Generic phase prompts live in [prompt-catalog.md](prompt-catalog.md). For each session, paste that phase's prompt, append the MVS overlay below, fill placeholders, run the gate, update `HANDOFF.md`, then commit, review and push per [OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol. This file owns only the API-only, single-entity deltas.
 
 ### Phase 1 - Domain Discovery (one entity)
 

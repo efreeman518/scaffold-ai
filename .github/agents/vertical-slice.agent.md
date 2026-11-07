@@ -25,6 +25,7 @@ All instruction files live under `.instructions/` in the project root. All file 
 
 Before generating any files:
 
+- [ ] Start or resume the slice branch (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol) first; an orchestrator of several entities starts one `feature/batch-<first entity in alphabetical order, kebab case>` branch for the run
 - [ ] Verify the solution builds clean: `dotnet build`
 - [ ] Locate existing `RegisterServices.cs`, both DbContext files, and `WebApplicationBuilderExtensions.cs`
 - [ ] If adding to a domain with existing entities, review their patterns for consistency
@@ -38,7 +39,13 @@ Follow the canonical Slice Execution Order in `.instructions/support/vertical-sl
 
 See `.instructions/support/execution-gates.md` section Core Loop. Scope test filter to the new entity (`FullyQualifiedName~{Entity}`).
 
-After the gate passes, optionally dispatch the read-only `scaffold-reviewer` agent over the slice's files and resolve its `blocker`/`major` findings before reporting.
+## Review
+
+After the gate passes, append any instruction gaps (section Instruction Gaps), commit the slice on its branch and review it before reporting (`.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol). With the ecosystem `independent-review` skill installed, run its review rounds on the diff from the branch the slice started from and add the read-only `scaffold-reviewer` agent as the ground-rule lens; without it, dispatch `scaffold-reviewer` alone over the slice's files; a harness with neither runs `.instructions/support/prompt-catalog.md` section Fresh-Session Review. Fix every confirmed finding or rebut it with evidence; none at HIGH or MEDIUM stays open. Rerun the Validation Gate, then push and open the slice's pull request per that protocol.
+
+## Unattended Runs
+
+When an issue-driven loop runs this workflow with no developer present, `.instructions/support/OPERATIONS.md` section Unattended Runs gives the loop the branch, worktree and review lenses, and maps every ask-the-developer point, the push and PR gate, gates that need Docker or a database, and instruction gaps onto the loop.
 
 ## Several Entities
 
@@ -58,4 +65,4 @@ If any instruction behavior turned out missing, ambiguous, or wrong this session
 
 ## Output
 
-Report which files were created, which wiring steps completed, and the gate result (`dotnet build` + `dotnet test`).
+Report which files were created, which wiring steps completed, the gate result (`dotnet build` + `dotnet test`), the review result, and the session branch with its worktree path (if any) and its PR link or push command.

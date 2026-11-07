@@ -12,6 +12,7 @@ Use this when adding a new entity to an **already-scaffolded** solution. Skip fu
 
 ### Pre-Flight
 
+- [ ] Start or resume the slice branch first ([OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol); commit at the gate, then review and open the PR per that protocol
 - [ ] When the slice comes from an add-entity issue ([../templates/add-entity-issue-template.md](../templates/add-entity-issue-template.md)), take its fields as the answers below and ask only what it leaves open (an internal child with no owning root is open)
 - [ ] Solution builds clean: `dotnet build`
 - [ ] Identify existing: `RegisterServices.cs`, `{App}DbContextTrxn`, `{App}DbContextQuery`, `WebApplicationBuilderExtensions.cs`
@@ -253,7 +254,7 @@ Skill: [ui-react.md](../skills/ui-react.md).
 
 ## Post-Generation Verification
 
-Optional but recommended for non-trivial slices: run an independent review in a fresh session using [prompt-catalog.md](prompt-catalog.md) section Slice Review (Optional Second Session).
+Review, then push, the slice per [OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol: `independent-review` when the ecosystem skills are installed, with `scaffold-reviewer` as its ground-rule lens, else `scaffold-reviewer` alone. A harness with neither runs [prompt-catalog.md](prompt-catalog.md) section Fresh-Session Review.
 
 ### DI and Routing
 

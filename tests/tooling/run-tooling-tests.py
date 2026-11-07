@@ -433,7 +433,7 @@ class WorkflowStateContractTests(unittest.TestCase):
     def test_router_checks_workflow_status_before_phase_fields(self):
         router = (REPO_ROOT / "START-AI.md").read_text(encoding="utf-8")
         status_index = router.index("Read workflowStatus first")
-        phase_index = router.index("Resume from currentPhase/currentSubPhase")
+        phase_index = router.index("resume currentPhase/currentSubPhase")
         self.assertLess(status_index, phase_index)
         self.assertIn("complete -> Scaffold workflow is terminal", router)
         self.assertIn("ordinary repository maintenance", router)
@@ -1750,6 +1750,7 @@ class GoldenPathTests(unittest.TestCase):
     def test_gate_phase4_rejects_legacy_layout(self):
         tmp = Path(tempfile.mkdtemp(prefix="tooling-layout-gate-"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        self._skip_git_state()
         solution_xml = (
             '<Solution>\n'
             '  <Project Path="src/Product/Product.csproj" />\n'
@@ -1875,9 +1876,84 @@ class GoldenPathTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("MISSING production tree src/", notes)
 
+    def _skip_git_state(self):
+        # These tests cover the file and build gates; test_git_state_issues covers the git gate.
+        patcher = mock.patch.object(goldenpath, "git_state_issues", return_value=[])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @unittest.skipUnless(shutil.which("git"), "git not installed")
+    def test_git_state_issues(self):
+        tmp = Path(tempfile.mkdtemp(prefix="tooling-git-gate-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        # git_state_issues inherits os.environ, so the isolation must cover it too, not only the setup calls.
+        isolated = mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+        isolated.start()
+        self.addCleanup(isolated.stop)
+
+        def git(*args):
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+                           cwd=str(tmp), check=True, capture_output=True)
+
+        def handoff(branch, quote='"'):
+            (tmp / "HANDOFF.md").write_text(f"scaffoldBranch: {quote}{branch}{quote}  # comment\n", encoding="utf-8")
+
+        def issues():
+            return " ".join(goldenpath.git_state_issues(tmp))
+
+        git("init", "-q", "-b", "main")
+        handoff("")
+        git("add", "-A")
+        git("commit", "-q", "-m", "base")
+        self.assertIn("left on main, not a scaffold/ branch", issues())
+
+        git("switch", "-q", "-c", "scaffold/golden")
+        self.assertIn("scaffoldBranch does not name scaffold/golden", issues())
+        handoff("scaffold/golden")
+        self.assertIn("uncommitted changes", issues())
+        git("commit", "-q", "-am", "phase 3")
+        self.assertEqual(goldenpath.git_state_issues(tmp), [])
+        for quote in ("'", ""):
+            handoff("scaffold/golden", quote)
+            git("commit", "-q", "-am", f"quote {quote!r}")
+            self.assertEqual(goldenpath.git_state_issues(tmp), [])
+
+        git("switch", "-q", "-c", "feature/widget")
+        (tmp / "w.txt").write_text("w\n", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "-m", "slice")
+        git("switch", "-q", "scaffold/golden")
+        self.assertIn("not merged into scaffold/golden: feature/widget", issues())
+        git("merge", "-q", "--ff-only", "feature/widget")
+        self.assertEqual(goldenpath.git_state_issues(tmp), [])
+
+        outside = Path(tempfile.mkdtemp(prefix="tooling-git-none-"))
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        with mock.patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(outside.parent)}):
+            self.assertIn("failed", " ".join(goldenpath.git_state_issues(outside)))
+
+    def test_gate_fails_on_git_state(self):
+        # A green build and green tests still fail the gate while git_state_issues reports anything.
+        tmp = Path(tempfile.mkdtemp(prefix="tooling-git-wiring-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        issue = "git: branch(es) not merged into scaffold/golden: feature/x"
+        # Phase 3 returns before the build gates, so it is checked with its own artifacts in place.
+        (tmp / ".scaffold").mkdir()
+        (tmp / ".scaffold" / "implementation-plan.md").write_text("plan\n", encoding="utf-8")
+        (tmp / "HANDOFF.md").write_text('currentPhase: "4"\n', encoding="utf-8")
+        for phase in ("3", "5a"):
+            with mock.patch.object(goldenpath, "git_state_issues", return_value=[issue]), \
+                    mock.patch.object(goldenpath, "run_gate_cmd", return_value=(True, "")):
+                ok, notes = goldenpath.gate(phase, tmp)
+            self.assertFalse(ok, phase)
+            self.assertIn(issue, notes)
+        with mock.patch.object(goldenpath, "git_state_issues", return_value=[]):
+            self.assertTrue(goldenpath.gate("3", tmp)[0])
+
     def test_gate_phase3(self):
         tmp = Path(tempfile.mkdtemp(prefix="tooling-gate-"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        self._skip_git_state()
         (tmp / ".scaffold").mkdir(parents=True)
         (tmp / "HANDOFF.md").write_text('currentPhase: "4"\n', encoding="utf-8")
 
