@@ -132,7 +132,7 @@ Gate: `dotnet build` + `dotnet test --filter TestCategory=Endpoint` (auth) + `do
 ```text
 Load .instructions/START-AI.md, run its session start steps, then read HANDOFF.md from the project root and .instructions/support/final-scaffold-checklist.md.
 Walk through the checklist manually: build, test, run smoke checks for each enabled host.
-Record exact results, blockers, and deployment-only residuals in HANDOFF.md, commit and review per .instructions/support/OPERATIONS.md Git Checkpoint Protocol (record reviewBase before any fix). When acceptance, that review and the protocol's completion check pass, set workflowStatus: complete, currentPhase: 5, and currentSubPhase: complete, then commit, push and open or mark ready the scaffold branch's PR per that protocol.
+Record exact results, blockers, and deployment-only residuals in HANDOFF.md, commit and review per .instructions/support/OPERATIONS.md Git Checkpoint Protocol. When acceptance, that review and the protocol's completion check pass, set workflowStatus: complete, currentPhase: 5, and currentSubPhase: complete, then commit, push and open or mark ready the scaffold branch's PR per that protocol.
 ```
 
 ## Resume From HANDOFF
