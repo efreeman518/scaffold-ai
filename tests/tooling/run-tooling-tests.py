@@ -1587,9 +1587,12 @@ class FindScaffoldBranchTests(unittest.TestCase):
             no_default = lambda cmd: (subprocess.CompletedProcess(cmd, 0, empty + "\n", "") if cmd[:3] == ["gh", "repo", "view"] else run(cmd))
             self.assertIn("no default branch", find_branch.find(no_default, sleep=lambda _s: None)["reason"], empty)
         leaky = (128, "fatal: unable to access 'https://u:s3cret@github.com/acme/app.git/': Could not resolve host")
-        outcome, _ = self.find({"scaffold/app": []}, failures={"git fetch": [leaky] * find_branch.ATTEMPTS})
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as log:
+            outcome, _ = self.find({"scaffold/app": []}, failures={"git fetch": [leaky] * find_branch.ATTEMPTS})
         self.assertIn("git fetch failed", outcome["reason"])
         self.assertNotIn("s3cret", outcome["reason"])
+        self.assertIn("retry 1/", log.getvalue())
+        self.assertNotIn("s3cret", log.getvalue())
 
     def test_failed_or_unreadable_queries_ask_without_retry(self):
         for failure in ((1, "HTTP 401: Bad credentials"), (127, "gh not found on PATH"), (1, "HTTP 429: Too Many Requests"),
@@ -1617,6 +1620,23 @@ class FindScaffoldBranchTests(unittest.TestCase):
     def test_run_turns_missing_tool_into_failure(self):
         proc = find_branch.run(["scaffold-ai-no-such-tool"])
         self.assertEqual(proc.returncode, 127)
+
+    def test_kill_tree_tolerates_a_vanished_group(self):
+        for exc in (ProcessLookupError, PermissionError):
+            with mock.patch.object(find_branch.os, "name", "posix"), \
+                    mock.patch.object(find_branch.signal, "SIGKILL", 9, create=True), \
+                    mock.patch.object(find_branch.os, "killpg", side_effect=exc, create=True) as killpg:
+                find_branch.kill_tree(1234)
+            killpg.assert_called_once_with(1234, 9)
+
+    def test_run_interrupt_ends_the_child_and_propagates(self):
+        child = mock.Mock(pid=4321)
+        child.communicate.side_effect = KeyboardInterrupt
+        with mock.patch.object(find_branch.subprocess, "Popen", return_value=child), \
+                mock.patch.object(find_branch, "kill_tree") as kill:
+            with self.assertRaises(KeyboardInterrupt):
+                find_branch.run(["git", "fetch"])
+        kill.assert_called_once_with(4321)
 
     def test_run_timeout_ends_the_process_tree(self):
         # The grandchild holds the output pipes, as git-remote-https does under git fetch.

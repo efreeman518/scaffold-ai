@@ -208,6 +208,7 @@ dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint"
 dotnet run --project src\Host\Aspire\AppHost
 # Discover the API URL in the Aspire dashboard, then use it from another shell:
 # GET {api-url}/healthz -> 200 OK
+# GET {api-url}/healthz/live -> 200 OK
 # GET {api-url}/healthz/ready -> 200 OK
 # POST {api-url}/api/v1/{entity-route} -> 201 + Location header
 ```

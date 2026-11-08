@@ -60,8 +60,8 @@ def kill_tree(pid: int) -> None:
     else:
         try:
             os.killpg(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass  # The group already exited; nothing is left to end.
+        except (ProcessLookupError, PermissionError):
+            pass  # The group already exited (macOS reports a zombie-only group as EPERM); nothing is left to end.
 
 
 def run(cmd: list[str]) -> subprocess.CompletedProcess:
