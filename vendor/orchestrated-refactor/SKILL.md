@@ -152,4 +152,4 @@ Before ending, update active count, queue, slices, paths, decisions, checks, Env
 - Read completion reports and diffs, never full transcripts or JSONL logs.
 
 <!-- reconciled-with: claude/orchestrated-refactor/SKILL.md sha256:9058c8cde20e5b4d191ac6fd24d03387b781b7bcba6f571f93e58a697b28545d -->
-<!-- reconciled-with: common/engineering-criteria/SKILL.md sha256:5124ce4427d11226de54d0e34b33b30bc99f14aff7ae6ae93e6679bf6a93a47f -->
+<!-- reconciled-with: common/engineering-criteria/SKILL.md sha256:c00a05b8a7230edcfbb0dbad81465cece6db80523dd26ffc54e18228731f0661 -->
