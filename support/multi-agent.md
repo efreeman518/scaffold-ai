@@ -89,7 +89,7 @@ Before the orchestrator spawns any worker:
 
 - [ ] The shared backend phases for this work (5a/5b) passed their gates.
 - [ ] Every artifact shared *across* the target work-items is complete, frozen and committed on the orchestrator's branch, so every worker branch contains it (shared contracts/client, shared component/theme library, common wiring).
-- [ ] Every shared mechanism the work-items use is marked against the solution's code and reused or extended from an existing one, with every extend, consolidation or new mark recorded as a marked `D-###` decision (section Who owns the mechanics), and the design lens passed with its verdict in the `HANDOFF.md` run section. No worker builds its own.
+- [ ] Every shared mechanism the work-items use is marked against the solution's code and reused or extended from an existing one, with every extend, consolidation or new mark, and any reuse no `.scaffold/` artifact or prescribing skill names, recorded as a marked `D-###` decision (section Who owns the mechanics), and the design lens passed with its verdict in the `HANDOFF.md` run section. No worker builds its own.
 - [ ] The frozen core has the architecture tests and one end-to-end path through every shared mechanism the work-items use.
 - [ ] Each fan-out unit is an independent deployable host (or a genuinely independent entity/slice), not a target or route within one host.
 - [ ] Workers are constrained to disjoint write paths; all shared writes are reserved for the orchestrator's serialized merge step (vertical-slice batches: each worker's own entity lines only).
