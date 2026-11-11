@@ -38,7 +38,7 @@ flowchart TD
 
 Rationale states the constraint, tradeoff, or failure mode that makes the selected option fit. Do not restate the option, cite "best practice" alone, or record decision history.
 
-A shared-mechanism decision ([multi-agent.md](../support/multi-agent.md), section Who owns the mechanics) starts its Selected Option with its mark, `reuse:`, `extend:` or `new:` (a consolidation is marked `extend:`). A consolidation's Rationale says why and names every implementation it retires, and its Affects names the callers it moves.
+A shared-mechanism decision (`.instructions/support/multi-agent.md`, section Who owns the mechanics) starts its Selected Option with its mark, `reuse:`, `extend:` or `new:` (a consolidation is marked `extend:`). A consolidation's Rationale says why and names every implementation it retires, and its Affects names the callers it moves.
 
 | ID | Branch | Decision | Selected Option | Depends On | Status | Rationale | Affects |
 |---|---|---|---|---|---|---|---|
