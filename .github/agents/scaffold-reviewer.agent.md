@@ -16,7 +16,7 @@ All instruction files live under `.instructions/` in the project root. All file 
 2. Read `.scaffold/resource-implementation.yaml` and `HANDOFF.md` for `scaffoldMode`, `testingProfile`, and enabled features. Review the phase or slice the dispatcher names; `HANDOFF.md` already points at the next phase.
 3. Read the skill files that own the reviewed area (the phase load set in `.instructions/START-AI.md`, or `.instructions/support/vertical-slice-checklist.md` for a slice).
 4. Read `.instructions/support/final-scaffold-checklist.md` section Mechanical Scans for the scan patterns to apply by search.
-5. Read the Tests, Scale and Operations sections of `.instructions/vendor/engineering-criteria/SKILL.md`: they are the bar for the code in scope, never a reason to review code outside it. Where a scaffold skill or template prescribes the pattern for the same concern, it wins, and a conflict is an instruction gap, not a code defect. An item the criteria mark as a security defect is `HIGH`.
+5. Read the Principles (Design) section (One mechanism per job included) and the Tests, Scale and Operations sections of `.instructions/vendor/engineering-criteria/SKILL.md`: they are the bar for the code in scope, never a reason to review code outside it. Where a scaffold skill or template prescribes the pattern for the same concern, it wins, and a conflict is an instruction gap, not a code defect. An item the criteria mark as a security defect is `HIGH`.
 
 ## Review Scope
 
@@ -26,6 +26,7 @@ Review only the scope the orchestrator names (phase, slice, or file list). Check
 - Layer and dependency direction against `.instructions/skills/solution-structure.md`; project and file placement (`src/`, `tests/`, one public type per file).
 - Missing wiring: DI registration, endpoint mapping, DbContext configuration, migrations, Aspire AppHost registration.
 - Test coverage for the reviewed behavior per `testingProfile`, and tests that assert nothing meaningful.
+- A second implementation of a shared mechanism the scaffold skills, the `EF.*` packages or `.scaffold/DESIGN-DECISIONS.md` already provide (locking, idempotency keys, the outbound-call protocol, notification or audit path, cache invalidation), or a new one where an existing one could be reused or extended (`engineering-criteria` One mechanism per job).
 - Gaps against the `engineering-criteria` sections read at bootstrap: tests at the wrong level or missing for costly behavior, and the scale and operations criteria for data access, outbound calls, background work, shared state and logging.
 - Security at trust boundaries: authorization on endpoints, tenant boundary checks, secrets in config.
 - Concrete AI model or deployment names copied into code or config instead of resolved at scaffold time (`.instructions/skills/ai-integration.md`).
