@@ -105,7 +105,7 @@ deployTargets: [DockerCompose, ContainerApps]
 | Data Protection | `Redis` | `AzureBlob` |
 | Deployment | `DockerCompose` | `ContainerApps` |
 
-Keep `Sql` search and `None` AI as defaults unless that lane provisions and validates the optional provider. `NonAzure` means zero Azure runtime dependencies: reject Azure App Configuration, Key Vault, Azure Data Protection key encryption, and every Azure-owned provider even when supplied through environment variables. A project that intentionally mixes provider families must declare a separately named lane and its compatibility matrix instead of weakening `NonAzure`. `Portable` remains a one-release input alias for `NonAzure`; do not emit it as a canonical lane. `Relational` remains a one-release input alias for the default NonAzure `PostgreSqlJsonb` read model. `MongoDb` is the explicit document-database alternative.
+Keep `Sql` search and `None` AI as defaults unless that lane provisions and validates the optional provider. `NonAzure` means zero Azure runtime dependencies: reject Azure App Configuration, Key Vault, Azure Data Protection key encryption, and every Azure-owned provider even when supplied through environment variables. A project that intentionally mixes provider families must declare a separately named lane and its compatibility matrix instead of weakening `NonAzure`. `PostgreSqlJsonb` is the default NonAzure read model; `MongoDb` is the explicit document-database alternative.
 
 ## Statelessness and Stateful Exceptions
 

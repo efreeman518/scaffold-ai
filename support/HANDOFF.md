@@ -1,11 +1,11 @@
 # HANDOFF.md
 
-Create this file in the **target project root** at the end of every phase and each Phase 5 sub-phase session. The next AI session loads `START-AI.md` + this file only - nothing else - and resumes from `currentPhase` / `currentSubPhase`.
+Create this file in the **target project root** at the end of every phase and each Phase 5 sub-phase session. The next AI session loads `START-AI.md`, the Git Checkpoint Protocol in `support/OPERATIONS.md` and this file - nothing else - and resumes from `currentPhase` / `currentSubPhase`.
 
 ```yaml
 workflowStatus: active      # active | complete - router checks this before phase fields
 currentPhase: ""           # next phase to run: 1 | 2 | 3 | 4 | 5
-currentSubPhase: ""        # 5a | 5b | 5c | 5d | 5e | complete (blank before Phase 5)
+currentSubPhase: ""        # 5a | 5b | 5c | 5d | 5e | final-validation | complete (blank before Phase 5)
 scaffoldMode: ""           # full | lite | api-only - drives load-set sizing (see ai/SKILL.md section Load-Set Sizing)
 testingProfile: ""         # minimal | balanced | comprehensive
 contractsScaffolded: false # set true after Phase 4 completes
@@ -36,6 +36,8 @@ hostGates:                 # Phase 5c per-host status: not-started | scaffolded 
   blazorUI: not-started
   reactUI: not-started
   notifications: not-started
+scaffoldBranch: ""         # scaffold/<project>: every phase session works on it (support/OPERATIONS.md Git Checkpoint Protocol)
+reviewBase: ""             # set by a code phase at its start, cleared after its review; the review diffs reviewBase..HEAD
 resumeCommand: ""          # exact prompt to paste at the next session start
 toolingNotes: ""           # CLIs/MCPs discovered in Phase 3; note any missing or unavailable
 instructionGapsPath: ".scaffold/INSTRUCTION-GAPS.md"
@@ -43,7 +45,7 @@ instructionGapsPath: ".scaffold/INSTRUCTION-GAPS.md"
 
 ## Production Deployment TODOs
 
-Populated by the **final enabled Phase 5 sub-phase session** as the first section a developer reads; leave as `<not yet at final sub-phase>` until then. The scaffold is complete and runnable locally (stubs/emulators), but it is **not deployable** until every item here is done. Derive the list from [final-scaffold-checklist.md](final-scaffold-checklist.md) section Post-Scaffold Deployment Handoff and the Deferred External Dependencies table below; typical entries:
+Populated by the **Final Scaffold Validation session** as the first section a developer reads; leave as `<not yet at final validation>` until then. The scaffold is complete and runnable locally (stubs/emulators), but it is **not deployable** until every item here is done. Derive the list from [final-scaffold-checklist.md](final-scaffold-checklist.md) section Post-Scaffold Deployment Handoff and the Deferred External Dependencies table below; typical entries:
 
 - [ ] Provision live Azure infrastructure (hand-written Bicep deploy or `azd provision` - see `skills/iac.md`)
 - [ ] Set CI/CD secrets, variables, and environments; enable `push` triggers on `cd.yml`/`provision.yml` (currently `workflow_dispatch`-only)
@@ -69,6 +71,7 @@ Three to five lines for the next agent resuming cold: what this session actually
 Load only these files next session (do not load anything else until this list is confirmed):
 
 - `START-AI.md`
+- `support/OPERATIONS.md` section Git Checkpoint Protocol
 - `HANDOFF.md`
 - <none>
 
@@ -104,7 +107,7 @@ Out of scope for this session - do not attempt unless explicitly re-scoped:
 ## Notes
 
 - Keep `domain-specification.yaml`, `resource-implementation.yaml`, `UBIQUITOUS-LANGUAGE.md`, and `DESIGN-DECISIONS.md` under `.scaffold/` in the target project. `HANDOFF.md` itself stays at project root.
-- Keep `workflowStatus: active` while scaffold work remains. After final acceptance, set `workflowStatus: complete`, `currentPhase: 5`, and `currentSubPhase: complete`; subsequent sessions use ordinary repository maintenance instead of the phase router.
+- Keep `workflowStatus: active` while scaffold work remains. The final enabled sub-phase's gate commit sets `currentSubPhase: final-validation`. After final acceptance, set `workflowStatus: complete`, `currentPhase: 5`, and `currentSubPhase: complete`; subsequent sessions use ordinary repository maintenance instead of the phase router.
 - `currentPhase` and `currentSubPhase` always describe the next work to run, not the phase just completed. Record completed gate evidence in `Completed` and `Validation` per [execution-gates.md](execution-gates.md) section Verification Evidence Rule (observed output only, never anticipated).
 - At Phase 1 close, summarize unresolved/deferred design decisions and confirm they do not block Phase 2.
 - Keep `enabledFeatures` flags in sync with `.scaffold/resource-implementation.yaml` canonical hosting/IaC/AI toggles.
@@ -187,7 +190,7 @@ For each enabled optional host, record its individual gate result. Use `validate
 
 ## Scaffold Acceptance
 
-Filled out at the end of the final enabled Phase 5 sub-phase, before closing the scaffold. Records evidence for [final-scaffold-checklist.md](final-scaffold-checklist.md); it does not redefine the criteria.
+Filled out in the Final Scaffold Validation session, before closing the scaffold. Records evidence for [final-scaffold-checklist.md](final-scaffold-checklist.md); it does not redefine the criteria.
 
 | Gate | Command | Result | Notes |
 |------|---------|--------|-------|

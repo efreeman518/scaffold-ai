@@ -15,8 +15,8 @@ All instruction files (skills, templates, support docs, schemas, scripts) live u
 ## Bootstrap
 
 1. Read `.instructions/START-AI.md` - it is the canonical bootstrap - and follow its Session Start Router precisely.
-2. Check for `HANDOFF.md` in the project root (not inside `.instructions/`).
-   - If present: read `workflowStatus` first. `complete` exits the scaffold workflow into ordinary maintenance; `active` resumes from `currentPhase` / `currentSubPhase`. For a legacy file without the field, follow the fallback in `START-AI.md`.
+2. Run the start steps of `.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol, then check for `HANDOFF.md` in the project root (not inside `.instructions/`).
+   - If present: read `workflowStatus` first. `complete` exits the scaffold workflow into ordinary maintenance; `active` resumes from `currentPhase` / `currentSubPhase`.
    - If absent: new project - run the Phase Router.
 3. Load only the files listed for the current phase in the Phase Router. For Phase 5, use the Phase 5 file table in `.instructions/ai/SKILL.md`.
 
@@ -24,8 +24,9 @@ All instruction files (skills, templates, support docs, schemas, scripts) live u
 
 - Generate only inside the project root: production code in `src/`, test code in sibling `tests/`, and solution/config files at root. Never modify files under `.instructions/`; record instruction gaps in `.scaffold/INSTRUCTION-GAPS.md` (create `.scaffold/` at project root if absent).
 - One phase per session. Do not skip or combine phases.
-- Checkpoint after 15+ generated files or 3+ build/fix cycles - update `HANDOFF.md` (project root).
-- After each phase gate passes, update `HANDOFF.md` and stop.
+- Git: `.instructions/support/OPERATIONS.md` section Git Checkpoint Protocol - branch first, commit at every gate.
+- Checkpoint after 15+ generated files or 3+ build/fix cycles - update `HANDOFF.md` (project root), then commit.
+- After each phase gate passes, update `HANDOFF.md`, commit, then review (code phases) and push per that protocol, and stop.
 - Conflict precedence: see `.instructions/ai/SKILL.md` section Non-Negotiables (canonical).
 - Session model and load rules: see `.instructions/START-AI.md` section Session Model. TaskFlow reference-app rules: see `.instructions/support/reference-app.md`.
 

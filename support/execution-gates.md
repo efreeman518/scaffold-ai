@@ -557,7 +557,7 @@ dotnet build .\{SolutionName}.slnx -m:1
 dotnet test --solution .\{SolutionName}.slnx --no-build --max-parallel-test-modules 1
 ```
 
-Plus a manual walk-through of [final-scaffold-checklist.md](final-scaffold-checklist.md) covering: solution structure shape, no-op stub coverage, host startup smoke checks, and HANDOFF.md completeness.
+The scaffold branch's PR also needs a manual walk-through of [final-scaffold-checklist.md](final-scaffold-checklist.md), in the Final Scaffold Validation session (a slice PR skips it), covering: solution structure shape, no-op stub coverage, host startup smoke checks, and HANDOFF.md completeness.
 
 If IaC is part of scope, run the IaC commands in section 5d - Quality Gates + Delivery for each declared deployment target.
 
@@ -582,4 +582,4 @@ See [OPERATIONS.md](OPERATIONS.md) section Mid-Session Rollback Protocol.
 
 ## Post-Scaffold Smoke Test
 
-After all enabled Phase 5 sub-phases, load [final-scaffold-checklist.md](final-scaffold-checklist.md), run its Required Commands and API Smoke, complete every applicable criterion, and record results in `HANDOFF.md` section Scaffold Acceptance. This file remains the owner for per-sub-phase gates, compiler-warning policy, and vulnerability-audit policy; the final checklist composes them without a second command copy here.
+In the Final Scaffold Validation session (`currentSubPhase: final-validation`), load [final-scaffold-checklist.md](final-scaffold-checklist.md), run its Required Commands and API Smoke, complete every applicable criterion, and record results in `HANDOFF.md` section Scaffold Acceptance. This file remains the owner for per-sub-phase gates, compiler-warning policy, and vulnerability-audit policy; the final checklist composes them without a second command copy here.

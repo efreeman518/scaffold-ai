@@ -1,6 +1,6 @@
 # Final Scaffold Checklist
 
-Load this file after the final enabled Phase 5 sub-phase. It converts "the scaffold seems done" into objective checks.
+Load this file in the Final Scaffold Validation session (`currentSubPhase: final-validation`), after the final enabled Phase 5 sub-phase. It converts "the scaffold seems done" into objective checks.
 
 This is not production-readiness. It verifies that the generated app is a consistent, runnable scaffold.
 
@@ -116,6 +116,7 @@ Get-ChildItem src, tests -Recurse -Filter *.cs |
 - [ ] `.scaffold/UBIQUITOUS-LANGUAGE.md` and `.scaffold/DESIGN-DECISIONS.md` still match the generated entity, service, and endpoint names. Mechanical check: `python {instructionsRoot}/scripts/check-artifact-drift.py --root .` reports no drift (advisory - review each finding against GR-01: fix the artifact first, then code).
 - [ ] If `.scaffold/ontology/` exists, `python {instructionsRoot}/scripts/generate-ontology.py --root . --check` exits 0 (the projection was regenerated after the last spec change and never hand-edited).
 - [ ] Generated solution shape matches `skills/solution-structure.md` (no missing project, no orphan no-op stub).
+- [ ] The Git Checkpoint Protocol's completion check passes (no `review pending` blocker, no open PR against the scaffold branch, no unmerged slice branch) before the terminal state is set.
 - [ ] `HANDOFF.md` terminal state is current: final acceptance sets `workflowStatus: complete`, `currentPhase: 5`, and `currentSubPhase: complete`; gate results, blockers, and deployment-only residuals remain recorded.
 - [ ] `.scaffold/implementation-plan.md` open questions resolved or explicitly deferred with TODO.
 - [ ] Every enabled host has a recorded status in `HANDOFF.md`: `validated`, `partially-validated`, or `blocked` with reason.
@@ -151,7 +152,7 @@ Get-ChildItem src, tests -Recurse -Filter *.cs |
   - **Ignore files:** `.gitignore`, `.dockerignore`, `.editorconfig`, `.gitattributes`
   - **Dirs:** `src/`, `tests/`, `infra/` (when IaC enabled), `docs/` (optional - when `docs/tech-design.html` is generated, diagrams follow [tech-design-diagrams.md](tech-design-diagrams.md)), `.azure/` (optional), `.github/`, `.instructions/`, `.scaffold/`, `.vscode/` (optional), `.claude/` (optional), `.tmp/` (optional, gitignored agent scratch)
   - All Phase 1/2/3 generated artifacts (`domain-specification.yaml`, `resource-implementation.yaml`, `UBIQUITOUS-LANGUAGE.md`, `DESIGN-DECISIONS.md`, `implementation-plan.md`, `INSTRUCTION-GAPS.md`) and the generated `ontology/` folder when opted in live under `.scaffold/`, not at root.
-  - No tool output folders left at the repo root: `TestResults/` (after `dotnet test`), and - when the profile includes them - `BenchmarkDotNet.Artifacts/` (comprehensive only) and `.graphify_detect.json` (only if graphify was initialized). Test results land in `tests/TestResults/` only; benchmark and mutation output land under their owning project. If one appears at root or in a per-project `TestResults/`, the output path is not pinned - see [../skills/testing-quality.md](../skills/testing-quality.md) section Deterministic Test Output Location.
+  - No tool output folders left at the repo root: `TestResults/` (after `dotnet test`), and - when the profile includes them - `BenchmarkDotNet.Artifacts/` (comprehensive only) and `.graphify_detect.json` (only if graphify was initialized). Test results land under `tests/TestResults/` only (`<project>/`, or `<suite>/` for subset scripts); benchmark and mutation output land under their owning project. If one appears at root or in a project folder's own `TestResults/`, the output path is not pinned - see [../skills/testing-quality.md](../skills/testing-quality.md) section Deterministic Test Output Location.
   - Agent scratch is confined to `.tmp/` (gitignored), and `git worktree list` shows no `.tmp/worktrees/` entry whose work is already merged - see [multi-agent.md](multi-agent.md) section Agent Scratch.
   - Anything else at root (`FOLLOWUP-PLAN.md`, `*.log`, `*.tmp`, ad-hoc notes) is leakage - investigate before declaring the scaffold complete. `FOLLOWUP-PLAN.md` is not a recognized scaffold artifact; if present, ask the developer where it came from.
 
@@ -162,7 +163,7 @@ Get-ChildItem src, tests -Recurse -Filter *.cs |
 The installer writes the scaffold-routing block into `AGENTS.md` and
 `.github/copilot-instructions.md` inside `<!-- ai-scaffold: start --> ... <!-- ai-scaffold: end -->`
 markers; `CLAUDE.md`'s marked block is a single `@AGENTS.md` import, so Claude Code
-reads whatever `AGENTS.md` says. At the final enabled Phase 5 sub-phase, give these
+reads whatever `AGENTS.md` says. In the Final Scaffold Validation session, give these
 always-loaded files a steady-state shape so ordinary post-scaffold sessions are not
 taxed with one-time bootstrap routing.
 
@@ -191,7 +192,7 @@ safe there.
 
 ## Post-Scaffold Deployment Handoff
 
-Scaffold completion is local-complete per **GR-11**; deployment is a separate, human-triggered track. At the final enabled Phase 5 sub-phase, copy the applicable items below into the **Production Deployment TODOs** section at the top of `HANDOFF.md` (see [HANDOFF.md](HANDOFF.md)) so the remaining work is the first thing a developer reads. When the team is ready to go live:
+Scaffold completion is local-complete per **GR-11**; deployment is a separate, human-triggered track. In the Final Scaffold Validation session, copy the applicable items below into the **Production Deployment TODOs** section at the top of `HANDOFF.md` (see [HANDOFF.md](HANDOFF.md)) so the remaining work is the first thing a developer reads. When the team is ready to go live:
 
 - **Provision live infrastructure per IaC** - [../skills/iac.md](../skills/iac.md) section Deployment, plus the manual items in section One-time, account-bound steps (resource group, federated credentials, registry wiring).
 - **Configure CI/CD** - [../skills/cicd.md](../skills/cicd.md) section Required Secrets, plus the Required Variables and Environments sections in the same file.

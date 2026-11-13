@@ -16,9 +16,9 @@ Run once per machine/repo before beginning any scaffolding phase.
 
 ### Development Tools
 
-- [ ] Git repo initialized with `.gitignore` for .NET, **patched** for this scaffold's `src/Packages/` source folder and `tests/Test.E2E/` project (see [../skills/solution-structure.md](../skills/solution-structure.md) section Required Root Files (Cross-Platform Hygiene))
+- [ ] Git: a GitHub repository to use as `origin` and an authenticated `gh` (`gh auth status`); the Git Checkpoint Protocol ([OPERATIONS.md](OPERATIONS.md)) initializes the local repository and commits the payload; Phase 4 writes the .NET `.gitignore`, **patched** for this scaffold's `src/Packages/` source folder and `tests/Test.E2E/` project (see [../skills/solution-structure.md](../skills/solution-structure.md) section Required Root Files (Cross-Platform Hygiene))
 - [ ] Current machine- or user-global Python 3 installed for scaffold helper scripts. Verify from a fresh shell per [python-setup.md](python-setup.md); do not rely on a repo `.venv` as the machine launcher.
-- [ ] Tracked-source validation runs after `git add .` - see [Tracked-Source Validation](#tracked-source-validation) below.
+- [ ] Tracked-source validation runs after staging - see [Tracked-Source Validation](#tracked-source-validation) below.
 - [ ] `.NET SDK` installed (`dotnet --version`)
 - [ ] A Docker-compatible container runtime running *(if Aspire/Testcontainers tiers use SQL/Redis/Service Bus/Azurite containers)* - any of Docker Desktop, WSL Docker Engine, Rancher Desktop, or a Podman-compatible Docker socket. Verify by **capability, not product**: `docker version`, `docker info`, and `docker run --rm hello-world` all succeed. For the Aspire mesh resource floor (CPU/RAM/swap) and WSL `.wslconfig` settings, see [troubleshooting.md](troubleshooting.md) -> Docker / Container Runtime.
 - [ ] For `packageStrategy: feed`/`hybrid`, repo-root `nuget.config` includes `nuget.org` + all custom/private feeds (see Private Feed Auth below); for `local`, the file may be absent
@@ -36,7 +36,7 @@ Run once per machine/repo before beginning any scaffolding phase.
 
 ### Tracked-Source Validation
 
-Post-generation check: every `.csproj` under `src/` must be tracked by git. Run after `git add .`:
+Post-generation check: every `.csproj` under `src/` must be tracked by git. Run after staging:
 
 ```powershell
 $expected = Get-ChildItem -Recurse -Filter *.csproj src/ | ForEach-Object { (Resolve-Path $_.FullName).Path }

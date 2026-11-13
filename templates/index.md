@@ -14,6 +14,7 @@ Quick lookup: "I need to scaffold X" -> load these files.
 
 | Artifact | Template | Required Skill |
 |---|---|---|
+| Add-entity request (GitHub issue form) | `add-entity-issue-template.md` | `support/vertical-slice-checklist.md` |
 | Entity class | `entity-template.md` | `skills/domain-model.md` |
 | EF configuration | `ef-configuration-template.md` | `skills/data-persistence.md` |
 | Repository (read/write) | `repository-template.md` | `skills/data-persistence.md` |

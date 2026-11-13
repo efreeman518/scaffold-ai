@@ -102,13 +102,10 @@ CONDITIONAL_EVIDENCE: tuple[
     (
         (
             {"hostingLanes": ["Azure", "NonAzure"]},
-            {"hostingLanes": ["Azure", "Portable"]},
         ),
         (
             ("src/Shared/TaskFlow.Hosting/HostingLane.cs", 'LaneEnvironmentVariable = "TASKFLOW_LANE"'),
-            ("src/Shared/TaskFlow.Hosting/HostingLane.cs", 'normalized.Equals("Portable"'),
             ("src/Shared/TaskFlow.Hosting/HostingLane.cs", '"PostgreSqlJsonb", "MongoDb"'),
-            ("src/Shared/TaskFlow.Hosting/HostingLane.cs", 'value.Equals("Relational"'),
             ("src/Shared/TaskFlow.Hosting/HostingLane.cs", 'azure ? ["SqlServer"] : ["PostgreSql"]'),
             ("src/Shared/TaskFlow.Hosting/HostingLane.cs", 'azure ? ["Sql", "AzureAiSearch"] : ["Sql", "PgVector"]'),
             ("tests/Test.Unit/Hosting/HostingLaneContractTests.cs", "Resolve_Unset_ReturnsExactNonAzureProfile"),
@@ -299,29 +296,23 @@ def _strict_lane_errors(resource: dict) -> list[str]:
     defaults = resource.get("hostingLaneDefaults")
     deploy_targets = resource.get("deployTargets")
     errors: list[str] = []
-    for declared_lane in lanes:
-        lane = "NonAzure" if declared_lane == "Portable" else declared_lane
-        default_key = (
-            lane
-            if isinstance(defaults, dict) and lane in defaults
-            else declared_lane
-        )
-        if not isinstance(defaults, dict) or not isinstance(defaults.get(default_key), dict):
-            errors.append(f"lane {declared_lane}: hostingLaneDefaults.{default_key} is required")
+    for lane in lanes:
+        if not isinstance(defaults, dict) or not isinstance(defaults.get(lane), dict):
+            errors.append(f"lane {lane}: hostingLaneDefaults.{lane} is required")
             continue
-        actual = defaults[default_key]
+        actual = defaults[lane]
         expected = STRICT_LANE_DEFAULTS.get(lane)
         if expected is None:
             deployment_target = actual.get("deploymentTarget")
             if isinstance(deploy_targets, list) and deployment_target not in deploy_targets:
                 errors.append(
-                    f"lane {declared_lane}: deploymentTarget {deployment_target!r} must appear in deployTargets"
+                    f"lane {lane}: deploymentTarget {deployment_target!r} must appear in deployTargets"
                 )
             continue
         for key, expected_value in expected.items():
             if actual.get(key) != expected_value:
                 errors.append(
-                    f"strict lane {lane}: hostingLaneDefaults.{default_key}.{key} must be {expected_value!r}"
+                    f"strict lane {lane}: hostingLaneDefaults.{lane}.{key} must be {expected_value!r}"
                 )
         deployment_target = actual.get("deploymentTarget")
         if isinstance(deploy_targets, list) and deployment_target not in deploy_targets:

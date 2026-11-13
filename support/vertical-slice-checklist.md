@@ -12,12 +12,15 @@ Use this when adding a new entity to an **already-scaffolded** solution. Skip fu
 
 ### Pre-Flight
 
+- [ ] Start or resume the slice branch first ([OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol); commit at the gate, then review and open the PR per that protocol
+- [ ] When the slice comes from an add-entity issue ([../templates/add-entity-issue-template.md](../templates/add-entity-issue-template.md)), take its fields as the answers below and ask only what it leaves open (an internal child with no owning root is open)
 - [ ] Solution builds clean: `dotnet build`
 - [ ] Identify existing: `RegisterServices.cs`, `{App}DbContextTrxn`, `{App}DbContextQuery`, `WebApplicationBuilderExtensions.cs`
 - [ ] Confirm `scaffoldMode` and `testingProfile` from `.scaffold/resource-implementation.yaml`
 - [ ] If this slice introduces a new domain term, role, event, custom action, or design decision, append it to `.scaffold/UBIQUITOUS-LANGUAGE.md` / `.scaffold/DESIGN-DECISIONS.md` and update `.scaffold/domain-specification.yaml` **before** generating code (see [../README.md](../README.md) section Phase-1 Artifact Lifecycle)
 - [ ] Scan `.scaffold/*` for `[OPEN QUESTION: ...]` markers (**GR-10**) within the slice's entity scope; halt the slice if any blocking marker remains, or downgrade to a non-blocking deferred decision before generation
 - [ ] Inspect existing neighboring slices before asking questions. If the code answers naming, folder placement, route shape, or DI pattern, follow the code and record only assumptions that affect generated artifacts.
+- [ ] Use the solution's existing shared mechanisms (such as locking, idempotency keys, the outbound-call protocol, failure classification, handler outcome types, the sweep runner, notification or audit path, cache invalidation, access enforcement, the page state and refresh rule), extending one where it falls short or consolidating where two or more exist. Before generating the slice's feature code, record any extend, consolidation (why, every implementation it retires, the callers it moves; the retired ones are deleted) or new mechanism, and any reuse no `.scaffold/` artifact or prescribing skill names, as a marked `.scaffold/DESIGN-DECISIONS.md` decision (vendored `engineering-criteria` One mechanism per job).
 - [ ] For each assumption, record evidence, risk if wrong, confidence, and outcome in `.scaffold/DESIGN-DECISIONS.md` section Assumptions.
 - [ ] Trace the slice before generation: accepted language term -> `domain-specification.yaml` entity/action/rule -> `resource-implementation.yaml` store/host/dependency -> test category.
 - [ ] State the slice's acceptance checks before generation: 3-5 observable outcomes (endpoint behavior, rule enforcement, event emission) the tracer test and expanded tests must prove. Record non-obvious behavior as a `domainRules` entry or decision record first; never generate from a bare entity name.
@@ -252,7 +255,7 @@ Skill: [ui-react.md](../skills/ui-react.md).
 
 ## Post-Generation Verification
 
-Optional but recommended for non-trivial slices: run an independent review in a fresh session using [prompt-catalog.md](prompt-catalog.md) section Slice Review (Optional Second Session).
+Review, then push, the slice per [OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol: `independent-review` when the ecosystem skills are installed, with `scaffold-reviewer` as its ground-rule lens, else `scaffold-reviewer` alone. A harness with neither runs [prompt-catalog.md](prompt-catalog.md) section Fresh-Session Review.
 
 ### DI and Routing
 

@@ -57,6 +57,7 @@ reference_validator = load_module("reference_validator", REPO_ROOT / "scripts" /
 goldenpath = load_module("goldenpath", REPO_ROOT / "tests" / "golden-path" / "run-golden-path.py")
 ontology = load_module("ontology", REPO_ROOT / "scripts" / "generate-ontology.py")
 clean_tmp = load_module("clean_tmp", REPO_ROOT / "scripts" / "clean-tmp.py")
+find_branch = load_module("find_branch", REPO_ROOT / "scripts" / "find-scaffold-branch.py")
 
 
 class InstallerTests(unittest.TestCase):
@@ -433,10 +434,24 @@ class WorkflowStateContractTests(unittest.TestCase):
     def test_router_checks_workflow_status_before_phase_fields(self):
         router = (REPO_ROOT / "START-AI.md").read_text(encoding="utf-8")
         status_index = router.index("Read workflowStatus first")
-        phase_index = router.index("Resume from currentPhase/currentSubPhase")
+        phase_index = router.index("resume currentPhase/currentSubPhase")
         self.assertLess(status_index, phase_index)
         self.assertIn("complete -> Scaffold workflow is terminal", router)
         self.assertIn("ordinary repository maintenance", router)
+
+    def test_final_validation_is_a_resumable_state(self):
+        # The final sub-phase hands off to a separate Final Scaffold Validation session, so HANDOFF.md
+        # needs a value an ordinary resume routes to the final checklist.
+        handoff = (REPO_ROOT / "support" / "HANDOFF.md").read_text(encoding="utf-8")
+        self.assertIn("| final-validation | complete", handoff)
+        self.assertIn("sets `currentSubPhase: final-validation`", (REPO_ROOT / "ai" / "SKILL.md").read_text(encoding="utf-8"))
+        router = (REPO_ROOT / "START-AI.md").read_text(encoding="utf-8")
+        self.assertRegex(router, r"`currentSubPhase: final-validation` loads only `support/final-scaffold-checklist\.md`")
+        # The checklist runs in that session alone, never inside the final sub-phase.
+        for rel in ("ai/SKILL.md", "support/HANDOFF.md", "support/execution-gates.md", "support/golden-path-sample.md"):
+            self.assertNotRegex((REPO_ROOT / rel).read_text(encoding="utf-8"), r"(final|all) enabled Phase 5 sub-phase", rel)
+        checklist = (REPO_ROOT / "support" / "final-scaffold-checklist.md").read_text(encoding="utf-8")
+        self.assertNotIn("At the final enabled Phase 5 sub-phase", checklist)
 
     def test_golden_path_fixture_starts_active(self):
         self.assertIn("workflowStatus: active", goldenpath.HANDOFF_FIXTURE)
@@ -510,11 +525,6 @@ class ReferenceValidatorTests(unittest.TestCase):
         )
         self.assertTrue(any("src/Shared/TaskFlow.Hosting/HostingLane.cs" in error for error in errors))
         self.assertTrue(any("AppHostLaneTopologyTests.cs" in error for error in errors))
-        # The one-release Portable alias retains the same proof obligation.
-        alias_errors = reference_validator.check_declared_evidence(
-            self.tmp, {"hostingLanes": ["Portable", "Azure"]}
-        )
-        self.assertTrue(any("src/Shared/TaskFlow.Hosting/HostingLane.cs" in error for error in alias_errors))
         # Declared-config self-consistency is retained.
         errors = reference_validator.check_declared_evidence(
             self.tmp, {"includeNotifications": False, "notifications": [{"name": "x"}]}
@@ -546,15 +556,6 @@ class ReferenceValidatorTests(unittest.TestCase):
         self.assertTrue(any("NonAzure.storageProvider must be 'S3'" in error for error in errors))
         self.assertTrue(any("NonAzure.deploymentTarget must be 'DockerCompose'" in error for error in errors))
 
-        portable = {
-            "hostingLanes": ["Portable"],
-            "deployTargets": ["DockerCompose"],
-            "hostingLaneDefaults": {
-                "Portable": reference_validator.STRICT_LANE_DEFAULTS["NonAzure"],
-            },
-        }
-        self.assertEqual(reference_validator.check_declared_evidence(self.tmp, portable), [])
-
         custom_missing_defaults = {
             "hostingLanes": ["PrivateCloud"],
             "deployTargets": ["Kubernetes"],
@@ -562,6 +563,15 @@ class ReferenceValidatorTests(unittest.TestCase):
         }
         errors = reference_validator.check_declared_evidence(self.tmp, custom_missing_defaults)
         self.assertTrue(any("hostingLaneDefaults.PrivateCloud is required" in error for error in errors))
+
+        custom_wrong_target = {
+            "hostingLanes": ["PrivateCloud"],
+            "deployTargets": ["DockerCompose"],
+            "hostingLaneDefaults": {"PrivateCloud": {"deploymentTarget": "Kubernetes"}},
+        }
+        errors = reference_validator.check_declared_evidence(self.tmp, custom_wrong_target)
+        self.assertTrue(any("lane PrivateCloud: deploymentTarget 'Kubernetes' must appear in deployTargets" in error
+                            for error in errors))
 
         lane_tests = self.tmp / "tests" / "Test.Unit" / "Hosting" / "HostingLaneContractTests.cs"
         lane_tests.write_text(
@@ -590,7 +600,7 @@ class ReferenceValidatorTests(unittest.TestCase):
         self.assertEqual(reference_validator.check_declared_evidence(self.tmp, {}), [])
 
     @unittest.skipUnless(importlib.util.find_spec("jsonschema"), "jsonschema not installed")
-    def test_read_model_schema_accepts_canonical_providers_and_deprecated_alias(self):
+    def test_read_model_schema_accepts_only_canonical_providers(self):
         import jsonschema
 
         schema = json.loads(
@@ -599,11 +609,14 @@ class ReferenceValidatorTests(unittest.TestCase):
         provider_schema = schema["properties"]["readModelProviders"]["items"]
         lane_default_schema = schema["$defs"]["hostingLaneDefault"]["properties"]["readModelProvider"]
 
-        for provider in ("Cosmos", "PostgreSqlJsonb", "MongoDb", "Relational"):
+        for provider in ("Cosmos", "PostgreSqlJsonb", "MongoDb"):
             jsonschema.validate(provider, provider_schema)
             jsonschema.validate(provider, lane_default_schema)
-        with self.assertRaises(jsonschema.ValidationError):
-            jsonschema.validate("UnknownDocumentStore", provider_schema)
+        for provider in ("Relational", "UnknownDocumentStore"):
+            with self.assertRaises(jsonschema.ValidationError):
+                jsonschema.validate(provider, provider_schema)
+            with self.assertRaises(jsonschema.ValidationError):
+                jsonschema.validate(provider, lane_default_schema)
 
     @unittest.skipUnless(importlib.util.find_spec("jsonschema"), "jsonschema not installed")
     def test_resource_schema_types_extensible_dependency_modes_and_strict_lanes(self):
@@ -1495,6 +1508,192 @@ class CleanTmpTests(unittest.TestCase):
 WORKBOARD_SPEC_HEADING = "### `.scaffold/domain-specification.yaml`"
 
 
+class FindScaffoldBranchTests(unittest.TestCase):
+    """Live-branch classification of the Git Checkpoint Protocol, start step 2."""
+
+    REPO = "acme/app"
+
+    @staticmethod
+    def pr(state: str, created: str = "2026-01-01T00:00:00Z", fork: bool = False, oid: str = "abc",
+           base: str = "main") -> dict:
+        return {"state": state, "createdAt": created, "isCrossRepository": fork, "headRefOid": oid, "baseRefName": base}
+
+    def runner(self, prs: dict, url: str = "https://github.com/acme/app.git", refs: list[str] | None = None,
+               failures: dict | None = None, ahead: str = "0"):
+        # prs maps a branch name to its PR list; failures maps a command prefix to a queue of
+        # (returncode, stderr) results returned before that command succeeds.
+        refs = refs if refs is not None else [f"refs/heads/{n}" for n in prs]
+        failures = failures or {}
+        calls: list[list[str]] = []
+
+        def run(cmd: list[str]) -> subprocess.CompletedProcess:
+            calls.append(cmd)
+            for prefix, queue in failures.items():
+                if " ".join(cmd).startswith(prefix) and queue:
+                    code, err = queue.pop(0)
+                    return subprocess.CompletedProcess(cmd, code, "", err)
+            if cmd[:3] == ["git", "remote", "get-url"]:
+                return subprocess.CompletedProcess(cmd, 0 if url else 2, url + "\n", "" if url else "error: No such remote 'origin'")
+            if cmd[:2] == ["git", "fetch"]:
+                self.assertEqual(cmd[4:], [find_branch.SCAFFOLD_REFSPEC, "+refs/heads/main:refs/remotes/origin/main"])
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+            if cmd[:3] == ["gh", "repo", "view"]:
+                self.assertEqual(cmd[3], self.REPO)
+                return subprocess.CompletedProcess(cmd, 0, "main\n", "")
+            if cmd[:2] == ["git", "for-each-ref"]:
+                return subprocess.CompletedProcess(cmd, 0, "\n".join(refs), "")
+            if cmd[:3] == ["gh", "pr", "list"]:
+                self.assertEqual(cmd[cmd.index("--repo") + 1], self.REPO)
+                return subprocess.CompletedProcess(cmd, 0, json.dumps(prs[cmd[cmd.index("--head") + 1]]), "")
+            if cmd[:3] == ["git", "rev-list", "--count"]:
+                return subprocess.CompletedProcess(cmd, 0, ahead + "\n", "")
+            raise AssertionError(cmd)
+
+        return run, calls
+
+    def find(self, *args, **kwargs):
+        run, calls = self.runner(*args, **kwargs)
+        return find_branch.find(run, sleep=lambda _s: None), calls
+
+    @staticmethod
+    def count(calls, prefix):
+        return sum(1 for c in calls if c[:len(prefix)] == prefix)
+
+    def test_classification(self):
+        self.assertEqual(self.find({"scaffold/app": []})[0]["branch"], "scaffold/app")
+        self.assertEqual(self.find({"scaffold/app": [self.pr("OPEN")]})[0]["result"], "live")
+        merged = self.find({"scaffold/app": [self.pr("MERGED", oid="f00")]})[0]
+        self.assertEqual((merged["result"], merged["merged"]), ("none", [{"name": "scaffold/app", "headRefOid": "f00"}]))
+        self.assertEqual(self.find({"scaffold/app": [self.pr("CLOSED")]})[0]["result"], "ask")
+        both = self.find({"scaffold/a": [self.pr("OPEN")], "scaffold/b": []})[0]
+        self.assertEqual(both["result"], "ask")
+        self.assertIn("more than one", both["reason"])
+        mixed = self.find({"scaffold/old": [self.pr("MERGED")], "scaffold/new": [self.pr("OPEN")]})[0]
+        self.assertEqual((mixed["branch"], [m["name"] for m in mixed["merged"]]), ("scaffold/new", ["scaffold/old"]))
+        self.assertEqual(self.find({})[0]["result"], "none")
+
+    def test_newest_own_pr_decides(self):
+        # A newer PR reopened from a merged branch makes it live; a fork PR with the same head name is ignored.
+        reopened = [self.pr("MERGED", "2026-01-01T00:00:00Z"), self.pr("OPEN", "2026-02-01T00:00:00Z")]
+        self.assertEqual(self.find({"scaffold/app": reopened})[0]["result"], "live")
+        fork = [self.pr("OPEN", "2026-01-01T00:00:00Z"), self.pr("MERGED", "2026-03-01T00:00:00Z", fork=True)]
+        self.assertEqual(self.find({"scaffold/app": fork})[0]["result"], "live")
+        # An older PR reopened after a newer one closed: any open PR means live.
+        reopened_older = [self.pr("OPEN", "2026-01-01T00:00:00Z"), self.pr("CLOSED", "2026-02-01T00:00:00Z")]
+        self.assertEqual(self.find({"scaffold/app": reopened_older})[0]["result"], "live")
+
+    def test_deciding_pr_into_another_base_asks(self):
+        # e.g. the default branch was renamed after the scaffold PR merged into the old name.
+        outcome = self.find({"scaffold/app": [self.pr("MERGED", base="master")]})[0]
+        self.assertEqual(outcome["result"], "ask")
+        self.assertIn("targets master", outcome["reason"])
+
+    def test_merged_branch_with_later_commits_asks(self):
+        outcome = self.find({"scaffold/app": [self.pr("MERGED")]}, ahead="2")[0]
+        self.assertEqual(outcome["result"], "ask")
+        self.assertIn("commits after its merged PR", outcome["reason"])
+
+    def test_local_and_remote_copies_are_one_name(self):
+        outcome, calls = self.find({"scaffold/app": [self.pr("MERGED")]},
+                                   refs=["refs/heads/scaffold/app", "refs/remotes/origin/scaffold/app"])
+        self.assertEqual(outcome["result"], "none")
+        self.assertEqual(self.count(calls, ["gh", "pr", "list"]), 1)
+        self.assertEqual(self.count(calls, ["git", "rev-list"]), 2)  # both copies checked against the merged head
+        remote_only = self.find({"scaffold/app": [self.pr("OPEN")]}, refs=["refs/remotes/origin/scaffold/app"])[0]
+        self.assertEqual(remote_only["branch"], "scaffold/app")
+
+    def test_origin_must_be_github(self):
+        self.assertIn("No such remote", self.find({"scaffold/app": []}, url="")[0]["reason"])
+        for url in ("https://gitlab.com/acme/app.git", "https://notgithub.com/acme/app.git",
+                    "https://github.com.evil.example/acme/app.git"):
+            self.assertIn("not a GitHub", self.find({"scaffold/app": []}, url=url)[0]["reason"], url)
+        # A rejected URL is never echoed, since its userinfo can hold a token.
+        self.assertNotIn("s3cret", self.find({"scaffold/app": []}, url="https://u:s3cret@gitlab.com/a/b.git")[0]["reason"])
+        for url in ("git@github.com:acme/app.git", "ssh://git@github.com/acme/app.git",
+                    "https://u:s3cret@github.com/acme/app", "https://github.com/acme/app/", "https://GitHub.com/acme/app.git"):
+            self.assertEqual(self.find({"scaffold/app": []}, url=url)[0]["result"], "live", url)
+
+    def test_each_failed_step_asks(self):
+        for prefix, what in (("gh repo view", "gh repo view failed"), ("git for-each-ref", "for-each-ref failed"),
+                             ("git rev-list", "rev-list for refs/heads/scaffold/app")):
+            outcome, _ = self.find({"scaffold/app": [self.pr("MERGED")]}, failures={prefix: [(128, "fatal: bad revision")]})
+            self.assertEqual(outcome["result"], "ask", prefix)
+            self.assertIn(what, outcome["reason"], prefix)
+        for empty in ("", "null"):
+            run, _ = self.runner({"scaffold/app": []})
+            no_default = lambda cmd: (subprocess.CompletedProcess(cmd, 0, empty + "\n", "") if cmd[:3] == ["gh", "repo", "view"] else run(cmd))
+            self.assertIn("no default branch", find_branch.find(no_default, sleep=lambda _s: None)["reason"], empty)
+        leaky = (128, "fatal: unable to access 'https://u:s3cret@github.com/acme/app.git/': Could not resolve host")
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as log:
+            outcome, _ = self.find({"scaffold/app": []}, failures={"git fetch": [leaky] * find_branch.ATTEMPTS})
+        self.assertIn("git fetch failed", outcome["reason"])
+        self.assertNotIn("s3cret", outcome["reason"])
+        self.assertIn("retry 1/", log.getvalue())
+        self.assertNotIn("s3cret", log.getvalue())
+
+    def test_failed_or_unreadable_queries_ask_without_retry(self):
+        for failure in ((1, "HTTP 401: Bad credentials"), (127, "gh not found on PATH"), (1, "HTTP 429: Too Many Requests"),
+                        (1, "API rate limit exceeded (HTTP 403)"), (1, "HTTP 502: Bad Gateway (secondary rate limit)"),
+                        (1, "Could not resolve to a Repository with the name 'acme/api-502'")):
+            outcome, calls = self.find({"scaffold/app": []}, failures={"gh pr list": [failure]})
+            self.assertEqual(outcome["result"], "ask", failure)
+            self.assertEqual(self.count(calls, ["gh", "pr", "list"]), 1, failure)
+        run, _ = self.runner({"scaffold/app": []})
+        garbled = lambda cmd: (subprocess.CompletedProcess(cmd, 0, "<html>", "") if cmd[:3] == ["gh", "pr", "list"] else run(cmd))
+        self.assertIn("unreadable", find_branch.find(garbled, sleep=lambda _s: None)["reason"])
+
+    def test_transient_failures_retry_then_succeed_or_ask(self):
+        ok, calls = self.find({"scaffold/app": [self.pr("OPEN")]}, failures={"git fetch": [(124, "timed out after 120s")]})
+        self.assertEqual(ok["result"], "live")
+        self.assertEqual(self.count(calls, ["git", "fetch"]), 2)
+        down, calls = self.find({"scaffold/app": [self.pr("OPEN")]}, failures={"gh pr list": [(1, "HTTP 503")] * 3})
+        self.assertEqual(down["result"], "ask")
+        self.assertEqual(self.count(calls, ["gh", "pr", "list"]), find_branch.ATTEMPTS)
+        for err in ("HTTP 500: Internal Server Error", "non-200 OK status code: 502 Bad Gateway",
+                    "dial tcp: lookup api.github.com: no such host"):
+            ok, calls = self.find({"scaffold/app": [self.pr("OPEN")]}, failures={"gh repo view": [(1, err)]})
+            self.assertEqual((ok["result"], self.count(calls, ["gh", "repo", "view"])), ("live", 2), err)
+
+    def test_run_turns_missing_tool_into_failure(self):
+        proc = find_branch.run(["scaffold-ai-no-such-tool"])
+        self.assertEqual(proc.returncode, 127)
+
+    def test_kill_tree_tolerates_a_vanished_group(self):
+        for exc in (ProcessLookupError, PermissionError):
+            with mock.patch.object(find_branch.os, "name", "posix"), \
+                    mock.patch.object(find_branch.signal, "SIGKILL", 9, create=True), \
+                    mock.patch.object(find_branch.os, "killpg", side_effect=exc, create=True) as killpg:
+                find_branch.kill_tree(1234)
+            killpg.assert_called_once_with(1234, 9)
+
+    def test_run_interrupt_ends_the_child_and_propagates(self):
+        child = mock.Mock(pid=4321)
+        child.communicate.side_effect = KeyboardInterrupt
+        with mock.patch.object(find_branch.subprocess, "Popen", return_value=child), \
+                mock.patch.object(find_branch, "kill_tree") as kill:
+            with self.assertRaises(KeyboardInterrupt):
+                find_branch.run(["git", "fetch"])
+        kill.assert_called_once_with(4321)
+
+    def test_run_timeout_ends_the_process_tree(self):
+        # The grandchild holds the output pipes, as git-remote-https does under git fetch.
+        script = ("import subprocess, sys, time; "
+                  "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], stdout=1, stderr=2); "
+                  "time.sleep(60)")
+        started = time.monotonic()
+        with mock.patch.object(find_branch, "TIMEOUT_SECONDS", 1):
+            proc = find_branch.run([sys.executable, "-c", script])
+        self.assertEqual(proc.returncode, 124)
+        # Below the 10 s drain bound: only a killed grandchild releases the pipes this fast.
+        self.assertLess(time.monotonic() - started, 8)
+
+    def test_main_exit_codes(self):
+        for outcome, code in (({"result": "live"}, 0), ({"result": "none"}, 0), ({"result": "ask"}, 2)):
+            with mock.patch.object(find_branch, "find", return_value=outcome), \
+                    mock.patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(find_branch.main(), code)
+
+
 @unittest.skipUnless(importlib.util.find_spec("yaml"), "pyyaml not installed")
 class OntologyGeneratorTests(unittest.TestCase):
     """Drive scripts/generate-ontology.py against the WorkBoard fixture plus synthetic mutations."""
@@ -1789,6 +1988,7 @@ class GoldenPathTests(unittest.TestCase):
     def test_gate_phase4_rejects_legacy_layout(self):
         tmp = Path(tempfile.mkdtemp(prefix="tooling-layout-gate-"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        self._skip_git_state()
         solution_xml = (
             '<Solution>\n'
             '  <Project Path="src/Product/Product.csproj" />\n'
@@ -1914,9 +2114,84 @@ class GoldenPathTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("MISSING production tree src/", notes)
 
+    def _skip_git_state(self):
+        # These tests cover the file and build gates; test_git_state_issues covers the git gate.
+        patcher = mock.patch.object(goldenpath, "git_state_issues", return_value=[])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @unittest.skipUnless(shutil.which("git"), "git not installed")
+    def test_git_state_issues(self):
+        tmp = Path(tempfile.mkdtemp(prefix="tooling-git-gate-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        # git_state_issues inherits os.environ, so the isolation must cover it too, not only the setup calls.
+        isolated = mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+        isolated.start()
+        self.addCleanup(isolated.stop)
+
+        def git(*args):
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+                           cwd=str(tmp), check=True, capture_output=True)
+
+        def handoff(branch, quote='"'):
+            (tmp / "HANDOFF.md").write_text(f"scaffoldBranch: {quote}{branch}{quote}  # comment\n", encoding="utf-8")
+
+        def issues():
+            return " ".join(goldenpath.git_state_issues(tmp))
+
+        git("init", "-q", "-b", "main")
+        handoff("")
+        git("add", "-A")
+        git("commit", "-q", "-m", "base")
+        self.assertIn("left on main, not a scaffold/ branch", issues())
+
+        git("switch", "-q", "-c", "scaffold/golden")
+        self.assertIn("scaffoldBranch does not name scaffold/golden", issues())
+        handoff("scaffold/golden")
+        self.assertIn("uncommitted changes", issues())
+        git("commit", "-q", "-am", "phase 3")
+        self.assertEqual(goldenpath.git_state_issues(tmp), [])
+        for quote in ("'", ""):
+            handoff("scaffold/golden", quote)
+            git("commit", "-q", "-am", f"quote {quote!r}")
+            self.assertEqual(goldenpath.git_state_issues(tmp), [])
+
+        git("switch", "-q", "-c", "feature/widget")
+        (tmp / "w.txt").write_text("w\n", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "-m", "slice")
+        git("switch", "-q", "scaffold/golden")
+        self.assertIn("not merged into scaffold/golden: feature/widget", issues())
+        git("merge", "-q", "--ff-only", "feature/widget")
+        self.assertEqual(goldenpath.git_state_issues(tmp), [])
+
+        outside = Path(tempfile.mkdtemp(prefix="tooling-git-none-"))
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        with mock.patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(outside.parent)}):
+            self.assertIn("failed", " ".join(goldenpath.git_state_issues(outside)))
+
+    def test_gate_fails_on_git_state(self):
+        # A green build and green tests still fail the gate while git_state_issues reports anything.
+        tmp = Path(tempfile.mkdtemp(prefix="tooling-git-wiring-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        issue = "git: branch(es) not merged into scaffold/golden: feature/x"
+        # Phase 3 returns before the build gates, so it is checked with its own artifacts in place.
+        (tmp / ".scaffold").mkdir()
+        (tmp / ".scaffold" / "implementation-plan.md").write_text("plan\n", encoding="utf-8")
+        (tmp / "HANDOFF.md").write_text('currentPhase: "4"\n', encoding="utf-8")
+        for phase in ("3", "5a"):
+            with mock.patch.object(goldenpath, "git_state_issues", return_value=[issue]), \
+                    mock.patch.object(goldenpath, "run_gate_cmd", return_value=(True, "")):
+                ok, notes = goldenpath.gate(phase, tmp)
+            self.assertFalse(ok, phase)
+            self.assertIn(issue, notes)
+        with mock.patch.object(goldenpath, "git_state_issues", return_value=[]):
+            self.assertTrue(goldenpath.gate("3", tmp)[0])
+
     def test_gate_phase3(self):
         tmp = Path(tempfile.mkdtemp(prefix="tooling-gate-"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        self._skip_git_state()
         (tmp / ".scaffold").mkdir(parents=True)
         (tmp / "HANDOFF.md").write_text('currentPhase: "4"\n', encoding="utf-8")
 

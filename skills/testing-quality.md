@@ -353,7 +353,7 @@ Any generated helper that drives a hosted IdP's real login pages (Entra, B2C, Au
 
 ### Playwright Config Output Location
 
-Set `outputDir` under `tests/Test.PlaywrightUI`, not under app project directories.
+Set `outputDir` to `tests/TestResults/playwright/` (resolved from the repo root, like the subset scripts above), not under the test or app project directories.
 
 ## Visual Studio & VS Code Test Explorer
 

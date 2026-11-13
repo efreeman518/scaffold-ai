@@ -12,7 +12,7 @@ Bootstrap for `.instructions/` payloads. Load this file first when scaffold work
 
 ## Session Model
 
-Each phase - and each Phase 5 sub-phase - runs in its own AI session. When complete, write/update `HANDOFF.md` in the target project root and close the session. The next session starts fresh from `START-AI.md` + `HANDOFF.md` only.
+Each phase - and each Phase 5 sub-phase - runs in its own AI session. All share one scaffold branch (`support/OPERATIONS.md` section Git Checkpoint Protocol). When complete, update `HANDOFF.md` in the target project root, commit and finish per that protocol. The next session starts fresh.
 
 ## Session Close
 
@@ -21,11 +21,11 @@ Before writing `HANDOFF.md` at session close, do a quick instruction-set check: 
 - **Installed app:** append to `.scaffold/INSTRUCTION-GAPS.md` at the project root (create `.scaffold/` if absent). Treat `.instructions/` files as read-only during scaffold work.
 - **This instruction repo:** fold the fix directly into the owning instruction file (maintainer skill `/fold-feedback`).
 
-This is a capture step, not a fix step (in a consumer app) - one line is enough; a maintainer triages and folds it back later. Then update `HANDOFF.md` and close.
+This is a capture step, not a fix step (in a consumer app) - one line is enough; a maintainer triages and folds it back later. Then update `HANDOFF.md`, commit and close.
 
 ## Initial Load Rule
 
-Start each session with `START-AI.md` (this file) and `HANDOFF.md` in the target project root (if present - it is the resume contract). Then load only files needed for the current phase. Generate code only in the target project.
+Start each session with `START-AI.md` (this file) and the Git Checkpoint Protocol, whose start steps run first, then the resume contract `HANDOFF.md` (if present). Then load only files needed for the current phase. Generate code only in the target project.
 
 ## File Loading Rule
 
@@ -61,15 +61,15 @@ Is HANDOFF.md present?
   YES -> Read workflowStatus first.
          complete -> Scaffold workflow is terminal. Return to ordinary repository maintenance; do not load phase files.
                      New-entity work still routes to support/vertical-slice-checklist.md fast-path.
-         active   -> Resume from currentPhase/currentSubPhase. Skip the routing decision; still read
+         active   -> New entity: support/vertical-slice-checklist.md fast-path. Otherwise fix
+                     `review pending` Blockers, then resume currentPhase/currentSubPhase; read
                      that phase's Phase Router row for its load set.
-         missing  -> Legacy HANDOFF: infer active unless currentSubPhase is complete, then treat as complete.
   NO  -> New project          -> Phase Router
         New entity            -> load support/vertical-slice-checklist.md fast-path only
         Brownfield adoption   -> load ai/adopt-codebase.md (replaces Phase 1)
 ```
 
-`workflowStatus` is the terminal-state authority. `currentPhase: 5` plus `currentSubPhase: complete` remains a supported legacy completion signal, but new handoffs always write `workflowStatus: active | complete`.
+`workflowStatus: active | complete` is the terminal-state authority.
 
 First scaffold? The pruned API-only path with canonical prompt overlays is [support/minimum-viable-scaffold.md](support/minimum-viable-scaffold.md).
 
@@ -110,7 +110,7 @@ Apply Session Model and File Loading Rule above, then route the active phase:
 
   In every mode: verify `dotnet ef` is available. Prefer repo-local tooling (`dotnet new tool-manifest` then `dotnet tool install dotnet-ef` if missing); an existing user-global `dotnet-ef` is acceptable. Identify required CLIs/MCP servers per phase; populate the **Tooling & Environment Readiness** section of the plan. Output: `.scaffold/implementation-plan.md`. Gate: feed pre-flight passes (`configure-ef-packages-feed.py --check-only` exit 0 for feed/hybrid; nothing to restore yet - no solution exists until Phase 4, where the build gate proves the full restore) + developer review of `.scaffold/implementation-plan.md`. -> `HANDOFF.md` -> close.
 - **Phase 4 (Contract Scaffolding - C#/.NET/Azure profile):** `ai/contract-scaffolding.md`, `skills/solution-structure.md`, `skills/package-dependencies.md`, `ai/placeholder-tokens.md`, `support/ef-packages-reference.md`. Generates: solution structure, interfaces, DTOs, entity shells, test infrastructure, no-op DI stubs. Gate: `dotnet build` succeeds on full solution including test projects. Set `currentPhase: 5`, `currentSubPhase: 5a`, and `contractsScaffolded: true` in `HANDOFF.md`. -> close.
-- **Phase 5 (Implementation - C#/.NET/Azure profile):** one session per sub-phase (5a-5e: Foundation, App Core + Runtime, Optional Hosts, Quality + Delivery, Integration). Base: `ai/SKILL.md` + `ai/placeholder-tokens.md` + `ai/tdd-protocol.md` + `support/ef-packages-reference.md`. Per-sub-phase file lists are in `ai/SKILL.md` (Phase 5 file table). Gate per sub-phase: the Core Loop in [`support/execution-gates.md`](support/execution-gates.md), which owns the commands, the restore-skip conditions, and the sub-phase-specific checks. Do not restate a shorter form here. After the final enabled sub-phase, walk through `support/final-scaffold-checklist.md` manually.
+- **Phase 5 (Implementation - C#/.NET/Azure profile):** one session per sub-phase (5a-5e: Foundation, App Core + Runtime, Optional Hosts, Quality + Delivery, Integration). Base: `ai/SKILL.md` + `ai/placeholder-tokens.md` + `ai/tdd-protocol.md` + `support/ef-packages-reference.md`. Per-sub-phase file lists are in `ai/SKILL.md` (Phase 5 file table). Gate per sub-phase: the Core Loop in [`support/execution-gates.md`](support/execution-gates.md), which owns the commands, the restore-skip conditions, and the sub-phase-specific checks. Do not restate a shorter form here. `currentSubPhase: final-validation` loads only `support/final-scaffold-checklist.md` (prompt-catalog: Final Scaffold Validation).
 
 ## Reference Application
 

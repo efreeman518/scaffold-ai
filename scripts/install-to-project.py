@@ -19,7 +19,6 @@ Excludes author-side files: scripts/__pycache__, tests/, .git/, .github/workflow
 
 Usage:
     python scripts/install-to-project.py --target <app-repo-root>
-    python scripts/install-to-project.py --target <app-repo-root> --update
     python scripts/install-to-project.py --target <app-repo-root> --dry-run
     python scripts/install-to-project.py --target <app-repo-root> --instructions-only
     python scripts/install-to-project.py --target <app-repo-root> --verify
@@ -579,11 +578,6 @@ def main() -> int:
     parser.add_argument(
         "--target", required=True,
         help="Path to the consumer app repo root (parent of .instructions/).",
-    )
-    parser.add_argument(
-        "--update", action="store_true",
-        help="Deprecated no-op, kept for compatibility: installs are always "
-             "content-aware (identical files skipped, changed files overwritten and listed).",
     )
     parser.add_argument(
         "--dry-run", action="store_true",

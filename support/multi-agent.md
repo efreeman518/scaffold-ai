@@ -8,25 +8,33 @@ Opt-in, harness-gated guidance for running parts of a phase across multiple agen
 
 This file owns only the scaffold rules: what may fan out, when, and which writes stay with the orchestrator. A fan-out runs as one `orchestrated-refactor` run, which owns dispatch, worker prompts, the feedback loop, review rounds and model assignment: use the installed skill when the harness has one, else read [../vendor/orchestrated-refactor/SKILL.md](../vendor/orchestrated-refactor/SKILL.md) in place (never install the vendored copy as a skill). That skill is written for Claude Code; another harness that can spawn subagents follows its scoping, worker prompt, feedback loop and review rules with its own spawn and model mechanism.
 
-Workers carry the Tests, Scale and Operations sections of [../vendor/engineering-criteria/SKILL.md](../vendor/engineering-criteria/SKILL.md) that their slice touches - the vendored copy, so writer and `scaffold-reviewer` hold one bar; documentation follows the templates. Where a scaffold skill or template prescribes the pattern for the same concern, the scaffold file wins, and a conflict is reported as an instruction gap.
+Workers carry Principles (Design), including one mechanism per job, and the Tests, Scale and Operations sections of [../vendor/engineering-criteria/SKILL.md](../vendor/engineering-criteria/SKILL.md) that their slice touches - the vendored copy, so writer and `scaffold-reviewer` hold one bar; documentation follows the templates. Where a scaffold skill or template prescribes the pattern for the same concern, the scaffold file wins, and a conflict is reported as an instruction gap.
 
 The rules below override the skill where they differ and bind every run as SCOPE constraints:
 
-- **The developer's gates own git.** Worker branches start from the current branch's HEAD, not `origin/<default-branch>`, in the skill's manual worktrees under `.tmp/worktrees/`. The orchestrator integrates the slice branches into the current branch locally, which is part of the run the developer approved at dispatch; commits follow [OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol. Pushing, opening a PR, or merging the integrated branch into any other branch waits for the developer's approval at the phase gate.
+- **Git follows [OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol.** The orchestrator works on the scaffold branch (a slice batch: its slice branch). Worker branches start from that branch's HEAD, which holds the frozen shared core (a deliberate stack), not from `origin/<default-branch>`, in the skill's manual worktrees under `.tmp/worktrees/`. The orchestrator integrates the slice branches into its branch locally, which is part of the run the developer approved at dispatch. Pushing that branch and opening its PR follow the protocol's Review, then push and One pull request per branch rules (this run's review round is that review, over `reviewBase..HEAD`, a slice batch over `<branch it started from>...HEAD`, not the skill's default base) (unattended: section Unattended Runs there). The skill's Ship in increments and rollout-flag rules do not apply: the phase's work ships on the scaffold branch under that protocol, and a phase PR over about 2,000 changed lines still takes the skill's Large PR rule (Review path).
+- **The design record is the scaffold's own artifacts.** These sub-rules override the skill's design-record step and Feedback loop:
+  - *Record and marks.* The reviewed `.scaffold/` artifacts, plus the scaffold skills and templates that prescribe a pattern, are the skill's design record, and they name the lifecycles. Each shared mechanism the work-items need is marked against the solution's actual code per the vendored `engineering-criteria` One mechanism per job: reuse only where exactly one implementation exists and fits; extend where it falls short or two or more exist; a mechanism a scaffold skill prescribes that the solution has not built yet is new and follows the prescribing skill. Every extend or new mark, and a reuse that no `.scaffold/` artifact or prescribing skill names, is recorded by the orchestrator as a marked `D-###` entry in `.scaffold/DESIGN-DECISIONS.md` before dispatch (GR-01; the mark format is in that template). A consolidation's entry names why, every implementation it retires and the callers it moves; the shared core moves them and deletes the retired ones.
+  - *Design lens.* The skill's design lens runs before every dispatch, regardless of the skill's step 2 trigger, reading the `.scaffold/` artifacts, the marks and any new entries; its verdict goes in the `HANDOFF.md` run section.
+  - *Shared core.* The skill's slice 0 and mechanism slices are the shared core the orchestrator completes and freezes itself (section The precondition), never a worker slice; before freezing it, the orchestrator adds the architecture tests (the solution's architecture-test project, else plain tests) and one end-to-end path through those mechanisms, and an all-reuse run adds only what the existing tests lack.
+  - *CONTRACTS line.* It names the `D-###` ids and the prescribing skill or template paths the slice uses, else `none`.
+  - *Needs contract.* A worker's `needs contract` report goes back to the orchestrator, which records a marked `D-###` entry and runs one design-lens pass on it. On its branch it builds or extends the mechanism where it is marked new or extend and adds what the core lacks of its architecture tests and end-to-end path, then merges that commit into each waiting worker branch, where a conflict keeps the frozen core's mechanism code; when nothing is missing (a reuse already covered), it first merges the frozen core's latest commit into each waiting worker branch that lacks that mechanism or its tests (same conflict rule), then sends the worker the contract.
+  - *Resumed phase.* A resumed phase or a redesign follows the skill's Run in flight: it updates the marks and `D-###` entries for what remains, marks already-merged mechanisms, reruns the design lens before any further dispatch (verdict in the `HANDOFF.md` run section), and sends the CONTRACTS line to in-flight workers before they integrate.
+- **Discovered work stays inside the phase.** The skill folds in only concerns within this phase's scope; anything else follows [OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol, Discovered work.
 - **Its tracked handoff is a run section in `HANDOFF.md`**, written by the orchestrator only; the phase's gate evidence stays where [execution-gates.md](execution-gates.md) puts it.
 - **One slice per independent work-item.** A host slice's DONE is its standalone gate from [execution-gates.md](execution-gates.md); tests that need the AppHost registration go green in the orchestrator's mesh gate. An entity slice's DONE is the one in the vertical-slice workflow's Several Entities section.
 - **Shared writes stay with the orchestrator** (below), so every slice's SCOPE names its disjoint write paths and lists the frozen shared layer as read-only. The one exception is a vertical-slice batch: each worker adds only its own entity's lines to the shared wiring so its gate can run, and the orchestrator reconciles them at integration.
-- **Shared-core writes run at the Reasoning tier** ([../README.md](../README.md#model-tier-by-phase)), and so does `scaffold-reviewer`, from a different model family than the writer when the harness offers one. The skill's availability fallback never lowers them: if that tier is unavailable, stop and ask the developer.
+- **Shared-core writes run at the Reasoning tier** ([../README.md](../README.md#model-tier-by-phase)), and so does `scaffold-reviewer`, from a different model family than the writer when the harness offers one. Neither a routing table nor the skill's availability fallback lowers them: if that tier is unavailable, stop and ask the developer (unattended: the loop's question, per [OPERATIONS.md](OPERATIONS.md) section Unattended Runs).
 
 ## What does not change
 
-- **Phases stay strictly ordered and human-gated.** 1 -> 2 -> 3 -> 4 -> 5a..5e. Each phase ends in a developer review gate. Multi-agent work never crosses a phase boundary, because phase N consumes phase N-1's reviewed artifact.
+- **Phases stay strictly ordered and human-gated.** 1 -> 2 -> 3 -> 4 -> 5a..5e. Each phase ends at its gate (Phases 1-3: developer review; code phases: the protocol's review). Multi-agent work never crosses a phase boundary, because phase N consumes phase N-1's reviewed artifact.
 - **State lives in files, not in an agent.** `HANDOFF.md` + `.scaffold/*` remain the single source of truth. There is no long-lived super-orchestrator holding state in context across phases. The "orchestrator" is just the current phase's main session, re-instantiated each phase from the files.
 - **One agent owns all shared writes.** The orchestrator is the only writer of `HANDOFF.md`, `.scaffold/*`, and shared wiring (`RegisterServices`, the two `DbContext`s, `Directory.Packages.props`, the Aspire AppHost). Subagents return structured results; they do not edit the blackboard. (Vertical-slice batch workers add their own entity's wiring lines, reconciled by the orchestrator - see section Who owns the mechanics.)
 
 ## The model: orchestrator + work-item workers + independent reviewer
 
-The developer-facing agent is the orchestrator. It dispatches subagents, collects their results, performs the merge and the gate itself, then updates `HANDOFF.md` and closes. Subagents never talk to the developer.
+The developer-facing agent is the orchestrator. It dispatches subagents, collects their results, performs the merge and the gate itself, then updates `HANDOFF.md`, commits and finishes per [OPERATIONS.md](OPERATIONS.md) section Git Checkpoint Protocol. Subagents never talk to the developer.
 
 Decompose work **by independent work-item (fan-out), not by role.**
 
@@ -59,7 +67,7 @@ There is also a **finer barrier inside the host layer**: anything shared *across
 - a shared component / design-token / theme library (if admin and public share UI primitives),
 - common client-side wiring (the HTTP/auth client setup pattern they reuse).
 
-The orchestrator completes and freezes these, then dispatches the per-host workers read-only.
+The orchestrator completes and freezes these, then dispatches the per-host workers read-only. For each one, it reuses or extends what the earlier phases, the scaffold skills and the `EF.*` packages already provide, and builds a new one only when none fits (section Who owns the mechanics).
 
 ### Two consequences
 
@@ -72,16 +80,17 @@ The orchestrator completes and freezes these, then dispatches the per-host worke
 2. It completes and freezes any artifact shared across those hosts (shared contracts/client, shared component lib, common client wiring).
 3. It starts one `orchestrated-refactor` run with **one slice per host**: SCOPE is that host's disjoint files with the frozen shared layer read-only, DONE is the host's standalone gate (TDD where applicable).
 4. Workers finish; the orchestrator integrates the slices, performs the single serialized Aspire AppHost registration pass itself, and runs the mesh gate (`dotnet run` + health) per [execution-gates.md](execution-gates.md).
-5. The run's review round covers the integrated result, with `scaffold-reviewer` as an extra read-only lens for ground-rule / architecture-test compliance.
-6. Orchestrator updates `hostGates` in `HANDOFF.md`, records gate evidence per [execution-gates.md](execution-gates.md) section Verification Evidence Rule, removes the merged worker worktrees per section Agent Scratch, and closes. The next phase is a fresh orchestrator.
+5. Orchestrator updates `hostGates` in `HANDOFF.md`, records gate evidence per [execution-gates.md](execution-gates.md) section Verification Evidence Rule and commits the gate.
+6. The run's review round covers the integrated result, with `scaffold-reviewer` as an extra read-only lens for ground-rule / architecture-test compliance. The orchestrator removes the merged worker worktrees per section Agent Scratch and finishes per the Git Checkpoint Protocol. The next phase is a fresh orchestrator.
 
 ## Pre-dispatch checklist
 
 Before the orchestrator spawns any worker:
 
 - [ ] The shared backend phases for this work (5a/5b) passed their gates.
-- [ ] The developer approved committing, which a fan-out needs: worker branches start from commits and return their work as commits.
-- [ ] Every artifact shared *across* the target work-items is complete, frozen and committed on the current branch, so every worker branch contains it (shared contracts/client, shared component/theme library, common wiring).
+- [ ] Every artifact shared *across* the target work-items is complete, frozen and committed on the orchestrator's branch, so every worker branch contains it (shared contracts/client, shared component/theme library, common wiring).
+- [ ] Every shared mechanism the work-items use is marked against the solution's code and reused or extended from an existing one, with every extend, consolidation or new mark, and any reuse no `.scaffold/` artifact or prescribing skill names, recorded as a marked `D-###` decision (section Who owns the mechanics), and the design lens passed with its verdict in the `HANDOFF.md` run section. No worker builds its own.
+- [ ] The frozen core has the architecture tests and one end-to-end path through every shared mechanism the work-items use.
 - [ ] Each fan-out unit is an independent deployable host (or a genuinely independent entity/slice), not a target or route within one host.
 - [ ] Workers are constrained to disjoint write paths; all shared writes are reserved for the orchestrator's serialized merge step (vertical-slice batches: each worker's own entity lines only).
 - [ ] `.tmp/` is gitignored, so worker worktrees and run state stay out of every diff.
@@ -92,18 +101,19 @@ All agent and subagent scratch lives under the repo-root `.tmp/`, which the app 
 
 | What | Where |
 |---|---|
-| Worker worktree | `.tmp/worktrees/<slug>` on its own branch from the current branch's HEAD, which holds the frozen shared core: `git worktree add .tmp/worktrees/<slug> -b <type>/<slug> HEAD` |
+| Worker worktree | `.tmp/worktrees/<slug>-<suffix>` on its own branch from the orchestrator's branch HEAD, which holds the frozen shared core: `git worktree add .tmp/worktrees/<slug>-<suffix> -b <type>/<slug>-<suffix> HEAD`, where `<suffix>` is 6 random hex characters so concurrent sessions never collide |
 | `orchestrated-refactor` run state (slice handoffs, review inputs and reports) | `.tmp/orchestrated-refactor/<run-id>/`, removed by that run after the phase gate (a vertical-slice batch: after its gate rerun is reported), once its worktrees are removed, so the developer can read its review reports at the gate; `clean-tmp.py` does not touch it, so an abandoned run's folder is removed by hand after its worktrees are gone |
 | Worker logs, prompts, handoff notes, reports outside a run | `.tmp/sessions/<session-id>/` - outside every worktree, so they never enter a diff |
-| Tool output with an owning project (`TestResults/`, `StrykerOutput/`, benchmark artifacts) | Under that project, not `.tmp/` - see [../skills/testing-quality.md](../skills/testing-quality.md) |
+| Test results | `tests/TestResults/<project>/` (`<suite>/` for subset scripts), not `.tmp/` - see [../skills/testing-quality.md](../skills/testing-quality.md) |
+| Other tool output with an owning project (`StrykerOutput/`, benchmark artifacts) | Under that project, not `.tmp/` |
 
 Cleanup runs after the merge is verified, never before:
 
 1. Confirm the work merged: PR state `MERGED`, or the worktree `HEAD` is an ancestor of the branch it was integrated into (pass that branch to `clean-tmp.py --base` when it is not the default branch).
-2. `git worktree remove .tmp/worktrees/<slug>` without `--force`. A worktree with uncommitted or untracked changes stays and is reported.
+2. `git worktree remove .tmp/worktrees/<slug>-<suffix>` without `--force`, then `git branch -d <type>/<slug>-<suffix>`. A worktree with uncommitted or untracked changes stays and is reported; a discarded worker's unmerged branch is deleted only with the developer's approval.
 3. `git worktree prune`, then delete `.tmp/sessions/<session-id>/` once every worktree it served is gone.
 
-[../scripts/clean-tmp.py](../scripts/clean-tmp.py) applies the same rules: run it bare for a dry-run report, then with `--apply`.
+[../scripts/clean-tmp.py](../scripts/clean-tmp.py) applies the worktree rules (it deletes no branch): run it bare for a dry-run report, then with `--apply`.
 
 - A worktree carries its own `global.json`, `Directory.Build.props`, `Directory.Packages.props`, and `.editorconfig`, so .NET lookups stop at the worktree root. NuGet merges every `nuget.config` up the tree, so the main checkout's copy also applies - harmless while both are the same file.
 - Harnesses that load instruction files from parent directories also see the main checkout's `AGENTS.md` / `CLAUDE.md`. When a work-item edits those files, tell the worker its worktree copy wins.
