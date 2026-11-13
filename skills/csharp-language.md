@@ -9,7 +9,7 @@ The scaffold targets the latest stable TFM and its default C# language version. 
 
 - No `<LangVersion>` anywhere: the TFM's default is the language version. Never `latest` or `preview`.
 - Preview-only features (the memory-safety model: `unsafe(expr)`, `safe`, requires-unsafe members) stay off.
-- Roslyn-based tooling that parses source (architecture tests, analyzers, scripting) passes `LanguageVersion.Preview` while the newest published `Microsoft.CodeAnalysis` package predates the SDK's language version, so `union` and `closed` parse.
+- Roslyn-based tooling that parses source (architecture tests, analyzers, scripting) references a `Microsoft.CodeAnalysis` package family that knows the SDK's language version and parses with `LanguageVersion.Latest`, so `union` and `closed` parse. Every `Microsoft.CodeAnalysis.*` package in the solution stays on one version.
 
 ## Closed Sets: `closed` or `union`
 
