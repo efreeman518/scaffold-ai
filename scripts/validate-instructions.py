@@ -1120,9 +1120,11 @@ def check_phase5_template_coverage(findings: Findings) -> None:
 # "Context Budgets" advisory. The required set (session base + skills +
 # templates columns) stays under its measured ceiling, and the full set
 # (+ on-demand column) stays below a shared ceiling.
-# Tokens are estimated as chars/4. Ceilings are ~15% above the measured
-# 2026-07-13 unique-file baselines; if this check fires, prefer trimming or splitting the
-# offending files over raising the ceiling.
+# Tokens are estimated as chars/4. Ceilings were set ~15% above the unique-file
+# baselines measured on 2026-07-13; if this check fires, prefer trimming or splitting the
+# offending files over raising the ceiling. A conditional template that every scaffoldMode
+# loads when its condition holds (5b: test-templates-e2e) sits in the on-demand column, so
+# the full ceiling bounds it, not the required one.
 
 # Session base: files every Phase 5 session loads before the load set.
 LOADSET_SESSION_BASE = ["START-AI.md", "GROUND-RULES.md", "ai/SKILL.md"]
