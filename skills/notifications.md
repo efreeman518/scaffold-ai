@@ -112,8 +112,9 @@ public static IServiceCollection AddNotificationInfrastructure(
     // Unified service - always registered; graceful no-op when providers are absent
     services.AddSingleton<INotificationService, NotificationService>();
 
-    services.AddHttpClient("NotificationClient")
-        .AddStandardResilienceHandler();
+    // Inherits the standard resilience handler from ServiceDefaults, which does not retry a POST: a send
+    // that fails ambiguously is not repeated here.
+    services.AddHttpClient("NotificationClient");
 
     return services;
 }

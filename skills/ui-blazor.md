@@ -98,6 +98,10 @@ using {Project}.Blazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// First registration, as in every server-hosted host: telemetry, health, service discovery and the standard
+// resilience handler (safe methods only) on every HttpClient below.
+builder.AddServiceDefaults();
+
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 
 builder.Services.AddMudServices(cfg =>
@@ -127,9 +131,9 @@ builder.Services
     {
         c.BaseAddress = new Uri(gatewayUrl);
         c.DefaultRequestHeaders.Add("Accept", "application/json");
-    })
-    // The Gateway token handler is added here (Auth section).
-    .AddStandardResilienceHandler();
+    }); // the Gateway token handler is chained here (Auth section)
+// No resilience handler is added: the client inherits the standard one from AddServiceDefaults, which does not
+// retry a POST; a second one would.
 
 var app = builder.Build();
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error", createScopeForErrors: true); app.UseHsts(); }
