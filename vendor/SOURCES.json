@@ -1,14 +1,46 @@
 {
   "repository": "efreeman518/workstation",
-  "commit": "a3b04e4ce9b262ff8e540084fc0f6bf71105c935",
+  "commit": "2cbcc355453a8575c2a5d88899a42b16960d6708",
   "files": {
     "vendor/engineering-criteria/SKILL.md": {
       "path": "ai-context-tooling/skills-deploy/skills/common/engineering-criteria/SKILL.md",
-      "sha256": "1c6b6eec9357f2f68bd35b76c155ca4f7f75158b61c1dba1be395771d76f1bd1"
+      "sha256": "a2c32ee8b06e0a2f1ff7adb1549ea954bd7158b6d12ada0f2a9cb2c1f4344ea9"
     },
-    "vendor/orchestrated-refactor/SKILL.md": {
-      "path": "ai-context-tooling/skills-portable/orchestrated-refactor/SKILL.md",
-      "sha256": "d79b4a4a2b38a391a53fa676130449ca56c00473cdf0a8b1fca0899c2f69519d"
+    "vendor/engineering-criteria/data-access.md": {
+      "path": "ai-context-tooling/skills-deploy/skills/common/engineering-criteria/data-access.md",
+      "sha256": "25e57dba84d4af150721bba2ae2dece4574c998a87137142e22024500f9270a3"
+    },
+    "vendor/engineering-criteria/documentation.md": {
+      "path": "ai-context-tooling/skills-deploy/skills/common/engineering-criteria/documentation.md",
+      "sha256": "5b2873994b937f1bc9ef692cf6c6955c0b1b8c27d7f16a722302a95c7c73b21f"
+    },
+    "vendor/engineering-criteria/operations.md": {
+      "path": "ai-context-tooling/skills-deploy/skills/common/engineering-criteria/operations.md",
+      "sha256": "6f5a932e312c9e811b5417bcfd403421eac375bc52472f8462a8d59c452a254f"
+    },
+    "vendor/engineering-criteria/resilience.md": {
+      "path": "ai-context-tooling/skills-deploy/skills/common/engineering-criteria/resilience.md",
+      "sha256": "52edbc55940222c31192db0473cf358036068218ce19e66fc3647846bf80b56d"
+    },
+    "vendor/engineering-criteria/scale.md": {
+      "path": "ai-context-tooling/skills-deploy/skills/common/engineering-criteria/scale.md",
+      "sha256": "d6e5e5b4ac30a0a192901457f7fc515dcd75ba4980a2e9623a32af7369598cdb"
+    },
+    "vendor/engineering-criteria/security.md": {
+      "path": "ai-context-tooling/skills-deploy/skills/common/engineering-criteria/security.md",
+      "sha256": "6ba27cb8647514d7fd919ee3da8678b8c9deb905e521c74462a0551b10c1ff64"
+    },
+    "vendor/engineering-criteria/tests.md": {
+      "path": "ai-context-tooling/skills-deploy/skills/common/engineering-criteria/tests.md",
+      "sha256": "8728744af7f377c3be80ed4c0cbe52d25d6cebdff9b76e0dcf59775cea679efb"
+    },
+    "vendor/engineering-criteria/ui.md": {
+      "path": "ai-context-tooling/skills-deploy/skills/common/engineering-criteria/ui.md",
+      "sha256": "c5b0e8fd88f950413bffcdd32c1405dcb7f60fdaa10002a89ab38d8a0890e41f"
+    },
+    "vendor/orchestrated-dev/SKILL.md": {
+      "path": "ai-context-tooling/skills-portable/orchestrated-dev/SKILL.md",
+      "sha256": "1ea5d0da7725bd228b445f69b24a3872305da1b7d32dcd03c86edba3f29a22da"
     }
   }
 }
