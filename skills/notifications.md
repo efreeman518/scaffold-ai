@@ -17,7 +17,7 @@ Use integrated for low/moderate throughput; standalone for high volume or operat
 
 1. Keep channel-specific logic in channel providers, not in unified service.
 2. Register providers conditionally from config presence.
-3. External provider calls take the resilience the host already gives them: the inherited standard handler for an `HttpClient`, the SDK's own retry options, at their defaults, for an SDK client. Add no second handler and no handler that retries a send ([resilience.md](resilience.md) section Internal-Call Guidance); a failed send is retried by its caller or by redelivery of its message, as the sections below describe.
+3. A provider `HttpClient` keeps the standard resilience handler it inherits from ServiceDefaults; add no second handler to it ([resilience.md](resilience.md) section Internal-Call Guidance).
 4. Keep credentials in Key Vault/user-secrets, never inline in appsettings.
 5. `Infrastructure.Notification` must not depend on Domain/Application implementation projects.
 
@@ -112,8 +112,7 @@ public static IServiceCollection AddNotificationInfrastructure(
     // Unified service - always registered; graceful no-op when providers are absent
     services.AddSingleton<INotificationService, NotificationService>();
 
-    // Inherits the standard resilience handler from ServiceDefaults, which does not retry a POST: a send
-    // that fails ambiguously is not repeated here.
+    // Inherits the standard resilience handler from ServiceDefaults, which does not retry a POST.
     services.AddHttpClient("NotificationClient");
 
     return services;
@@ -286,7 +285,7 @@ For `scaffoldMode: lite`:
 ## Operational Rules
 
 1. Keep provider registration configuration-driven.
-2. Keep one resilience layer per outbound provider client (rule 3 under Non-Negotiables).
+2. Keep one resilience handler per provider `HttpClient` (rule 3 under Non-Negotiables).
 3. Respect throttling limits for batch sends (provider rate limits).
 4. Keep infrastructure library reusable across integrated and standalone modes.
 5. Avoid duplicate provider implementations across hosts.
@@ -342,4 +341,4 @@ Use the standard `IMessageHandler<T>` test patterns from the messaging skill:
 - [ ] channel providers register only when config exists
 - [ ] no Domain/Application implementation dependencies in infrastructure notification project
 - [ ] secrets are sourced from secure providers (not plain appsettings)
-- [ ] each provider client has exactly one resilience layer (the inherited standard handler or the SDK's retry options); no added handler retries a send
+- [ ] each provider `HttpClient` carries the inherited standard resilience handler and no second one
