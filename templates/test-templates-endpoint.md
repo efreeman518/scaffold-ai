@@ -200,7 +200,7 @@ public sealed class CustomApiFactory : WebApplicationFactoryBase<Program, {App}D
 
 `DbContextBase` stamps `Version` and the timestamps on save, so the in-memory contexts carry the ETag contract without an extra interceptor. The API host registers no outbox dispatcher, so staged rows stay in the in-memory database and no transport needs replacing.
 
-> **`NonAzure` pin:** `Hosting:Lane=NonAzure` with inert `Redis1` (`abortConnect=false`), `Storage:S3:*`, and `Messaging:RabbitMq:ConnectionString` values, and a `CacheSettings` Redis connection name with no connection string so the cache and the rate limiter stay in process. **Azure pin:** inert Blob, Table, Cosmos and Service Bus endpoints; the SDK clients are lazy.
+> **`NonAzure` pin:** `Hosting:Lane=NonAzure` and `AuthMode=Scaffold`, with inert `Redis1` (`abortConnect=false`), `Storage:S3:*`, and `Messaging:RabbitMq:ConnectionString` values, and a `CacheSettings` Redis connection name with no connection string so the cache and the rate limiter stay in process. **Azure pin:** inert Blob, Table, Cosmos and Service Bus endpoints; the SDK clients are lazy.
 
 The pooled-context swap, interceptor removal, factory plumbing, and reflection-based context creation are inherited. `Test.E2E` derives `DbApiFactory` from the same base on a real database container: [test-templates-e2e.md](test-templates-e2e.md) section DbApiFactory. Full distributed-app tests use `AspireTestHost` ([test-templates-aspire.md](test-templates-aspire.md)); one-class-vs-one-store tests use the `Test.Integration` fixtures ([test-templates-integration.md](test-templates-integration.md)). The WAF base is for HTTP-in-API-out testing.
 

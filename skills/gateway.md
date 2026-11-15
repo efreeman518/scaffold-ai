@@ -48,7 +48,7 @@ Host/{Gateway}.Gateway/
           "api": { "Address": "https://localhost:7065" }
         },
         "Metadata": {
-          "TokenScope": "api://{api-client-id}/.default",
+          "TokenScope": "",
           "RelayUserClaims": "true"
         }
       }
@@ -90,6 +90,7 @@ public static IServiceCollection AddGatewayServices(this IServiceCollection serv
         .AddDownstreamAuthTransforms(config);   // binds ForwardedClaims, the same section the API binds
 
     services.AddCorsPolicyFromConfiguration("{Project}UI", config.GetSection("CorsSettings"));
+    // The edge rate limiter (UseEdgeLimiter) is registered here: security.md section Rate Limiting.
     services.AddHealthChecks().AddDownstreamHealthCheck("{project}-api", o =>
     {
         o.Url = new Uri(config["AggregateHealthCheck:{Project}ApiHealthUrl"]!);   // missing or relative fails startup
@@ -241,6 +242,7 @@ Pick one convention per project and apply it everywhere. Never use dual-prefix p
 ## Verification
 
 - [ ] `AuthMode` resolves through `AuthModeResolver`, the fallback policy is set, and the only anonymous routes are the health probes and `GET /auth/mode`
+- [ ] Gateway auth tests (`tests/Test.Unit/Gateway/GatewayAuthModeTests.cs`) assert an unsupported mode is rejected at registration, `GET /auth/mode` is anonymous and returns the mode, and, as `AuthenticationContractTests` does for the API, the fallback policy and the closed anonymous set
 - [ ] YARP routes/clusters load from config
 - [ ] `AddDownstreamAuthTransforms(config)` registered; clusters declare `TokenScope` / `RelayUserClaims` metadata; no app token service or relay transform
 - [ ] Gateway and API bind the same `ForwardedClaims` section

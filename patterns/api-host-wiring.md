@@ -259,6 +259,8 @@ public static class AuthConfiguration
 }
 
 // File: Host/{App}.Api/Auth/AuthorizationPolicies.cs
+using Microsoft.AspNetCore.Authorization;
+
 public static class AuthorizationPolicies
 {
     public static IServiceCollection Add{App}Authorization(this IServiceCollection services)
@@ -289,6 +291,8 @@ public static class AuthModeResolver
 }
 
 // File: Application.Contracts/ScaffoldPrincipal.cs - shared by the Api and the Gateway so both register one identity
+using System.Security.Claims;
+
 public static class ScaffoldPrincipal
 {
     public const string SchemeName = "Scaffold";
@@ -313,7 +317,7 @@ public static class ScaffoldPrincipal
 }
 ```
 
-`AddFixedPrincipal` authenticates every request as the configured claims, fails host start outside `AllowedEnvironments` (default `Development`, `Testing`) or with no claims, and logs one warning per scheme the first time it authenticates; generate no authentication handler. The scaffold principal authenticates HTTP requests only. Code running outside a request resolves the explicit system context (section Request Context Resolution), never this principal, its global-admin role, or the dev tenant. The Gateway resolves the mode through the same `AuthModeResolver` and registers the same principal and fallback policy ([../skills/gateway.md](../skills/gateway.md) section Authentication Model).
+`AddFixedPrincipal` authenticates every request as the configured claims, fails host start outside `AllowedEnvironments` (default `Development`, `Testing`) or with no claims, and logs one warning per scheme the first time it authenticates; generate no authentication handler. The scaffold principal authenticates HTTP requests only. Code running outside a request resolves the explicit system context (section Request Context Resolution), never this principal, its global-admin role, or the dev tenant. The Gateway resolves the mode through the same `AuthModeResolver` and registers the same principal and fallback policy ([../skills/gateway.md](../skills/gateway.md) section Authentication Model). A deployed host runs as `Production`, so it runs with `AuthMode: Entra` once Phase 5e has added the provider, or, for a login-free app, with `Production` in `AllowedEnvironments`.
 
 **Anonymous endpoints are opted in one by one**, each with its reason at the site. The set is closed:
 

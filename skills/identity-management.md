@@ -21,6 +21,8 @@ Prompt the user at the start of this phase to select the appropriate scenario:
 | External / consumer users | Microsoft Entra External ID, Google, Facebook, Apple, OAuth2/OIDC | Customer-facing apps, self-service portals |
 | Hybrid | Entra ID + Entra External ID / social providers | Public UI for external users + enterprise back-office for internal users |
 
+The registrations in this skill cover Entra ID and Entra External ID, the `Entra` mode. For another provider the app ships in `Scaffold` mode and the provider is recorded in `HANDOFF.md` as deployment work.
+
 ### Admin Portal / Entra External ID Deployment Runbook
 
 Apply this runbook when a deployed admin portal or other interactive client signs users in through an Entra External ID (CIAM) tenant. Scaffold completion may defer it, but production deployment may not.

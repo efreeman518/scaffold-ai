@@ -144,12 +144,6 @@ services.PostConfigure<WebhookSettings>(options =>
 Register stubs when credentials are missing so the app builds/runs without external secrets.
 
 ```csharp
-if (builder.Environment.IsDevelopment())
-{
-    builder.Services.AddAuthentication("DevBypass")
-        .AddScheme<AuthenticationSchemeOptions, DevBypassAuthHandler>("DevBypass", null);
-}
-
 if (string.IsNullOrEmpty(config["Stripe:ApiKey"]))
     services.AddSingleton<IStripeService, StubStripeService>();
 else
