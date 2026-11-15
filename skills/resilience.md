@@ -11,10 +11,11 @@ Every `HttpClient` registered through `AddServiceDefaults()` gets `AddStandardRe
 
 ## Per-Client Override
 
-An external third-party client takes the inherited standard handler unchanged ([external-api.md](external-api.md) section DI + Refit + Resilience). Override it only for a provider whose measured behaviour the defaults do not fit (an endpoint that needs a longer attempt timeout), and only through the standard handler's own options: remove the inherited handler and add the standard one back on that client's `IHttpClientBuilder`. `PostConfigure` on the client's options name does not reach an inherited handler.
+An external third-party client takes the inherited standard handler unchanged ([external-api.md](external-api.md) section DI + Refit + Resilience). Override it only for a reason the defaults do not cover (a measured need such as an endpoint that needs a longer attempt timeout, or one of the two contracts under Internal-Call Guidance), and only through the standard handler's own options: remove the inherited handler and add the standard one back on that client's `IHttpClientBuilder`. `PostConfigure` on the client's options name does not reach an inherited handler.
 
 ```csharp
-// {the measured need, for example: the reports endpoint answers in up to 25 s}
+// {the reason, for example: the reports endpoint answers in up to 25 s}
+// client is the IHttpClientBuilder the registration returns: var client = services.AddRefitClient<I{ServiceName}Api>()...;
 #pragma warning disable EXTEXP0001 // RemoveAllResilienceHandlers is experimental; remove this pragma when it no longer is.
 client.RemoveAllResilienceHandlers();
 #pragma warning restore EXTEXP0001
@@ -27,14 +28,14 @@ client.AddStandardResilienceHandler(o =>
 });
 ```
 
-The project that holds this code references `Microsoft.Extensions.Http.Resilience`. A custom pipeline (`AddResilienceHandler` with hand-built retry, breaker or timeout strategies, a custom predicate or delay generator) needs a proven reason in a one-line comment at the site: a measured need or a contract the standard options cannot express.
+The project that holds this code references `Microsoft.Extensions.Http.Resilience`. `HttpClient.Timeout` (100 s by default) still bounds the whole call, so raise it with a `TotalRequestTimeout` above it. A custom pipeline (`AddResilienceHandler` with hand-built retry, breaker or timeout strategies, a custom predicate or delay generator) needs a proven reason in a one-line comment at the site: a measured need or a contract the standard options cannot express.
 
 ## Internal-Call Guidance
 
 - **Never stack handlers.** A client that already has the standard handler (via ServiceDefaults) gets no second `AddStandardResilienceHandler()` and no `AddResilienceHandler`: double retry multiplies load during incidents, and a second standard handler added without `DisableForUnsafeHttpMethods()` retries writes. Replace instead: the pair in Per-Client Override, or `AddReadHedging` (see Hedging).
 - Retries are safe for idempotent calls (GET, PUT with full payload, DELETE). **Do not retry non-idempotent POSTs** unless the endpoint is idempotency-keyed ([data-persistence.md](data-persistence.md) section Idempotent Create); a retried create duplicates data. The ServiceDefaults `DisableForUnsafeHttpMethods()` enforces this.
-- A client of an endpoint that honors an idempotency key may retry its keyed writes, and only those: in the Per-Client Override pair it leaves out `DisableForUnsafeHttpMethods()` and sets one `Retry.ShouldHandle` that applies the default transient predicate to safe methods and to unsafe requests carrying the key, and refuses every other unsafe request. It reads the request with `args.Context.GetRequestMessage()` (the outcome's result is null on an exception) and sets the key once per logical operation, above the resilience handler. EF.Http.Resilience has no helper for this shape; `AddCustomResilience(retryUnsafeMethods: true)` retries every unsafe request and fits only a client whose every write is idempotent.
-- **Every gRPC call is an HTTP POST**, so `DisableForUnsafeHttpMethods()` removes all retries from a gRPC client. A read-only gRPC client registers its own standard handler without that filter and records that it serves only idempotent calls; a gRPC client that carries writes keeps retries off.
+- A client of an endpoint that honors an idempotency key may retry its keyed writes, and only those: in the Per-Client Override pair it leaves out `DisableForUnsafeHttpMethods()` and sets one `Retry.ShouldHandle` that applies the default transient predicate (`HttpClientResiliencePredicates.IsTransient`) to GET, HEAD and OPTIONS requests and to any other request that carries the `Idempotency-Key` header, and refuses every other request. The header is the marker, so a client that relies on a caller-supplied body `Id` sends it too. It reads the request with `args.Context.GetRequestMessage()` (the outcome's result is null on an exception) and sets the key once per logical operation, above the resilience handler. EF.Http.Resilience has no helper for this shape.
+- **Every gRPC call is an HTTP POST**, so `DisableForUnsafeHttpMethods()` removes all retries from a gRPC client. A read-only gRPC client replaces the inherited handler with the Per-Client Override pair, leaving out `DisableForUnsafeHttpMethods()`, and records that it serves only idempotent calls; a gRPC client that carries writes keeps retries off.
 
 ### Hedging
 
@@ -65,7 +66,7 @@ builder.Services.AddHttpClient<I{Project}ReadApi, {Project}ReadApi>(c => c.BaseA
 ## Verification
 
 - [ ] Every client has exactly one resilience handler: the inherited standard one, or its replacement (Per-Client Override, `AddReadHedging`)
-- [ ] An override states its measured reason; a custom pipeline states a proven one
+- [ ] An override states its reason (a measured need, keyed writes, or read-only gRPC); a custom pipeline states a proven one
 - [ ] No retry on non-idempotent POSTs without an idempotency key; ServiceDefaults keeps `DisableForUnsafeHttpMethods()`
 - [ ] A hedged client is a read-only client with `AddReadHedging(configuration)`; no app hedging extension and no write client carries it
 - [ ] Read-only gRPC clients keep retries explicitly; gRPC clients carrying writes do not retry

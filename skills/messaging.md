@@ -19,7 +19,7 @@ Cross-process bus payloads are application/integration contracts, not domain art
 - Keep the envelope helpers (`{Project}IntegrationEvents`: destination, per-type versions, `Envelope(...)`, `Entry(...)`, `ConfigureReader(...)`) in `Application.Contracts.Messaging`; domain, application and consumer projects reference EF.Messaging.Contracts, never EF.Messaging.
 - Payload types and the envelope are registered on the app's source-generated messaging `JsonSerializerContext`, and its options are passed everywhere an envelope is serialized or read.
 
-> **Shared infrastructure pattern:** Messaging follows the same **Settings -> Named client -> DI -> Resilience** integration chain as external APIs. See [external-api.md](external-api.md) for the general pattern with Refit/resilience pipeline. This file covers messaging-specific adapters.
+> **Shared infrastructure pattern:** Messaging follows the same **Settings -> Named client -> DI -> Resilience** integration chain as external APIs. See [external-api.md](external-api.md) for the general pattern with Refit and the inherited resilience handler. This file covers messaging-specific adapters.
 
 ## Service Selection
 

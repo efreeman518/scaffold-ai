@@ -1,6 +1,6 @@
 # External API Integration
 
-> **Shared infrastructure pattern:** External APIs and messaging services both follow the same integration chain: **Settings class -> Named client/auth handler -> DI extension method -> Resilience pipeline -> Wrapper service**. This file shows the pattern for external APIs. For messaging-specific adapters (Service Bus, Event Grid, Event Hub), see [messaging.md](messaging.md) which follows the same structural conventions.
+> **Shared infrastructure pattern:** External APIs and messaging services both follow the same integration chain: **Settings class -> Named client/auth handler -> DI extension method (the client inherits the ServiceDefaults resilience handler) -> Wrapper service**. This file shows the pattern for external APIs. For messaging-specific adapters (Service Bus, Event Grid, Event Hub), see [messaging.md](messaging.md) which follows the same structural conventions.
 
 Use one infrastructure project per external API: `Infrastructure.{ServiceName}`.
 
@@ -157,7 +157,7 @@ services.Add{ServiceName}(config);
 
 - Unit-test wrapper by mocking `I{ServiceName}Api`.
 - Integration tests replace Refit registration with mock service client.
-- Validate mapping, retries/fallback behavior, and sanitized error handling.
+- Validate mapping and sanitized error handling. Retries belong to the inherited handler, which a mocked `I{ServiceName}Api` does not run; assert none here.
 
 ### Webhook / Callback Contract (if provider pushes events)
 

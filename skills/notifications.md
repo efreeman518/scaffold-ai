@@ -17,7 +17,7 @@ Use integrated for low/moderate throughput; standalone for high volume or operat
 
 1. Keep channel-specific logic in channel providers, not in unified service.
 2. Register providers conditionally from config presence.
-3. Use resilience policies for external provider calls.
+3. External provider calls take the resilience the host already gives them: the inherited standard handler for an `HttpClient`, the SDK's own retry options for an SDK client. Add no second handler; a send is not retried unless the provider honors an idempotency key ([resilience.md](resilience.md) section Internal-Call Guidance).
 4. Keep credentials in Key Vault/user-secrets, never inline in appsettings.
 5. `Infrastructure.Notification` must not depend on Domain/Application implementation projects.
 
@@ -286,7 +286,7 @@ For `scaffoldMode: lite`:
 ## Operational Rules
 
 1. Keep provider registration configuration-driven.
-2. Add retry/circuit-breaker resilience for outbound provider clients.
+2. Keep one resilience layer per outbound provider client (rule 3 under Non-Negotiables).
 3. Respect throttling limits for batch sends (provider rate limits).
 4. Keep infrastructure library reusable across integrated and standalone modes.
 5. Avoid duplicate provider implementations across hosts.
@@ -342,4 +342,4 @@ Use the standard `IMessageHandler<T>` test patterns from the messaging skill:
 - [ ] channel providers register only when config exists
 - [ ] no Domain/Application implementation dependencies in infrastructure notification project
 - [ ] secrets are sourced from secure providers (not plain appsettings)
-- [ ] resilience policies are enabled for external notification calls
+- [ ] each provider client has exactly one resilience layer (the inherited standard handler or the SDK's retry options) and no send is retried without an idempotency key
