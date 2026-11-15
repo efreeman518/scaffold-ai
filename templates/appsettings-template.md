@@ -40,13 +40,6 @@ This is a complete reference of all configuration sections used across the solut
     }
   ],
 
-  "AzureAd": {
-    "Instance": "https://login.microsoftonline.com/",
-    "TenantId": "{entra-tenant-id}",
-    "ClientId": "{api-client-id}",
-    "Audience": "api://{api-client-id}"
-  },
-
   "Proxy": {
     "ForwardedHeaders": { "Enabled": false, "ForwardLimit": 1, "KnownProxies": [], "KnownNetworks": [], "AllowedHosts": [] },
     "PathBase": ""
@@ -137,13 +130,6 @@ This is a complete reference of all configuration sections used across the solut
 {
   "AppName": "{Gateway}.Gateway",
   "AuthMode": "Scaffold",
-
-  "Gateway_EntraExt": {
-    "Instance": "https://{tenant-name}.ciamlogin.com/",
-    "TenantId": "{entra-external-tenant-id}",
-    "ClientId": "{gateway-client-id}",
-    "Audience": "{gateway-client-id}"
-  },
 
   "Proxy": {
     "ForwardedHeaders": { "Enabled": false, "ForwardLimit": 1 },
@@ -261,6 +247,6 @@ This is a complete reference of all configuration sections used across the solut
 - A Gateway cluster's `Metadata:TokenScope` gets a downstream token from `AccessTokenCache`; `Metadata:RelayUserClaims` adds the relay header. A cluster without `TokenScope` passes the inbound `Authorization` header through unchanged
 - `Proxy`, `Cors`/`CorsSettings`, `RateLimiting:Tenants`, `RateLimiting:Edge`, `OpenTelemetry`, `Messaging:Inbox`, `OutboxDispatcher` and `Scheduling` are validated at registration or host start by their EF packages; an invalid value fails startup
 - `OutboxDispatcher:MaxAttempts` defaults to 5 when unset
-- `AuthMode` is one validated value (`Scaffold` or `Entra`) that the API and the Gateway read through `AuthModeResolver`; unset means `Scaffold`, and a deployment sets the same intended mode on both. In `Scaffold` mode a cluster's `TokenScope` stays empty; an `Entra` deployment sets it to the API's scope (`api://{api-client-id}/.default`)
+- `AuthMode` is one validated value (`Scaffold` or `Entra`) that the API and the Gateway read through `AuthModeResolver`; unset means `Scaffold`, and a deployment sets the same intended mode on both. Base files carry no provider section: `AzureAd` (API) and `Gateway_EntraExt` (Gateway) are deployment values of an `Entra` deployment, so the mode fails startup when they are missing. In `Scaffold` mode a cluster's `TokenScope` stays empty; an `Entra` deployment sets it to the API's scope (`api://{api-client-id}/.default`)
 - `AiServices:Provider` is the sole activation source. Endpoint, deployment, and connection values validate the selected provider but never activate it. Default to `None`. `OpenAICompatible` additionally requires `AiServices:ApiKey`, supplied only through user secrets or an environment/secret store.
 - For production/Azure: use Key Vault references or App Configuration for secrets

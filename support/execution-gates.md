@@ -441,7 +441,7 @@ Delivery checks:
 
 ### Authentication Finalization (within 5e)
 
-**Scaffold mode is the default.** Authentication finalization is complete when the app builds, tests pass, and auth works with the config-driven scaffold principal. Live identity provider setup is supplemental hardening - it does **not** block scaffold completion.
+**Scaffold mode is the default.** Authentication finalization is complete when the app builds, tests pass, auth works with the config-driven scaffold principal, and the rows below that apply to the app pass. Which rows apply: [../skills/identity-management.md](../skills/identity-management.md) section Phase 5e by authProvider. Live identity provider setup is supplemental hardening - it does **not** block scaffold completion.
 
 | Mode | Required |
 |---|---|

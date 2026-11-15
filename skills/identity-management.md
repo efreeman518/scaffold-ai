@@ -7,14 +7,14 @@ Use this skill when domain inputs enable `authProvider` and the solution needs a
 | `authProvider` | Phase 5e adds | Gate rows that apply | Deployed (`Production`) host |
 |---|---|---|---|
 | `EntraID`, `EntraExternal` | The `Entra` branch on the API and the Gateway, its configuration and client affordances | Scaffold, Entra code path, and Live provider once provisioned | Runs with `AuthMode: Entra` and the provider settings; both are deployment values set with the live provider, the deployment-only dependency this phase logs in `HANDOFF.md` |
-| `None` (login-free) | No live branch; confirms `ScaffoldPrincipal.cs` lists each deployed environment and that `.scaffold/DESIGN-DECISIONS.md` records it | Scaffold only | Runs as the fixed principal |
+| `None` (login-free) | No live branch; confirms `ScaffoldPrincipal.cs` lists each deployed environment and that `.scaffold/DESIGN-DECISIONS.md` records it | Scaffold only | Runs as the fixed principal; every user shares its tenant's rate-limit partition, so that tier is sized as the whole app's budget |
 | Any other provider | No live branch; records the provider in `HANDOFF.md` as deployment work | Scaffold only | Not deployable until that provider is wired |
 
 ## Scaffold Mode vs Live Provider
 
 **A generated app runs in `AuthMode: Scaffold` until a live provider is configured.** Generated apps must run locally without any live identity provider (Entra ID, Entra External ID) configured. Real provider setup is supplemental deployment hardening, not a scaffold requirement.
 
-- Phase 5e authentication finalization is complete when the app boots end-to-end with the scaffold principal and endpoint tests pass.
+- Phase 5e authentication finalization is complete when the app boots end-to-end with the scaffold principal, endpoint tests pass, and the gate rows that apply to the app pass (the table above).
 - Live Entra setup is a `deployment-only` dependency: log it in `HANDOFF.md` and continue.
 - `AuthMode` is `Scaffold` in `appsettings.json` and `appsettings.Development.json`; an unset key also resolves to `Scaffold`.
 - For `EntraID` and `EntraExternal`, production/staging environments set `AuthMode` to `Entra`. The mode controls registration, mapped routes, and visible client sign-in choices together.

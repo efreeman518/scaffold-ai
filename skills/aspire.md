@@ -482,10 +482,10 @@ var tunnel = builder.AddDevTunnel(
     tunnelId: "{project}-dev-tunnel",
     options: new DevTunnelOptions { AllowAnonymous = false });
 
-tunnel.WithReference(gateway.GetEndpoint("https-gateway"), allowAnonymous: true);
+tunnel.WithReference(gateway.GetEndpoint("https-gateway"), allowAnonymous: false);
 ```
 
-Use persistent `tunnelId` for stable callback URLs.
+Use persistent `tunnelId` for stable callback URLs. The tunnel requires sign-in: in `Scaffold` mode every request that reaches the Gateway is the fixed principal. Anonymous tunnel access, for a third-party callback, is opened only for a host running `AuthMode: Entra`.
 
 ---
 
