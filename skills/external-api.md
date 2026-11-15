@@ -1,6 +1,6 @@
 # External API Integration
 
-> **Shared infrastructure pattern:** External APIs and messaging services both follow the same integration chain: **Settings class -> Named client/auth handler -> DI extension method -> Resilience pipeline -> Wrapper service**. This file shows the pattern for external APIs. For messaging-specific adapters (Service Bus, Event Grid, Event Hub), see [messaging.md](messaging.md) which follows the same structural conventions.
+> **Shared infrastructure pattern:** External APIs and messaging services both follow the same integration chain: **Settings class -> Named client/auth handler -> DI extension method -> Resilience -> Wrapper service**. This file shows the pattern for external APIs, where the resilience step is the handler the client inherits from ServiceDefaults and adds nothing to. For messaging-specific adapters (Service Bus, Event Grid, Event Hub), see [messaging.md](messaging.md) which follows the same structural conventions.
 
 Use one infrastructure project per external API: `Infrastructure.{ServiceName}`.
 
@@ -25,7 +25,6 @@ Rule: Application layer depends on `I{ServiceName}Service` (contracts), not Refi
 
 ```xml
 <PackageReference Include="Refit.HttpClientFactory" />
-<PackageReference Include="Microsoft.Extensions.Http.Resilience" />
 <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
 ```
 
@@ -61,9 +60,6 @@ public class {ServiceName}Settings
     public const string ConfigSectionName = "{ServiceName}";
     public string BaseUrl { get; set; } = null!;
     public string ApiKey { get; set; } = null!;
-    public int RetryCount { get; set; } = 3;
-    public int CircuitBreakerThreshold { get; set; } = 5;
-    public int TimeoutSeconds { get; set; } = 30;
 }
 
 public class {ServiceName}AuthHandler(IOptions<{ServiceName}Settings> settings) : DelegatingHandler
@@ -80,7 +76,7 @@ public class {ServiceName}AuthHandler(IOptions<{ServiceName}Settings> settings) 
 
 ## DI + Refit + Resilience
 
-Resilience defaults, what-not-to-wrap guidance, and the never-stack-pipelines rule: [resilience.md](resilience.md).
+The client takes the standard resilience handler every `HttpClient` inherits from `AddServiceDefaults()` (retry on safe methods only, circuit breaker, attempt and total timeouts) and adds nothing to it. Policy, the override for a provider the defaults do not fit, and what not to wrap: [resilience.md](resilience.md).
 
 ```csharp
 public static class ServiceCollectionExtensions
@@ -93,41 +89,12 @@ public static class ServiceCollectionExtensions
 
         services.AddTransient<{ServiceName}AuthHandler>();
 
-        var client = services
+        // Resilience: the standard handler inherited from ServiceDefaults. It does not retry a POST, so a
+        // payment or other non-idempotent call is sent once.
+        services
             .AddRefitClient<I{ServiceName}Api>()
-            .ConfigureHttpClient(c =>
-            {
-                c.BaseAddress = new Uri(settings.BaseUrl);
-                c.Timeout = TimeSpan.FromSeconds(settings.TimeoutSeconds);
-            })
+            .ConfigureHttpClient(c => c.BaseAddress = new Uri(settings.BaseUrl))
             .AddHttpMessageHandler<{ServiceName}AuthHandler>();
-
-        // Replace the ServiceDefaults standard handler instead of stacking a second pipeline on it.
-#pragma warning disable EXTEXP0001 // RemoveAllResilienceHandlers is [Experimental]; this client owns its pipeline. Remove this pragma when the API is no longer experimental.
-        client.RemoveAllResilienceHandlers();
-#pragma warning restore EXTEXP0001
-        client.AddResilienceHandler("{ServiceName}", (builder, context) =>
-            {
-                var retry = new HttpRetryStrategyOptions
-                {
-                    MaxRetryAttempts = settings.RetryCount,
-                    BackoffType = DelayBackoffType.Exponential,
-                    UseJitter = true
-                };
-                // A retried POST repeats a payment; only safe methods retry unless the call carries an idempotency key.
-                retry.DisableForUnsafeHttpMethods();
-                builder.AddRetry(retry);
-
-                builder.AddCircuitBreaker(new HttpCircuitBreakerStrategyOptions
-                {
-                    FailureRatio = 0.5,
-                    MinimumThroughput = settings.CircuitBreakerThreshold,
-                    SamplingDuration = TimeSpan.FromSeconds(30),
-                    BreakDuration = TimeSpan.FromSeconds(15)
-                });
-
-                builder.AddTimeout(TimeSpan.FromSeconds(10));
-            });
 
         services.AddScoped<I{ServiceName}Service, {ServiceName}Service>();
         return services;
@@ -190,7 +157,7 @@ services.Add{ServiceName}(config);
 
 - Unit-test wrapper by mocking `I{ServiceName}Api`.
 - Integration tests replace Refit registration with mock service client.
-- Validate mapping, retries/fallback behavior, and sanitized error handling.
+- Validate mapping and sanitized error handling. Retries belong to the inherited handler, which a mocked `I{ServiceName}Api` does not run; assert none here.
 
 ### Webhook / Callback Contract (if provider pushes events)
 
@@ -206,8 +173,8 @@ When an external provider posts callbacks into your system:
 ## Verification
 
 - [ ] `Infrastructure.{ServiceName}` contains contract, handler, settings, wrapper, DI extension
-- [ ] Refit + resilience packages declared centrally
-- [ ] Per-client resilience configured (retry + breaker + timeout)
+- [ ] Refit package declared centrally
+- [ ] The client inherits the ServiceDefaults standard handler and adds no second one; an override follows [resilience.md](resilience.md) section Per-Client Override.
 - [ ] Wrapper implements `Application.Contracts` abstraction
 - [ ] No raw `HttpClient` usage in app/domain layers
 

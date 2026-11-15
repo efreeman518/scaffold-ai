@@ -67,13 +67,15 @@ csproj references:
   <PackageReference Include="MudBlazor" />
   <PackageReference Include="Refit" />
   <PackageReference Include="Refit.HttpClientFactory" />
-  <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+  <PackageReference Include="Microsoft.Extensions.Http.Resilience" /> <!-- WebAssembly only -->
 </ItemGroup>
 
 <ItemGroup>
   <!-- Direct project reference to shared DTOs avoids duplicating contracts. -->
   <ProjectReference Include="..\..\Application\{Project}.Application.Models\{Project}.Application.Models.csproj" />
   <ProjectReference Include="..\..\Domain\{Project}.Domain.Shared\{Project}.Domain.Shared.csproj" />
+  <!-- Server only: AddServiceDefaults and MapDefaultEndpoints. -->
+  <ProjectReference Include="..\..\Host\Aspire\ServiceDefaults\ServiceDefaults.csproj" />
 </ItemGroup>
 ```
 
@@ -97,6 +99,10 @@ using {Project}.Blazor.Components;
 using {Project}.Blazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// First registration, as in every server-hosted host: telemetry, health, service discovery and the standard
+// resilience handler (safe methods only) on every HttpClient below.
+builder.AddServiceDefaults();
 
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 
@@ -128,10 +134,12 @@ builder.Services
         c.BaseAddress = new Uri(gatewayUrl);
         c.DefaultRequestHeaders.Add("Accept", "application/json");
     })
-    // The Gateway token handler is added here (Auth section).
-    .AddStandardResilienceHandler();
+    // A token handler, when the Auth section calls for one, is chained here. No resilience handler is added:
+    // the client inherits the standard one from AddServiceDefaults, which does not retry a POST; a second one would.
+    ;
 
 var app = builder.Build();
+app.MapDefaultEndpoints(); // the /healthz probes ServiceDefaults owns
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error", createScopeForErrors: true); app.UseHsts(); }
 // Emit only when this host owns public TLS. Omit when Container Apps, Caddy, or another edge owns TLS.
 if (builder.Configuration.GetValue<bool>("Hosting:RedirectToHttps")) app.UseHttpsRedirection();
@@ -148,6 +156,7 @@ app.Run();
 Differences from Server:
 
 - `builder = WebAssemblyHostBuilder.CreateDefault(args)` - no `ConfigureWebHost`
+- No `AddServiceDefaults()`, `MapDefaultEndpoints()` or ServiceDefaults project reference: the browser app is not a server host. Its Refit client therefore inherits no resilience handler and adds the one it has: `.AddStandardResilienceHandler(o => o.Retry.DisableForUnsafeHttpMethods())`
 - Load `appsettings.json` from `wwwroot` via `HttpClient.GetStringAsync("appsettings.json")`
 - Use `AddMsalAuthentication` for Entra External ID (see Auth section)
 - Register a `DelegatingHandler` that acquires an access token from `IAccessTokenProvider` and sets `Authorization: Bearer <token>`. Attach via `.AddHttpMessageHandler<ApiAuthHandler>()` on the Refit client
@@ -382,7 +391,8 @@ builder.Services.AddScoped<ApiAuthHandler>();  // DelegatingHandler
 
 builder.Services.AddRefitClient<I{Project}ApiClient>(...)
     .ConfigureHttpClient(c => c.BaseAddress = new Uri(gatewayUrl))
-    .AddHttpMessageHandler<ApiAuthHandler>();
+    .AddHttpMessageHandler<ApiAuthHandler>()
+    .AddStandardResilienceHandler(o => o.Retry.DisableForUnsafeHttpMethods()); // the one handler (no ServiceDefaults here)
 ```
 
 `ApiAuthHandler` reads the token from `IAccessTokenProvider` in `SendAsync` and sets `Authorization: Bearer <token>`.
@@ -501,7 +511,7 @@ The consumption-side preference ("prefer stable selectors") lives in
 - [ ] `includeBlazorUI: true` set in domain inputs
 - [ ] `Gateway:BaseUrl` present in `appsettings*.json`
 - [ ] MudBlazor + Refit + Refit.HttpClientFactory versions in `Directory.Packages.props`
-- [ ] `Program.cs` registers `FloatService` as scoped, MudBlazor services, Refit client with JSON options + resilience
+- [ ] `Program.cs` registers `FloatService` as scoped, MudBlazor services and the Refit client with JSON options; Server calls `AddServiceDefaults()` and `MapDefaultEndpoints()` and adds no resilience handler, WebAssembly adds the one safe-methods-only standard handler
 - [ ] `App.razor` and `Routes.razor` apply `@rendermode="InteractiveServer"` (Server) or use `Router` under the WASM root (WASM)
 - [ ] `MainLayout.razor` wires all four Mud providers, `FloatService.StateHasChanged` bound in `OnInitialized`, cleared in `Dispose`
 - [ ] Refit interface uses `DefaultRequest<T>` for POST/PUT bodies, `DefaultResponse<T>` for single-item returns, `SearchRequest<T>`/`PagedResponse<T>` for search

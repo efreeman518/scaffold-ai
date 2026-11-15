@@ -408,7 +408,7 @@ Deserialize with `JsonTestOptions.Default` ([test-templates-endpoint.md](test-te
 ### Prefer the API/gateway path for write assertions
 Assert writes by calling the API/gateway directly (the `DbApiFactory` client), not by driving the
 Blazor UI. A browser-driven write adds two failure modes unrelated to the behavior under test: a MudBlazor
-dialog + Refit `AddStandardResilienceHandler` can return 400 before the request leaves the client (the
+dialog + the Refit client's standard resilience handler can return 400 before the request leaves the client (the
 same payload sent direct-to-gateway succeeds), and `@bind-Value` commits on blur so a programmatic fill
 can submit stale/empty values (see [troubleshooting.md](../support/troubleshooting.md) and
 [ui-blazor-forms.md](../skills/ui-blazor-forms.md)). Reserve browser-driven steps for render and
