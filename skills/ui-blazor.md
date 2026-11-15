@@ -108,6 +108,20 @@ builder.Services.AddMudServices(cfg =>
 
 builder.Services.AddScoped<FloatService>();
 
+// The same mode decision and fallback policy as the API (patterns/api-host-wiring.md).
+if (AuthModeResolver.Resolve(builder.Configuration["AuthMode"]) == AuthMode.Scaffold)
+    builder.Services.AddAuthentication(ScaffoldPrincipal.SchemeName)
+        .AddFixedPrincipal(ScaffoldPrincipal.SchemeName, o =>
+        {
+            o.Claims = [.. ScaffoldPrincipal.Claims.Select(c => new FixedClaim(c.Type, c.Value))];
+            o.AllowedEnvironments = [.. ScaffoldPrincipal.AllowedEnvironments];
+        });
+else
+    builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
+        .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"));   // cookie OIDC (Auth section)
+builder.Services.AddAuthorizationBuilder()
+    .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+
 var jsonOptions = new JsonSerializerOptions
 {
     PropertyNameCaseInsensitive = true,
@@ -136,6 +150,8 @@ if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error", create
 // Emit only when this host owns public TLS. Omit when Container Apps, Caddy, or another edge owns TLS.
 if (builder.Configuration.GetValue<bool>("Hosting:RedirectToHttps")) app.UseHttpsRedirection();
 app.UseStaticFiles();
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.Run();
@@ -389,7 +405,7 @@ builder.Services.AddRefitClient<I{Project}ApiClient>(...)
 
 ### Server -> cookie + forward bearer
 
-For Blazor Server, auth at the edge is a cookie (OIDC), and the server forwards a service-principal bearer token to the Gateway. Use Microsoft.Identity.Web server-side; the Gateway's cluster `TokenScope` (EF.Gateway over the EF.Auth `AccessTokenCache`) acquires the downstream token. The Blazor Server host resolves `AuthMode` through `AuthModeResolver` and sets the same fallback policy as the API ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration).
+For Blazor Server, auth at the edge is a cookie (OIDC), and the server forwards a service-principal bearer token to the Gateway. Use Microsoft.Identity.Web server-side; the Gateway's cluster `TokenScope` (EF.Gateway over the EF.Auth `AccessTokenCache`) acquires the downstream token.
 
 See [identity-management.md](identity-management.md) for Entra External ID registration details - the UI app registration values slot into the `EntraExternal` section of `appsettings.json`.
 

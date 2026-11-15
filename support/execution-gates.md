@@ -441,11 +441,11 @@ Delivery checks:
 
 ### Authentication Finalization (within 5e)
 
-**Scaffold mode is the default.** Authentication finalization is complete when the app builds, tests pass, and auth works with the config-driven scaffold principal. Live identity provider setup is supplemental hardening - it does **not** block scaffold completion.
+**Scaffold mode is the development mode.** Authentication finalization is complete when the app builds, tests pass, and auth works with the config-driven scaffold principal. Live identity provider setup is supplemental hardening - it does **not** block scaffold completion.
 
 | Mode | Required |
 |---|---|
-| Scaffold (default) | `AuthMode` toggle present; app boots with the scaffold principal; DI registration, endpoint mapping, and client affordances select the scaffold path; anonymous `GET /auth/mode` reports `Scaffold`; endpoint and presentation tests pass |
+| Scaffold (development) | `AuthMode` toggle present; app boots with the scaffold principal; DI registration, endpoint mapping, and client affordances select the scaffold path; anonymous `GET /auth/mode` on the host clients call reports `Scaffold`; endpoint and presentation tests pass |
 | Entra code path (provider may still be deferred) | Entra handler selected; anonymous `GET /auth/mode` reports `Entra`; clients hide the development email form and expose only the Entra action; mode-matrix tests pass without requiring a live tenant; deterministic PKCE/callback/issuer/endpoint/state/origin/path/popup/token-audience tests pass; Uno browser-WASM includes `ICustomWebUi`, same-origin `login-callback.htm` using the COOP-proof `localStorage` return channel, and a plain browser `HttpClient` factory |
 | Live provider (only when intentionally provisioned) | Auth provider configured with real tenant values; registration/roles/consent complete; authenticated endpoint behavior verified against live tokens; the scaffold principal cannot activate; one real interactive sign-in per enabled UI head from the published `Release` build verifies its actual browser/mobile/desktop mechanism |
 
@@ -460,7 +460,7 @@ If live Entra setup is not yet performed, log registration/roles/consent plus pe
 
 ### AI Integration (within 5e, when `includeAiServices: true`)
 
-**Scaffold mode is the default.** AI integration is complete when AI-backed interfaces compile, resolve from DI, and tests pass with stubs or no-op implementations. Live Foundry/AI Search endpoints are deployment-only dependencies and do not block scaffold completion.
+**Scaffold mode is the development mode.** AI integration is complete when AI-backed interfaces compile, resolve from DI, and tests pass with stubs or no-op implementations. Live Foundry/AI Search endpoints are deployment-only dependencies and do not block scaffold completion.
 
 Provider contract: `AiServices:Provider` is the sole activation source and defaults to `None`; raw endpoint, deployment, and connection values only validate the selected provider. AppHost, runtime DI, status, and live-test eligibility use the same resolver. No-op is valid for non-live tests only. `Test.Aspire` checks explicit Azure selection and configuration before AppHost creation. Explicit false run flags are fast opt-outs, not prerequisites for absent optional providers. Classification owner: [../skills/ai-integration.md](../skills/ai-integration.md) section Optional Live-Provider Classification.
 

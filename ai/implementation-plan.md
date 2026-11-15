@@ -56,7 +56,7 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 ### Phase 5b - App Core + Runtime/Edge (TDD for app/API, tests-after for runtime)
 - [ ] Write service unit tests (red) -> implement services + mappers + validators (green)
 - [ ] Write endpoint integration tests (red) -> implement endpoints (green)
-- [ ] API host authentication from its first wiring: `Scaffold` fixed principal, authorization fallback policy, anonymous `GET /auth/mode`; authentication contract tests pass
+- [ ] API host authentication from its first wiring: `Scaffold` fixed principal, authorization fallback policy, anonymous `GET /auth/mode` on the host clients call; authentication contract tests pass
 - [ ] Replace no-op service stubs with real implementations
 - [ ] Message handlers (if events defined)
 - [ ] Bootstrapper DI wiring finalized
@@ -94,7 +94,7 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 
 **Authentication finalization:**
 - [ ] Prompt for identity provider scenario (see options below)
-- [ ] Add the live provider branch to the `AuthMode` registration (the scaffold principal stays the default)
+- [ ] Add the live provider branch to the `AuthMode` registration (the scaffold principal stays the development mode)
 - [ ] Gate both auth modes across DI registration, endpoint mapping, and client affordances
 - [ ] Wire auth middleware, token validation, and role/scope checks
 - [ ] Update appsettings with provider-specific configuration

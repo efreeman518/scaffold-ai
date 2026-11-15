@@ -275,7 +275,7 @@ public interface I{Project}AttachmentService
 // File: Application.Contracts/AttachmentLimits.cs - the one place the upload limits are decided
 public static class AttachmentLimits
 {
-    public const long MaxFileBytes = 10 * 1024 * 1024;
+    public const long MaxFileBytes = 25 * 1024 * 1024;              // the client reads up to the same limit
     public const long MaxRequestBytes = MaxFileBytes + 64 * 1024;   // one file plus its form fields
     public static readonly IReadOnlySet<string> ContentTypes =
         new HashSet<string> { "application/pdf", "image/png", "image/jpeg" };
@@ -339,7 +339,7 @@ public interface I{Project}ApiClient
 **Non-negotiables:**
 - `OpenReadStream(maxAllowedSize: ...)` - the default is 512 KB and silently truncates larger files in WASM. The client limit is a convenience; the server limits decide.
 - Authorization on the endpoint is unconditional, and `.DisableAntiforgery()` carries its reason at the site: the API host has no cookie authentication in either `AuthMode`.
-- The service matches the file's leading bytes against a content-type allowlist (not the extension or the `Content-Type` the client sent) and rejects anything else. It resolves `ownerType` against the app's closed list of attachable entity types and checks, through the access decision, that the caller may attach to `ownerId` before it reads the stream. The server makes the storage key from validated values only, keeps the client's file name only as sanitized display metadata, and stores the detected type: [azure-blob-storage.md](azure-blob-storage.md) section Attachment Rules.
+- The service matches the file's leading bytes against a content-type allowlist (not the extension or the `Content-Type` the client sent) and rejects anything else. It resolves `ownerType` against the app's closed list of attachable entity types and checks, through the access decision, that the caller may attach to `ownerId` before it stores anything. The server makes the storage key from validated values only, keeps the client's file name only as sanitized display metadata, and stores the detected type: [azure-blob-storage.md](azure-blob-storage.md) section Attachment Rules.
 - `[Multipart]` on the Refit method **and** `[AliasAs]` on every parameter - Refit's default name mangler emits PascalCase which the model binder fails to match.
 - Stream the file (`OpenReadStream`) instead of buffering to a byte array - large uploads OOM the circuit otherwise.
 

@@ -80,6 +80,7 @@ public static IServiceCollection AddGatewayServices(this IServiceCollection serv
     services.AddAzureTokenCredential(config);   // EF.Host: one TokenCredential (ManagedIdentityClientId / AzureTenantId)
     services.AddAccessTokenCache();             // EF.Auth: single-flight token cache over that credential
     services.AddEfProblemDetails();
+    AddAuthentication(services, config);        // section Authentication Model
 
     services.AddReverseProxy()
         .LoadFromConfig(config.GetSection("ReverseProxy"))
@@ -134,14 +135,19 @@ private static void AddAuthentication(IServiceCollection services, IConfiguratio
     // The one mode decision and the same fixed principal as the API.
     var mode = AuthModeResolver.Resolve(config["AuthMode"]);
     if (mode == AuthMode.Scaffold)
+    {
         services.AddAuthentication(ScaffoldPrincipal.SchemeName)
             .AddFixedPrincipal(ScaffoldPrincipal.SchemeName, o =>
             {
                 o.Claims = [.. ScaffoldPrincipal.Claims.Select(c => new FixedClaim(c.Type, c.Value))];
                 o.AllowedEnvironments = [.. ScaffoldPrincipal.AllowedEnvironments];
             });
-    else   // AuthMode.Entra: Phase 5e puts the live provider registration here; without it the mode fails startup.
+    }
+    else
+    {
+        // AuthMode.Entra: Phase 5e puts the live provider registration here; without it the mode fails startup.
         throw new InvalidOperationException("AuthMode 'Entra' has no provider registration");
+    }
 
     // Every AuthMode: a route with no policy of its own still requires an authenticated user.
     services.AddAuthorizationBuilder()
@@ -166,7 +172,9 @@ app.UseAuthorization();
 app.UseRateLimiter();       // UseEdgeLimiter partitions on the forwarded client IP
 app.UseRequestTimeouts();
 app.MapDefaultEndpoints();  // MapEfHealthEndpoints
-// Anonymous GET /auth/mode is mapped here, before the proxy (patterns/api-host-wiring.md).
+var authMode = AuthModeResolver.Resolve(app.Configuration["AuthMode"]);
+app.MapGet("/auth/mode", () => TypedResults.Ok(new { mode = authMode.ToString() }))
+    .AllowAnonymous();      // read before sign-in; the public mode only (patterns/api-host-wiring.md)
 app.MapReverseProxy().RequireAuthorization();
 ```
 
@@ -230,6 +238,7 @@ Pick one convention per project and apply it everywhere. Never use dual-prefix p
 
 ## Verification
 
+- [ ] `AuthMode` resolves through `AuthModeResolver`, the fallback policy is set, and the only anonymous routes are the health probes and `GET /auth/mode`
 - [ ] YARP routes/clusters load from config
 - [ ] `AddDownstreamAuthTransforms(config)` registered; clusters declare `TokenScope` / `RelayUserClaims` metadata; no app token service or relay transform
 - [ ] Gateway and API bind the same `ForwardedClaims` section

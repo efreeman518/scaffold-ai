@@ -442,7 +442,7 @@ Scaffold with `.AddCustom()` (no external identity provider required). When read
 5. `AuthTokenHandler` (reads `ITokenCache`) works identically with both providers
 6. Configure Gateway with its Entra External ID section (see [identity-management.md](identity-management.md))
 
-The login model first reads anonymous `GET /auth/mode` from the auth-owning host. Show the development email form only for `Scaffold`, where the custom provider signs in on the client without a backend call; show the Entra interactive action only for `Entra`. A build/runtime mismatch is a configuration error, not permission to fall back to the development sign-in.
+The login model first reads anonymous `GET /auth/mode` from the host it calls. Show the development email form only for `Scaffold`, where the custom provider signs in on the client without a backend call; show the Entra interactive action only for `Entra`. A build/runtime mismatch is a configuration error, not permission to fall back to the development sign-in.
 
 ### Browser-WASM MSAL Custom Web UI
 

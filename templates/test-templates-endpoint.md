@@ -112,8 +112,9 @@ public abstract class WebApplicationFactoryBase<TProgram, TTrxnContext, TQueryCo
 1. **Typed options per context** (`DbContextOptionsFactory.BuildInMemoryOptions<{App}DbContextTrxn>(...)`). `DbContextBase` constructors take non-generic `DbContextOptions`, but EF validates the generic type at runtime.
 2. Derived factories provide only the test-mode store: override `BuildTrxnOptions()` / `BuildQueryOptions()`, or `ConnectionString` plus `BuildOptionsFor<TContext>(connectionString)`, which has no provider default and throws until overridden with `PostgreSqlTestDbContextOptions.Build` or `SqlServerTestDbContextOptions.Build`.
 3. **`HostSettings` vs `ConfigureTestConfiguration`:** `Program` reads configuration while it registers services, before `ConfigureAppConfiguration` sources exist. A key registration reads (lane, application style, provider toggles) goes in `HostSettings`, which the base applies both as a host setting and in the final configuration; `ConfigureTestConfiguration(IConfigurationBuilder)` affects only the final configuration.
-4. **`ConfigureAdditionalTestServices`** runs after the swap; the adapter marks both harness contexts all-tenants there.
-5. Do not hand-roll descriptor-removal or reflection-creation plumbing in the app - it ships in `EF.IntegrationTesting` (see [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Testing (EF.Testing, EF.Testing.Architecture, EF.AI.Testing, EF.IntegrationTesting.*)).
+4. **Every factory's `HostSettings` includes `AuthMode=Scaffold`** (`InertLane.Settings` here, `LaneSettings()` in `Test.E2E`), so the host resolves its mode during registration whatever environment and user secrets the machine has.
+5. **`ConfigureAdditionalTestServices`** runs after the swap; the adapter marks both harness contexts all-tenants there.
+6. Do not hand-roll descriptor-removal or reflection-creation plumbing in the app - it ships in `EF.IntegrationTesting` (see [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Testing (EF.Testing, EF.Testing.Architecture, EF.AI.Testing, EF.IntegrationTesting.*)).
 
 ## DbAggregateSeeder (in Test.Support)
 

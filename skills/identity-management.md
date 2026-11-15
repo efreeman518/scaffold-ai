@@ -4,11 +4,11 @@ Use this skill when domain inputs enable `authProvider` and the solution needs a
 
 ## Scaffold Mode vs Live Provider
 
-**The default scaffold state is `AuthMode: Scaffold`.** Generated apps must run locally without any live identity provider (Entra ID, Entra External ID) configured. Real provider setup is supplemental deployment hardening, not a scaffold requirement.
+**A generated app runs in `AuthMode: Scaffold` until a live provider is configured.** Generated apps must run locally without any live identity provider (Entra ID, Entra External ID) configured. Real provider setup is supplemental deployment hardening, not a scaffold requirement.
 
 - Phase 5e authentication finalization is complete when the app boots end-to-end with the scaffold principal and endpoint tests pass.
 - Live Entra setup is a `deployment-only` dependency: log it in `HANDOFF.md` and continue.
-- The `AuthMode` key must be present in `appsettings.Development.json` with value `Scaffold` by default.
+- The `AuthMode` key is present in `appsettings.Development.json` and `appsettings.Testing.json` with value `Scaffold`; base `appsettings.json` carries none.
 - Production/staging environments override `AuthMode` to `Entra`. The mode controls registration, mapped routes, and visible client sign-in choices together.
 
 ## Identity Provider Scenarios
@@ -58,7 +58,7 @@ When roles, tenant membership, institution membership, or resource scope can cha
 
 ## Live Provider Registration
 
-Phase 5b generated `Add{App}Auth`, the fallback policy, `AuthMode`, `ScaffoldPrincipal` and `GET /auth/mode` ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration). This phase adds the `Entra` branch to that registration; the `Scaffold` branch and the fallback policy apply unchanged.
+Phase 5b generated `Add{App}Auth`, the fallback policy, `AuthMode`, `ScaffoldPrincipal` and, on the host clients call, `GET /auth/mode` ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration). This phase adds the `Entra` branch to that registration; the `Scaffold` branch and the fallback policy apply unchanged.
 
 ### Three-Leg Auth-Mode Contract
 
