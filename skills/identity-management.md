@@ -1,8 +1,6 @@
 # Identity Management
 
-Use this skill when domain inputs enable `authProvider` and the solution needs authentication or identity-backed user management. **This skill is applied in the integration phase (Phase 5e)** - earlier phases use auth stubs so the project compiles and runs without identity configuration.
-
-Reference patterns: [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) (Conditional Auth Configuration).
+Use this skill when domain inputs enable `authProvider` and the solution needs authentication or identity-backed user management. **This skill is applied in the integration phase (Phase 5e).** The hosts already authenticate every request with the `Scaffold` fixed principal and an authorization fallback policy from Phase 5b ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration); this phase adds the live provider.
 
 ## Scaffold Mode vs Live Provider
 
@@ -10,8 +8,8 @@ Reference patterns: [../patterns/api-host-wiring.md](../patterns/api-host-wiring
 
 - Phase 5e authentication finalization is complete when the app boots end-to-end with the scaffold principal and endpoint tests pass.
 - Live Entra setup is a `deployment-only` dependency: log it in `HANDOFF.md` and continue.
-- The config key (`AuthMode` or equivalent) must be present in `appsettings.Development.json` with value `Scaffold` by default.
-- Production/staging environments override `AuthMode` to the live provider name. That mode must control registration, mapped routes, and visible client sign-in choices together.
+- The `AuthMode` key must be present in `appsettings.Development.json` with value `Scaffold` by default.
+- Production/staging environments override `AuthMode` to `Entra`. The mode controls registration, mapped routes, and visible client sign-in choices together.
 
 ## Identity Provider Scenarios
 
@@ -58,134 +56,39 @@ When roles, tenant membership, institution membership, or resource scope can cha
 - External identity mutations use an explicit local/external operation order, report partial failure, return stable user-safe errors, and emit sanitized structured server logs with correlation IDs. Do not return raw Graph/provider messages, identifiers, tenant configuration, or credentials to clients.
 - General smoke tests do not create users, assign roles, or mutate optional external identity providers. Put those actions in an explicit provider-specific acceptance lane with owned cleanup.
 
-## Pre-Auth Stub Pattern (Phases 5a-5d)
+## Live Provider Registration
 
-Until this phase is reached, authentication must be **stubbed** so the project compiles and runs:
-
-```csharp
-// File: Host/{Host}.Api/Auth/AuthStub.cs
-// TODO: [CONFIGURE] Authentication - replace this stub with real identity provider configuration (see skills/identity-management.md)
-
-public static class AuthStub
-{
-    public static IServiceCollection AddAuthStub(this IServiceCollection services)
-    {
-        // No-op auth - all endpoints accessible without authentication
-        // Remove this stub and wire real auth in Phase 5e
-        return services;
-    }
-}
-```
-
-- Register `builder.Services.AddAuthStub()` in the host's `Program.cs`
-- Do **not** add `[Authorize]` attributes or `RequireAuthorization()` until real auth is wired
-- All endpoints should work without authentication during development
-
-## Config-Driven Auth Toggle (Phase 5e)
-
-Replace the pre-auth stub with a config-driven toggle that defaults to scaffold mode:
-
-```json
-// appsettings.Development.json
-{
-  "AuthMode": "Scaffold"
-}
-```
+Phase 5b generated `Add{App}Auth`, the fallback policy, `AuthMode`, `ScaffoldPrincipal` and `GET /auth/mode` ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration). This phase adds the `Entra` branch to that registration; the `Scaffold` branch and the fallback policy apply unchanged.
 
 ### Three-Leg Auth-Mode Contract
 
-Every auth mode gate has three legs. A mode implementation is incomplete unless all three move together:
+Two modes exist, `Scaffold` and `Entra`, and every mode gate has three legs. A mode implementation is incomplete unless all three move together:
 
-1. **DI registration:** register only the authentication handlers, token services, and local-session services used by the selected mode.
-2. **Endpoint mapping:** map provider-specific anonymous endpoints only in their owning mode. Conventional local-session routes such as `/auth/login`, `/auth/register`, and `/auth/refresh` exist in `Scaffold`/`Local`; they are not mapped under `Entra`.
+1. **DI registration:** register only the authentication handlers and token services used by the selected mode.
+2. **Endpoint mapping:** the backend maps no sign-in, registration or token-refresh route in either mode. The fixed principal authenticates every `Scaffold` request, and an `Entra` client obtains its token from the provider. Anonymous `GET /auth/mode` is mapped in both.
 3. **Client affordances:** the client reads the runtime mode before rendering sign-in and exposes only compatible actions. Do not show a development email form under `Entra`, or an Entra button when that client build has no live provider configured.
 
-The auth-owning host always exposes anonymous `GET /auth/mode`. Return only a validated public value such as `{ "mode": "Scaffold" }`, `{ "mode": "Local" }`, or `{ "mode": "Entra" }`; do not return tenant IDs, client IDs, authorities, or secrets. Reject unknown configured modes at startup. Clients may use this signal for presentation, but the backend authorization gate remains the security boundary.
-
-Representative mapping shape:
+Add a mode-matrix test for both values. Assert the selected handler resolves, `GET /auth/mode` stays anonymous and reports the mode, and the client presentation model selects the matching sign-in surface.
 
 ```csharp
-app.MapGet("/auth/mode", () => TypedResults.Ok(new { mode = authMode.ToString() }))
-    .AllowAnonymous();
-
-if (authMode is AuthMode.Scaffold or AuthMode.Local)
-    app.MapLocalSessionEndpoints();
-```
-
-Add a mode-matrix test for every supported value. Assert the selected handler resolves, `GET /auth/mode` stays anonymous, local-session routes exist only in local modes, and the client presentation model selects the matching sign-in surface.
-
-```csharp
-// File: Host/{Host}.Api/Auth/AuthConfiguration.cs
-using EF.Auth.Fixed;
-
-public static class AuthConfiguration
+// File: Host/{Host}.Api/Auth/AuthConfiguration.cs - the Entra branch of Add{App}Auth; it takes the place of the throw after the Scaffold branch
+// Selected live mode fails fast when required configuration is missing.
+var section = config.GetRequiredSection("AzureAd");
+_ = section["TenantId"]
+    ?? throw new InvalidOperationException("AzureAd:TenantId is required");
+_ = section["ClientId"]
+    ?? throw new InvalidOperationException("AzureAd:ClientId is required");
+services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApi(section);
+services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
 {
-    public static IServiceCollection AddAuth(this IServiceCollection services, IConfiguration config)
-    {
-        var mode = AuthModeResolver.Resolve(config["AuthMode"]);   // unknown value fails startup
-
-        if (mode == AuthMode.Scaffold)
-        {
-            // Scaffold principal: every request authenticates as the fixed identity (EF.Auth; API list in
-            // support/ef-packages-optional.md section Authentication).
-            services.AddAuthentication(ScaffoldPrincipal.SchemeName)
-                .AddFixedPrincipal(ScaffoldPrincipal.SchemeName, o =>
-                {
-                    o.Claims = [.. ScaffoldPrincipal.Claims.Select(c => new FixedClaim(c.Type, c.Value))];
-                    o.AllowedEnvironments = [.. ScaffoldPrincipal.AllowedEnvironments];
-                });
-            return services;
-        }
-
-        if (mode == AuthMode.Local)
-            return services.AddLocalSessionAuthentication(config);
-
-        // Selected live mode fails fast when required configuration is missing.
-        var section = config.GetRequiredSection("AzureAd");
-        _ = section["TenantId"]
-            ?? throw new InvalidOperationException("AzureAd:TenantId is required");
-        _ = section["ClientId"]
-            ?? throw new InvalidOperationException("AzureAd:ClientId is required");
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddMicrosoftIdentityWebApi(section);
-        services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
-        {
-            o.MapInboundClaims = false;   // section Claim-type contract
-            o.TokenValidationParameters.RoleClaimType = "roles";   // Entra app roles stay short
-            o.TokenValidationParameters.NameClaimType = "name";
-        });
-        services.Configure<HttpRequestContextOptions>(o => o.RoleClaimType = "roles");
-        return services;
-    }
-}
+    o.MapInboundClaims = false;   // section Claim-type contract
+    o.TokenValidationParameters.RoleClaimType = "roles";   // Entra app roles stay short
+    o.TokenValidationParameters.NameClaimType = "name";
+});
+services.Configure<HttpRequestContextOptions>(o => o.RoleClaimType = "roles");
+return services;
 ```
-
-```csharp
-// File: Application.Contracts/ScaffoldPrincipal.cs - shared by the Api and the Gateway so both register one identity
-public static class ScaffoldPrincipal
-{
-    public const string SchemeName = "Scaffold";
-
-    // Environments the fixed identity may run in; kept in code so configuration can never widen it.
-    // A login-free app that deploys as Production lists it deliberately; any other environment fails host start.
-    public static IReadOnlyList<string> AllowedEnvironments { get; } = ["Development", "Testing"];
-
-    public static IReadOnlyList<(string Type, string Value)> Claims { get; } =
-    [
-        // Audit id: the request context reads oid > NameIdentifier > sub. Use the FIXED seeded dev-user GUID
-        // (SeedConstants.DevUserId) so a stamped owner FK resolves - never a random/string id.
-        ("oid", SeedConstants.DevUserId.ToString()),
-        (ClaimTypes.NameIdentifier, SeedConstants.DevUserId.ToString()),
-        (ClaimTypes.Name, "Scaffold Principal"),
-        // Tenant: the request context reads tenant_id; the seeded dev tenant GUID. Omit it and tenant is null.
-        ("tenant_id", SeedConstants.DevTenantId.ToString()),
-        // Roles MUST use ClaimTypes.Role; a bare "roles" string leaves roles empty.
-        (ClaimTypes.Role, AppConstants.ROLE_GLOBAL_ADMIN)
-    ];
-}
-```
-
-`AddFixedPrincipal` authenticates every request as the configured claims, fails host start outside `AllowedEnvironments` (default `Development`, `Testing`) or with no claims, and logs one warning per scheme the first time it authenticates; generate no authentication handler. The scaffold principal authenticates HTTP requests only. Code running outside a request resolves the explicit system context ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Request Context Resolution), never this principal, its global-admin role, or the dev tenant.
 
 ### Claim-type contract (non-negotiable)
 
@@ -204,7 +107,7 @@ A mismatch (e.g. `("roles", ...)`) yields empty roles -> the cross-tenant check 
 
 ### UI: Custom Auth Provider (dev) to MSAL (production)
 
-Scaffold with `.AddCustom()` in `App.xaml.host.cs` - no external identity provider required:
+Scaffold with `.AddCustom()` in `App.xaml.host.cs` - no external identity provider required. The provider signs in on the client without a backend call; the Gateway and API authenticate each request as the fixed principal:
 
 ```csharp
 .UseAuthentication(auth => auth
@@ -220,7 +123,7 @@ Upgrade to production: replace `.AddCustom(...)` with `.AddMsal()`, change cspro
 
 ### Gateway: Config-Driven Auth Toggle
 
-Gateway selects auth from `AuthMode`, not from accidental config-section presence. `Scaffold` and `Local` register their owned development/session schemes. `Entra` requires a complete Entra section and fails startup when it is missing; it must never fall back to anonymous passthrough.
+Gateway selects auth from `AuthMode`, not from accidental config-section presence. `Scaffold` registers the fixed principal. `Entra` requires a complete Entra section and fails startup when it is missing; it must never fall back to anonymous passthrough.
 
 ```csharp
 public static void AddAuthentication(this IServiceCollection services, IConfiguration config)
@@ -231,11 +134,6 @@ public static void AddAuthentication(this IServiceCollection services, IConfigur
         // The same EF.Auth fixed principal as the API (ScaffoldPrincipal claims and environments).
         services.AddAuthentication(ScaffoldPrincipal.SchemeName)
             .AddFixedPrincipal(ScaffoldPrincipal.SchemeName, ConfigureScaffoldPrincipal);
-        return;
-    }
-    if (mode.Equals("Local", StringComparison.OrdinalIgnoreCase))
-    {
-        services.AddLocalSessionAuthentication(config);
         return;
     }
     if (!mode.Equals("Entra", StringComparison.OrdinalIgnoreCase))
@@ -446,7 +344,7 @@ Rule: secrets come from Key Vault/User Secrets only.
 2. Gateway handles token validation; Graph services handle admin/user management operations.
 3. Register identity services as `Scoped`.
 4. Use `Microsoft.Graph` v5+ with `GraphServiceClient`.
-5. In lite mode, skip identity infrastructure and use a local/mock request context.
+5. In lite mode, skip identity infrastructure; the hosts keep the `Scaffold` fixed principal.
 6. For regulated/sensitive classifications, enforce least-privilege roles and trace access decisions with auditable correlation IDs.
 7. Optional Entra/Graph admin integrations use a no-op stub when their capability is not selected. A selected `AuthMode: Entra` with missing auth configuration is a startup error, never a no-op fallback.
 8. Internal execution routes must use service-scoped policies, not admin role policies. See the Internal vs Admin Routes section.
@@ -460,9 +358,9 @@ Rule: secrets come from Key Vault/User Secrets only.
 - [ ] EF.Auth `AddFixedPrincipal` registered only when `AuthMode` is `Scaffold`, with `ScaffoldPrincipal.AllowedEnvironments` in code; no app authentication handler
 - [ ] Every JwtBearer registration sets `MapInboundClaims` deliberately and the relay, request context and rate limiter claim types match it
 - [ ] Auth mode controls all three legs: DI registration, endpoint mapping, and client affordances
-- [ ] Anonymous `GET /auth/mode` returns only a validated public mode in every supported mode
-- [ ] `/auth/login`, `/auth/register`, and `/auth/refresh` are not mapped under `AuthMode: Entra`
-- [ ] Mode-matrix endpoint and presentation tests prove route presence/absence and the matching sign-in UI
+- [ ] Anonymous `GET /auth/mode` returns only a validated public mode in both modes
+- [ ] No backend sign-in, registration or token-refresh route is mapped in either mode
+- [ ] Mode-matrix endpoint and presentation tests prove the selected handler, `GET /auth/mode` and the matching sign-in UI
 - [ ] Optional Entra/Graph admin DI is conditional; selected `AuthMode: Entra` fails startup on missing auth config
 - [ ] `Infrastructure.EntraExt` and/or `Infrastructure.Graph` builds cleanly when config is populated
 - [ ] `Microsoft.Graph` and `Azure.Identity` are in `Directory.Packages.props`

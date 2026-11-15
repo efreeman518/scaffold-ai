@@ -49,6 +49,7 @@ Run the rate limiter after `UseAuthentication()` and `UseAuthorization()` whenev
 - **The Redis rate limiter shares the EF.Cache connection.** `AddRedisRateLimiting()` resolves the `IConnectionMultiplexer` that `AddTypedCache` registered (the unkeyed default instance, or `AddRedisRateLimiting(cacheInstanceName)` for a named one); register `AddTypedCache` first and never open a second Redis connection for the limiter. A Redis outage at boot does not fail startup ([caching.md](caching.md)).
 - When Redis is unavailable the package fails open and increments `ratelimit.backend_failure`; alert on it, because limits are not enforced while it moves. A failure or a call slower than `FailOpenOptions.BackendTimeout` opens a `FailOpenCircuit` shared by every partition for `BreakDuration` (must exceed `BackendTimeout`, or construction throws); requests are admitted without calling Redis meanwhile, then one probes. Tune with `services.Configure<FailOpenOptions>(...)`; no short `asyncTimeout` is needed ([../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits). Export meter `EF.RateLimiting` from ServiceDefaults.
 - Health endpoints mapped by `MapEfHealthEndpoints` carry `DisableRateLimiting()` and skip every limiter.
+- A request with no tenant claim (an anonymous route such as `GET /auth/mode`) spends the `RateLimiting:Tenants:Anonymous` allowance, partitioned per client address; `UseProxyForwarding` supplies that address.
 
 ### Testing
 

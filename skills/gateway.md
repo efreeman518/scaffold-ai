@@ -143,7 +143,7 @@ private static void AddAuthentication(IServiceCollection services, IConfiguratio
 }
 ```
 
-Both hosts' claim types match `ForwardedClaims:ClaimTypes` ([identity-management.md](identity-management.md) section Claim-type contract); scaffold mode registers the fixed principal instead (same file, Pre-Auth Stub Pattern).
+Both hosts' claim types match `ForwardedClaims:ClaimTypes` ([identity-management.md](identity-management.md) section Claim-type contract); scaffold mode registers the fixed principal instead, and both modes set the fallback policy ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration).
 
 ---
 

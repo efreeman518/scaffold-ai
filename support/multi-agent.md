@@ -71,7 +71,7 @@ The orchestrator completes and freezes these, then dispatches the per-host worke
 
 ### Two consequences
 
-- **Stub shared dependencies rather than block on them.** Identity/auth is Phase 5e - *after* 5c - so UIs are scaffolded against an auth stub and 5e wires the real provider. This is the external-dependency-mode pattern (GR-05/GR-06) applied to ordering: freeze a placeholder so consumers can fan out, fill it in later.
+- **Stub shared dependencies rather than block on them.** The live identity provider is Phase 5e - *after* 5c - so UIs are scaffolded against the `Scaffold` fixed principal the hosts register in 5b, and 5e adds the provider. This is the external-dependency-mode pattern (GR-05/GR-06) applied to ordering: freeze a placeholder so consumers can fan out, fill it in later.
 - **A fan-out unit is an independent deployable host, not a target or route of one.** Uno "browser and mobile" is multi-*targeting* within a single project (one head, many TFMs) - which is why Uno is already one dedicated session, not splittable. Admin-vs-public is a fan-out unit only if they are separate deployables; if they are role-gated routes in one app, they are not.
 
 ## Worked example: Phase 5c with three enabled hosts

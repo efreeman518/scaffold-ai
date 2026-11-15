@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Generates** | `src/UI/{Project}.Uno/Testing/{Project}TestBridge.cs`, `tests/Test.PlaywrightUI/Uno/WasmAppHost.cs`, `WasmTestHarness.cs`, `WasmTestSettings.cs`, `AssemblyInfo.cs`, `tests/Test.PlaywrightUI/Uno/{Entity}CanvasTests.cs` (or `.ts` for Node Playwright) |
-| **Requires** | An Uno WASM target that renders through the **Skia canvas** renderer (single `<canvas>`, no per-control DOM), a Gateway for real local auth, an Aspire AppHost when the app needs API/resources, [testing-quality.md](../skills/testing-quality.md) (Hosted Browser UI) |
+| **Requires** | An Uno WASM target that renders through the **Skia canvas** renderer (single `<canvas>`, no per-control DOM), a Gateway in `Scaffold` auth mode, an Aspire AppHost when the app needs API/resources, [testing-quality.md](../skills/testing-quality.md) (Hosted Browser UI) |
 | **Phase** | Bridge added with the Uno host (5c); canvas tests authored in 5d |
 | **Protocol** | Tests-after. The bridge is a browser-only diagnostic surface, never a production code path. |
 
@@ -62,13 +62,13 @@ Rules:
 
 1. **Browser/WASM target only.** Guard the whole file with the WASM compilation symbol so it never ships in Android/iOS/desktop builds.
 2. **Default-off.** Publish nothing unless `{app}TestMode=true` is present in the query string (or an equivalent test-only app setting). No flag -> the global is never defined -> production behaviour is untouched.
-3. **Real local auth.** When `{app}TestAuth=true`, drive the **real** local auth flow through the Gateway with the supplied email. Do not inject a fake token - that bypasses the wiring the test exists to prove.
+3. **App sign-in path.** When `{app}TestAuth=true`, sign in through the app's own development sign-in with the supplied email ([../skills/identity-management.md](../skills/identity-management.md) section Dev-Mode Auth Patterns), so the login model, token cache and `AuthTokenHandler` run as they do for a user. Do not set authenticated state directly - that bypasses the wiring the test exists to prove. The backend has no sign-in route: the Gateway authenticates each request as the fixed principal.
 4. **Onboarding states.** Support at least `complete` and `fresh` so a test can exercise both the returning-user and first-run shells.
 5. **Gateway URL override.** `{app}TestGatewayBaseUrl` is required for Aspire-backed tests. Without it, the app can fall back to a hard-coded dev port while Aspire assigned a dynamic gateway port.
 6. **Reset support.** `{app}TestReset=true` clears test-local persisted auth/onboarding state before boot so reruns do not inherit an old browser session.
 7. **Publish on every state transition.** Re-publish `__{app}TestState` after navigation, auth change, and onboarding change so the harness can await the next state without a full reboot.
 8. **Startup error shape.** In the WASM startup path, publish exception type and message only. Avoid `Exception.ToString()` there; Mono can double fault while formatting stack traces after runtime/class-library mismatches.
-9. **Local-auth scope only.** This bridge proves the configured local Gateway auth path. It does not execute MSAL interactive browser behavior, the COOP-proof `localStorage` callback channel, the browser HTTP factory, or a WASM `ICustomWebUi`; require one real interactive sign-in per enabled head from the published `Release` build before live-provider deployment.
+9. **`Scaffold`-mode scope only.** This bridge proves the development sign-in and the Gateway route under the fixed principal. It does not execute MSAL interactive browser behavior, the COOP-proof `localStorage` callback channel, the browser HTTP factory, or a WASM `ICustomWebUi`; require one real interactive sign-in per enabled head from the published `Release` build before live-provider deployment.
 
 ## Bridge (representative shape)
 
@@ -151,7 +151,7 @@ internal static class {Project}TestBridge
 #endif
 ```
 
-Wire `Initialize()` into the WASM startup path (before the shell renders) and call `Publish(...)` from the shell/navigation/auth view-models whenever the observed state changes. When local auth is requested (`WantsAuth`), trigger the same Gateway-backed sign-in the user would, with `TestEmail`.
+Wire `Initialize()` into the WASM startup path (before the shell renders) and call `Publish(...)` from the shell/navigation/auth view-models whenever the observed state changes. When sign-in is requested (`WantsAuth`), trigger the same development sign-in the user would, with `TestEmail`.
 
 > **MVUX state caveat (WASM).** Do not expose test-observed collections through MVUX state casts that work on desktop but throw under the WASM trimmer/runtime. Read from a browser-safe immutable surface (a plain snapshot or `IImmutableList`) when building the `Publish(...)` payload.
 
@@ -172,9 +172,9 @@ Required fixture behavior:
 - Guard the lazy single-start on static fixture state (`_app != null && _staticBaseUrl != null`), not on the per-test `settings.BaseUrl`. A per-test settings guard re-enters the clean rebuild on the second test while the first `*.WasmHost.exe` still holds output files, causing `MSB3027` / `MSB3021` lock failures.
 - Wait for required resources to become healthy before using them.
 - Resolve Gateway and UI base URLs through named Aspire endpoints. Use `CreateHttpClient(resource, "http")`; do not assume fixed local ports.
-- Warm up real Gateway auth before browser navigation by posting to the local login endpoint, for example `POST api/auth/login`, with the same test email the browser receives.
+- Before browser navigation, read `GET /auth/mode` through the named Gateway endpoint and require `Scaffold`: the bridge's sign-in is the development sign-in, and the request proves the Gateway route is up.
 - Build browser URLs with `{app}TestMode=true`, `{app}TestAuth=true`, `{app}TestReset=true`, `{app}TestEmail`, `{app}TestOnboarding`, `{app}TestSection`, and `{app}TestGatewayBaseUrl`. The gateway URL must be URL-encoded and must come from Aspire's named Gateway endpoint.
-- Start one `{APP}_WASM_STARTUP_TIMEOUT_SECONDS` budget before clean/restore. Restore, build, AppHost create/build/start, named health waits, endpoint resolution, Gateway auth warm-up, and browser launch consume its remaining time. Per-step caps may fail sooner but never reset the budget. Default at least 1800 s for a cold first build.
+- Start one `{APP}_WASM_STARTUP_TIMEOUT_SECONDS` budget before clean/restore. Restore, build, AppHost create/build/start, named health waits, endpoint resolution, the Gateway auth-mode read, and browser launch consume its remaining time. Per-step caps may fail sooner but never reset the budget. Default at least 1800 s for a cold first build.
 - Stop/dispose the Aspire graph in assembly cleanup. If explicit Docker cleanup is needed, scope it to this test run only.
 - Reset the static base URL during assembly cleanup.
 - Run `dotnet build` or `dotnet test tests/Test.PlaywrightUI/Test.PlaywrightUI.csproj -m:1` before handoff. Namespace mismatches between wrapper tests and shared runner types are scaffold defects, not runtime issues.
@@ -286,9 +286,9 @@ For Node/TS Playwright, the same shape applies: `await page.waitForFunction(() =
 
 - [ ] Bridge file is guarded by the WASM compilation symbol and absent from Android/iOS/desktop output.
 - [ ] With no `{app}TestMode=true`, `globalThis.__{app}TestState` is undefined (production untouched).
-- [ ] `{app}TestAuth=true` drives **real** Gateway local auth, not an injected token.
+- [ ] `{app}TestAuth=true` drives the app's development sign-in, not directly set state.
 - [ ] `{app}TestGatewayBaseUrl` is passed from Aspire's dynamic Gateway endpoint; no hard-coded dev gateway port remains.
-- [ ] Gateway auth is warmed before navigation.
+- [ ] The Gateway reports `Scaffold` from `GET /auth/mode` before navigation.
 - [ ] `{app}TestReset=true` prevents stale browser state from satisfying the smoke.
 - [ ] Both `complete` and `fresh` onboarding states are reachable via the query string.
 - [ ] Tests await `__{app}TestState` fields; no DOM/role/text selector is used against the canvas.

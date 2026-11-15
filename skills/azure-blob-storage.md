@@ -171,17 +171,17 @@ private static void AddBlobStorageServices(IServiceCollection services, IConfigu
 - **Large listings:** continuation-token paging or stream enumeration.
 - **Cross-instance lock:** blob lease/distributed lock execution where needed.
 
-Blob naming patterns:
+Blob naming patterns (every segment is server-made):
 
-- `{tenantId}/{entityType}/{entityId}/{filename}`
-- `{guid}/{filename}`
-- `{yyyy}/{MM}/{dd}/{filename}`
+- `{tenantId}/{entityType}/{entityId}/{uuidv7}`
+- `{yyyy}/{MM}/{dd}/{uuidv7}`
 
 ### Attachment Rules
 
 Apply when blob content backs an entity row (attachments, evidence). Proof: TaskFlow `AttachmentRepositoryTrxn`, `AttachmentBlobDeleteWork`, `AttachmentService`.
 
-- The object key is server-made, includes a fresh UUIDv7 and is immutable; a rename changes only the display name.
+- The object key is server-made, includes a fresh UUIDv7 and is immutable; a rename changes only the display name. The client's file name is never a key or path segment: it is kept only as display metadata, sanitized (file-name characters only, length capped).
+- The content type is detected from the content against the upload allowlist. The blob is stored and served with that type and `Content-Disposition: attachment`, never with the type the client sent.
 - After an upload, the server-owned fields (content type, size, storage URI, owner) are immutable: a request that changes them is a 400. A metadata-only row (no blob) keeps full replace.
 - Never delete a blob inline, and never catch-and-log a blob delete failure. A delete stages a leased work row (`LeasedWorkItem`) in the same save that removes the entity row ([data-persistence.md](data-persistence.md) section Set-Based Writes and Query Shape); a worker deletes the blob and treats an already-missing blob as success. The work row id is a UUIDv5 of tenant id, entity id and storage key, so a re-sent commit maps to the same row while a caller id reused after a delete gets a distinct row. One builder creates these ids for every path that stages them.
 - An upload reserves its own deferred delete before it writes the blob: save a work row for the new key that is not claimable before now plus a grace longer than the request timeout (startup validation enforces it); write the blob; then insert the entity row and remove the reservation in one transaction under the execution strategy. The removal is guarded on the row being unleased and not dead-lettered, so it fails when the worker holds the lease: roll back and fail the upload, and the reservation removes the orphan. Use a UUIDv7 reservation id so it never collides with a UUIDv5 delete id.

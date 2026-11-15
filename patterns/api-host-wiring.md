@@ -175,7 +175,7 @@ internal static void AddRequestContext(IServiceCollection services)
 
 ### No Tenant Means No Rows
 
-The EF.Data tenant filter fails closed: a request with no tenant claim reads nothing ([../skills/multi-tenant.md](../skills/multi-tenant.md) section Automatic Query Filters). A multi-tenant scaffold therefore never runs with authentication off: from the first API wiring it registers the `Scaffold` fixed principal ([../skills/identity-management.md](../skills/identity-management.md)), whose `tenant_id` claim is the seeded dev tenant. A single-tenant scaffold drops `ITenantEntity<TenantId>` and the tenant filter instead.
+The EF.Data tenant filter fails closed: a request with no tenant claim reads nothing ([../skills/multi-tenant.md](../skills/multi-tenant.md) section Automatic Query Filters). A multi-tenant scaffold reads its seeded rows because the `Scaffold` fixed principal (section Conditional Auth Configuration) carries the seeded dev tenant as its `tenant_id` claim. A single-tenant scaffold drops `ITenantEntity<TenantId>` and the tenant filter instead.
 
 **Symptom:** if a client lands at the API without a tenant claim, every list endpoint returns an empty payload and no error. Log the resolved tenant id at `Information` once per request during dev so the empty-payload case is observable.
 
@@ -230,4 +230,81 @@ private static void AddAuthorization(IServiceCollection services)
 }
 ```
 
-The auth configuration registers the EF.Auth fixed principal in `Scaffold` mode and JwtBearer + MicrosoftIdentityWebApi + fallback policy in live modes. The scaffold-vs-live `AuthMode` toggle and the `ScaffoldPrincipal` claims are owned by [../skills/identity-management.md](../skills/identity-management.md).
+The host authenticates and authorizes from its first wiring. `AuthMode` has two values: `Scaffold` (the default: the EF.Auth fixed principal authenticates every request, so the backend maps no sign-in route) and `Entra` (the live provider, added to the same registration in Phase 5e: [../skills/identity-management.md](../skills/identity-management.md) section Live Provider Registration). `AuthMode` and `AuthModeResolver.Resolve` (an unknown value throws, so the host fails to start) live beside `ScaffoldPrincipal` in `Application.Contracts`. EF.Auth API list: [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Authentication (EF.Auth).
+
+```csharp
+// File: Host/{App}.Api/Auth/AuthConfiguration.cs
+using EF.Auth.Fixed;
+
+public static class AuthConfiguration
+{
+    public static IServiceCollection Add{App}Auth(this IServiceCollection services, IConfiguration config)
+    {
+        var mode = AuthModeResolver.Resolve(config["AuthMode"]);
+
+        if (mode == AuthMode.Scaffold)
+        {
+            services.AddAuthentication(ScaffoldPrincipal.SchemeName)
+                .AddFixedPrincipal(ScaffoldPrincipal.SchemeName, o =>
+                {
+                    o.Claims = [.. ScaffoldPrincipal.Claims.Select(c => new FixedClaim(c.Type, c.Value))];
+                    o.AllowedEnvironments = [.. ScaffoldPrincipal.AllowedEnvironments];
+                });
+            return services;
+        }
+
+        // AuthMode.Entra: the live provider registration goes here (Phase 5e); without it the mode fails startup.
+        throw new InvalidOperationException("AuthMode 'Entra' has no provider registration");
+    }
+}
+
+// File: Host/{App}.Api/Auth/AuthorizationPolicies.cs
+public static class AuthorizationPolicies
+{
+    public static IServiceCollection Add{App}Authorization(this IServiceCollection services)
+    {
+        services.AddAuthorizationBuilder()
+            // Every AuthMode: an endpoint with no policy of its own still requires an authenticated user.
+            .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+        // Named policies (roles, TenantMatch) are added on the same builder.
+        return services;
+    }
+}
+```
+
+```csharp
+// File: Application.Contracts/ScaffoldPrincipal.cs - shared by the Api and the Gateway so both register one identity
+public static class ScaffoldPrincipal
+{
+    public const string SchemeName = "Scaffold";
+
+    // Environments the fixed identity may run in; kept in code so configuration can never widen it.
+    // A login-free app that deploys as Production lists it deliberately; any other environment fails host start.
+    public static IReadOnlyList<string> AllowedEnvironments { get; } = ["Development", "Testing"];
+
+    public static IReadOnlyList<(string Type, string Value)> Claims { get; } =
+    [
+        // Audit id: the request context reads oid > NameIdentifier > sub. Use the FIXED seeded dev-user GUID
+        // (SeedConstants.DevUserId) so a stamped owner FK resolves - never a random/string id.
+        ("oid", SeedConstants.DevUserId.ToString()),
+        (ClaimTypes.NameIdentifier, SeedConstants.DevUserId.ToString()),
+        (ClaimTypes.Name, "Scaffold Principal"),
+        // Tenant: the request context reads tenant_id; the seeded dev tenant GUID. Omit it and tenant is null.
+        ("tenant_id", SeedConstants.DevTenantId.ToString()),
+        // Roles MUST use ClaimTypes.Role; a bare "roles" string leaves roles empty.
+        (ClaimTypes.Role, AppConstants.ROLE_GLOBAL_ADMIN)
+    ];
+}
+```
+
+`AddFixedPrincipal` authenticates every request as the configured claims, fails host start outside `AllowedEnvironments` (default `Development`, `Testing`) or with no claims, and logs one warning per scheme the first time it authenticates; generate no authentication handler. The scaffold principal authenticates HTTP requests only. Code running outside a request resolves the explicit system context (section Request Context Resolution), never this principal, its global-admin role, or the dev tenant. A Gateway host registers the same principal and the same fallback policy.
+
+**Anonymous endpoints are opted in one by one**, each with its reason at the site. The set is closed:
+
+- **Health probes** (`/healthz/live`, `/healthz/ready`, `/healthz`): `MapEfHealthEndpoints` maps them anonymous because an orchestrator probe carries no identity. The package exempts them from every rate limiter, so their checks stay cheap.
+- **`GET /auth/mode`** on the auth-owning host: a client reads the mode before it signs in. It returns only the validated public value (`{ "mode": "Scaffold" }` or `{ "mode": "Entra" }`), never tenant IDs, client IDs, authorities, or secrets, and it sits behind the host's rate limiter, partitioned per client address ([../skills/security.md](../skills/security.md) section Rate Limiting). Clients use it for presentation; the backend authorization gate remains the security boundary.
+
+```csharp
+app.MapGet("/auth/mode", () => TypedResults.Ok(new { mode = authMode.ToString() }))
+    .AllowAnonymous();   // read before sign-in; returns the public mode only
+```

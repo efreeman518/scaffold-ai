@@ -6,7 +6,7 @@ Companion to [ef-packages-reference.md](ef-packages-reference.md), which owns de
 
 ### Authentication (EF.Auth)
 
-Add for outbound service tokens, the trusted-gateway claims relay, role/scope authorization, or the scaffold fixed principal. Auth-mode policy: [../skills/identity-management.md](../skills/identity-management.md).
+Add for outbound service tokens, the trusted-gateway claims relay, role/scope authorization, or the scaffold fixed principal. Host wiring: [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration. Live provider: [../skills/identity-management.md](../skills/identity-management.md).
 
 | Type | Package | Used For |
 |---|---|---|

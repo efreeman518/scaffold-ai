@@ -231,7 +231,8 @@ DEPLOYMENT_HARDENING_CONTRACT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "### Three-Leg Auth-Mode Contract",
         "DI registration, endpoint mapping, and client affordances",
         "`GET /auth/mode`",
-        "`/auth/login`, `/auth/register`, and `/auth/refresh`",
+        "## Live Provider Registration",
+        "the backend maps no sign-in, registration or token-refresh route",
         "### Admin Portal / Entra External ID Deployment Runbook",
         "`WindowsAzureActiveDirectoryIntegratedApp`",
         "### Live browser OIDC contract",
@@ -241,6 +242,11 @@ DEPLOYMENT_HARDENING_CONTRACT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "### Mutable authorization and external identity side effects",
         "server-side authorization source of truth",
         "faulted access-context task",
+    ),
+    "patterns/api-host-wiring.md": (
+        "`Scaffold` (the default: the EF.Auth fixed principal authenticates every request",
+        ".SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build())",
+        "**Anonymous endpoints are opted in one by one**",
     ),
     "skills/gateway.md": (
         "## Multi-Hop Forwarded Headers and Path-Base Hosting",

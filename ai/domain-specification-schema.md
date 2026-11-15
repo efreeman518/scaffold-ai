@@ -423,7 +423,7 @@ Auth provider options:
 - **External / consumer:** `EntraExternal`, `Google`, `Facebook`, `Apple`, `OAuth2` - social/OIDC providers
 - **Hybrid:** combine `EntraID` for internal with `EntraExternal` or social providers for external users
 
-> **Note:** Authentication is configured in the final integration phase (Phase 5e). During earlier phases, auth is stubbed. See [skills/identity-management.md](../skills/identity-management.md).
+> **Note:** The live identity provider is configured in the final integration phase (Phase 5e). From Phase 5b the hosts authenticate every request with the `Scaffold` fixed principal. See [skills/identity-management.md](../skills/identity-management.md).
 
 ---
 

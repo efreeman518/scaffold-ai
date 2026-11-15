@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Generates** | `tests/Test.Endpoints/Endpoints/{Entity}EndpointsTests.cs`, `tests/Test.Endpoints/Middleware/ExceptionMappingTests.cs`, `tests/Test.Endpoints/HealthProbeContractTests.cs` |
+| **Generates** | `tests/Test.Endpoints/Endpoints/{Entity}EndpointsTests.cs`, `tests/Test.Endpoints/Middleware/ExceptionMappingTests.cs`, `tests/Test.Endpoints/AuthenticationContractTests.cs`, `tests/Test.Endpoints/HealthProbeContractTests.cs` |
 | **Requires** | [endpoint-template](endpoint-template.md), [exception-handler-template](exception-handler-template.md), [health-check-template](health-check-template.md), CustomApiFactory from Phase 4, DTOs from Phase 4 |
 | **Phase** | 5b (App Core TDD) |
 | **Protocol** | Write these tests BEFORE implementing endpoints. See [../ai/tdd-protocol.md](../ai/tdd-protocol.md). |
@@ -520,6 +520,94 @@ public sealed class ExceptionMappingTests
 ```
 
 Add one case per row the app adds to `MapExceptions`. Correlation assertions (`requestId` separate from W3C `traceId`/`spanId`) run here too: start a W3C `Activity`, set `context.TraceIdentifier`, and assert the three properties on the body.
+
+---
+
+## Authentication Contract Tests
+
+### File: `tests/Test.Endpoints/AuthenticationContractTests.cs`
+
+**Generate this with the first API host wiring.** The fixed principal authenticates every request of the default test host, so the 401 test runs a host whose default scheme authenticates no request. The fallback policy is what guards an endpoint mapped with no policy of its own, so the second test fails when it is removed or allows anonymous callers ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration).
+
+```csharp
+using System.Net;
+using System.Text.Encodings.Web;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Infrastructure;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace Test.Endpoints;
+
+[TestClass]
+[TestCategory("Endpoint")]
+public sealed class AuthenticationContractTests
+{
+    private const string NoIdentityScheme = "NoIdentity";
+    private static CustomApiFactory _factory = null!;
+    private static WebApplicationFactory<Program> _noIdentity = null!;
+
+    public TestContext TestContext { get; set; } = null!;
+
+    [ClassInitialize]
+    public static void ClassInit(TestContext _)
+    {
+        _factory = new CustomApiFactory();
+        // Registered after the host's own scheme, so it becomes the default: no request carries an identity.
+        _noIdentity = _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services
+            .AddAuthentication(NoIdentityScheme)
+            .AddScheme<AuthenticationSchemeOptions, NoIdentityHandler>(NoIdentityScheme, null)));
+    }
+
+    [ClassCleanup]
+    public static void ClassCleanup()
+    {
+        _noIdentity?.Dispose();
+        _factory?.Dispose();
+    }
+
+    [TestMethod]
+    public async Task Given_NoIdentity_When_ProtectedRouteRequested_Then_Returns401()
+    {
+        // Arrange
+        using var client = _noIdentity.CreateClient();
+
+        // Act
+        using var response = await client.GetAsync(
+            $"v1/tenant/{Guid.NewGuid()}/{entities}/{Guid.NewGuid()}", TestContext.CancellationToken);
+
+        // Assert
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Given_EndpointWithoutExplicitPolicy_When_PolicyResolved_Then_FallbackRequiresAuthenticatedUser()
+    {
+        // Arrange
+        var policies = _factory.Services.GetRequiredService<IAuthorizationPolicyProvider>();
+
+        // Act - the policy the framework applies to every endpoint that carries no authorization metadata
+        var fallback = await policies.GetFallbackPolicyAsync();
+
+        // Assert
+        Assert.IsNotNull(fallback, "An endpoint mapped with no policy must not be anonymous.");
+        Assert.IsTrue(fallback.Requirements.OfType<DenyAnonymousAuthorizationRequirement>().Any());
+    }
+
+    /// <summary>Authenticates no request; the base challenge answers 401.</summary>
+    private sealed class NoIdentityHandler(
+        IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync() =>
+            Task.FromResult(AuthenticateResult.NoResult());
+    }
+}
+```
 
 ---
 

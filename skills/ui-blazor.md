@@ -7,7 +7,7 @@ Scaffold a Blazor UI (Server or WebAssembly) that calls the **Gateway** (YARP), 
 - **UI**: MudBlazor shell + components
 - **State**: `FloatService` (scoped singleton) shared across layout and pages - **not** cascading parameters
 - **Client**: Refit (`Refit.HttpClientFactory`) against the Gateway base URL
-- **Auth**: MSAL WebAssembly for WASM builds; JWT bearer cookie/claims for Server. Scaffold auth-off and add after first vertical slice works
+- **Auth**: MSAL WebAssembly for WASM builds; JWT bearer cookie/claims for Server. In `Scaffold` mode the client adds no sign-in: the Gateway and API authenticate each request as the fixed principal
 
 Reference app: [TaskFlow.Blazor](https://github.com/efreeman518/scaffold-proof/tree/main/src/UI/TaskFlow.Blazor) and the Caller Portal ([Portal.UI1](https://github.com/efreeman518/Portal/tree/main/src/Portal/Portal.UI1)) - canonical source of the FloatService + Refit + MudBlazor layering.
 
@@ -332,7 +332,7 @@ Pass a `SystemTextJsonContentSerializer` with `PropertyNameCaseInsensitive = tru
 
 ## Tenant on Outbound Calls
 
-The Blazor host sends no tenant header. The API and Gateway authenticate every request as a principal that carries the tenant (the `Scaffold` fixed principal's `tenant_id` claim in scaffold mode, the user's token claims in live modes), and the fail-closed tenant filter reads nothing for a request without one ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section No Tenant Means No Rows). Generate no tenant-header handler and no dev tenant setting.
+The Blazor host sends no tenant header. The API and Gateway authenticate every request as a principal that carries the tenant (the `Scaffold` fixed principal's `tenant_id` claim in scaffold mode, the user's token claims in `Entra` mode), and the fail-closed tenant filter reads nothing for a request without one ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section No Tenant Means No Rows). Generate no tenant-header handler and no dev tenant setting.
 
 - Do **not** read the tenant id from a Blazor `IRequestContext` - Blazor Server runs server-side per circuit and there is no inbound tenant header to read from.
 - Create DTOs must **not** carry a client-populated `TenantId` or owner - the API stamps both server-side from the request context. See [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Dev-Mode Write Identity. The UI sends the domain fields; identity is the server's job.
@@ -365,7 +365,7 @@ The MudBlazor analyzer emits `MUD0002 Illegal Attribute` warnings for several of
 
 ## Auth
 
-**Scaffold with auth off.** Gateway dev mode ships a no-op JWT bearer handler that accepts unauthenticated calls - lean on it for the first vertical slice, add auth once CRUD is wired.
+**`Scaffold` mode needs no client sign-in.** The Gateway and API authenticate every request as the fixed principal ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration), so the first vertical slice calls them without a token. The sections below apply under `Entra`.
 
 ### WebAssembly -> MSAL
 
