@@ -422,8 +422,11 @@ Auth provider options:
 - **Enterprise / internal:** `EntraID` - SSO, conditional access, group-based roles
 - **External / consumer:** `EntraExternal`, `Google`, `Facebook`, `Apple`, `OAuth2` - social/OIDC providers
 - **Hybrid:** combine `EntraID` for internal with `EntraExternal` or social providers for external users
+- **None:** a login-free app; every request runs as the fixed principal
 
-> **Note:** Authentication is configured in the final integration phase (Phase 5e). During earlier phases, auth is stubbed. See [skills/identity-management.md](../skills/identity-management.md).
+The set generates the `EntraID` and `EntraExternal` registrations. A social or generic OAuth2 provider is recorded for deployment work.
+
+> **Note:** The live identity provider is configured in the final integration phase (Phase 5e). From Phase 5b the hosts authenticate every request with the `Scaffold` fixed principal. See [skills/identity-management.md](../skills/identity-management.md).
 
 ---
 

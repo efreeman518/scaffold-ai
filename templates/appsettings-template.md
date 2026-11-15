@@ -16,8 +16,6 @@ This is a complete reference of all configuration sections used across the solut
   "AuthMode": "Scaffold",
 
   "ConnectionStrings": {
-    "{Project}DbContextTrxn": "Host=localhost;Port=35432;Database={project}db;Username=postgres;Password={postgres-password}",
-    "{Project}DbContextQuery": "Host=localhost;Port=35432;Database={project}db;Username=postgres;Password={postgres-password}",
     "Redis1": "localhost:6379"
   },
 
@@ -41,13 +39,6 @@ This is a complete reference of all configuration sections used across the solut
       "BackplaneChannelName": "cache-sync-static"
     }
   ],
-
-  "AzureAd": {
-    "Instance": "https://login.microsoftonline.com/",
-    "TenantId": "{entra-tenant-id}",
-    "ClientId": "{api-client-id}",
-    "Audience": "api://{api-client-id}"
-  },
 
   "Proxy": {
     "ForwardedHeaders": { "Enabled": false, "ForwardLimit": 1, "KnownProxies": [], "KnownNetworks": [], "AllowedHosts": [] },
@@ -140,13 +131,6 @@ This is a complete reference of all configuration sections used across the solut
   "AppName": "{Gateway}.Gateway",
   "AuthMode": "Scaffold",
 
-  "Gateway_EntraExt": {
-    "Instance": "https://{tenant-name}.ciamlogin.com/",
-    "TenantId": "{entra-external-tenant-id}",
-    "ClientId": "{gateway-client-id}",
-    "Audience": "{gateway-client-id}"
-  },
-
   "Proxy": {
     "ForwardedHeaders": { "Enabled": false, "ForwardLimit": 1 },
     "PathBase": ""
@@ -190,7 +174,7 @@ This is a complete reference of all configuration sections used across the solut
           }
         },
         "Metadata": {
-          "TokenScope": "api://{api-client-id}/.default",
+          "TokenScope": "",
           "RelayUserClaims": "true"
         }
       }
@@ -231,6 +215,8 @@ This is a complete reference of all configuration sections used across the solut
 
 ```json
 {
+  "AuthMode": "Scaffold",
+  // Fixed local-emulator credential for a run without Aspire; it opens only the developer's local container.
   "ConnectionStrings": {
     "{Project}DbContextTrxn": "Host=localhost;Port=35432;Database={project}db;Username=postgres;Password={postgres-password}",
     "{Project}DbContextQuery": "Host=localhost;Port=35432;Database={project}db;Username=postgres;Password={postgres-password}"
@@ -250,7 +236,8 @@ This is a complete reference of all configuration sections used across the solut
 ## Notes
 
 - Connection string names must match what the Bootstrapper expects: `{Project}DbContextTrxn` and `{Project}DbContextQuery`
-- Connection strings show the default `NonAzure` lane (PostgreSQL). The `Azure` lane uses the SQL Server form `Server=localhost,38433;Database={project}db;User Id=sa;Password={sql-password};TrustServerCertificate=True`, with `;ApplicationIntent=ReadOnly` on the Query string only. Supply real passwords through user secrets, never committed config
+- Base `appsettings.json` files carry no credential. A password-bearing connection string appears only in `appsettings.Development.json`, and only as the fixed local-emulator credential with its one-line reason; with Aspire that credential is the AppHost parameter instead ([aspire.md](../skills/aspire.md) section Parameter Resolution and Credential Management). Every other environment gets its connection strings from Aspire, the environment or the secret store
+- The Development connection strings show the default `NonAzure` lane (PostgreSQL). The `Azure` lane uses the SQL Server form `Server=localhost,38433;Database={project}db;User Id=sa;Password={sql-password};TrustServerCertificate=True`, with `;ApplicationIntent=ReadOnly` on the Query string only. Supply real passwords through user secrets, never committed config
 - With Aspire, connection strings are **injected automatically** via `.WithReference(projectDb, connectionName: ...)` - no manual config needed in development
 - Redis connection string name (`Redis1`) must match the `RedisConnectionStringName` in `CacheSettings`
 - `CacheSettings` is an array bound by EF.Cache `AddTypedCache` - each entry creates a named cache instance; `KeyNamespace` (default: the host environment name), `SchemaVersion`, `Serializer` and `Profiles` are optional per entry, and code decisions (schema version, profile durations) go in the `configure` callback
@@ -260,6 +247,6 @@ This is a complete reference of all configuration sections used across the solut
 - A Gateway cluster's `Metadata:TokenScope` gets a downstream token from `AccessTokenCache`; `Metadata:RelayUserClaims` adds the relay header. A cluster without `TokenScope` passes the inbound `Authorization` header through unchanged
 - `Proxy`, `Cors`/`CorsSettings`, `RateLimiting:Tenants`, `RateLimiting:Edge`, `OpenTelemetry`, `Messaging:Inbox`, `OutboxDispatcher` and `Scheduling` are validated at registration or host start by their EF packages; an invalid value fails startup
 - `OutboxDispatcher:MaxAttempts` defaults to 5 when unset
-- `AuthMode` belongs on each auth-owning host and must be one validated value (`Scaffold`, `Local`, or `Entra`); production hosts use the same intended mode across the chain
+- `AuthMode` is one validated value (`Scaffold` or `Entra`) that the API and the Gateway read through `AuthModeResolver`; unset means `Scaffold`, and a deployment sets the same intended mode on both. Base files carry no provider section: `AzureAd` (API) and `Gateway_EntraExt` (Gateway) are deployment values of an `Entra` deployment, so the mode fails startup when they are missing. In `Scaffold` mode a cluster's `TokenScope` stays empty; an `Entra` deployment sets it to the API's scope (`api://{api-client-id}/.default`)
 - `AiServices:Provider` is the sole activation source. Endpoint, deployment, and connection values validate the selected provider but never activate it. Default to `None`. `OpenAICompatible` additionally requires `AiServices:ApiKey`, supplied only through user secrets or an environment/secret store.
 - For production/Azure: use Key Vault references or App Configuration for secrets

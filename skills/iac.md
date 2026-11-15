@@ -201,6 +201,7 @@ The `[Scheduler]` schema is a migrator target like any other: the one-shot `{App
 - Use managed identity for ACR pull, SQL, Key Vault, App Config.
 - Keep SQL Entra-only (`azureADOnlyAuthentication: true`).
 - Put secrets in Key Vault / secret refs, not plain Bicep values.
+- A deployed host runs as `Production`; what that requires for sign-in by `authProvider` is in [identity-management.md](identity-management.md) section Phase 5e by authProvider.
 - Prefer private endpoints in production.
 - Map compliance requirements (classification, retention, audit) to deployable controls (diagnostic settings, retention policies, encryption settings, access restrictions).
 
