@@ -94,7 +94,7 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 
 **Authentication finalization:**
 - [ ] Prompt for identity provider scenario (see options below)
-- [ ] Add the live provider branch to the `AuthMode` registration (the scaffold principal stays the development mode)
+- [ ] Add the live provider branch to the `AuthMode` registration (the scaffold principal stays the default)
 - [ ] Gate both auth modes across DI registration, endpoint mapping, and client affordances
 - [ ] Wire auth middleware, token validation, and role/scope checks
 - [ ] Update appsettings with provider-specific configuration

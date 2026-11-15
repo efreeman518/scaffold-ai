@@ -122,7 +122,7 @@ Update HANDOFF.md, commit, review and finish per .instructions/support/OPERATION
 ### 5e - Integration (Auth + AI)
 
 ```text
-Finalize auth: add the live provider ({Entra|OAuth2|social|hybrid}) to the AuthMode registration; the scaffold principal stays the development mode.
+Finalize auth: add the live provider ({Entra|OAuth2|social|hybrid}) to the AuthMode registration; the scaffold principal stays the default.
 If `includeAiServices: true`, also scaffold AI integration: {search indexing/agent service} as enabled in .scaffold/resource-implementation.yaml.
 Gate: `dotnet build` + `dotnet test --filter TestCategory=Endpoint` (auth) + `dotnet test --filter TestCategory=Unit` (AI). When all enabled capabilities pass, update HANDOFF.md, commit, review and finish per .instructions/support/OPERATIONS.md Git Checkpoint Protocol, and close session.
 ```

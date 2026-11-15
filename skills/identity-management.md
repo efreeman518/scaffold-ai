@@ -8,7 +8,7 @@ Use this skill when domain inputs enable `authProvider` and the solution needs a
 
 - Phase 5e authentication finalization is complete when the app boots end-to-end with the scaffold principal and endpoint tests pass.
 - Live Entra setup is a `deployment-only` dependency: log it in `HANDOFF.md` and continue.
-- The `AuthMode` key is present in `appsettings.Development.json` and `appsettings.Testing.json` with value `Scaffold`; base `appsettings.json` carries none.
+- `AuthMode` is `Scaffold` in `appsettings.json` and `appsettings.Development.json`; an unset key also resolves to `Scaffold`.
 - Production/staging environments override `AuthMode` to `Entra`. The mode controls registration, mapped routes, and visible client sign-in choices together.
 
 ## Identity Provider Scenarios

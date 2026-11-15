@@ -108,20 +108,6 @@ builder.Services.AddMudServices(cfg =>
 
 builder.Services.AddScoped<FloatService>();
 
-// The same mode decision and fallback policy as the API (patterns/api-host-wiring.md).
-if (AuthModeResolver.Resolve(builder.Configuration["AuthMode"]) == AuthMode.Scaffold)
-    builder.Services.AddAuthentication(ScaffoldPrincipal.SchemeName)
-        .AddFixedPrincipal(ScaffoldPrincipal.SchemeName, o =>
-        {
-            o.Claims = [.. ScaffoldPrincipal.Claims.Select(c => new FixedClaim(c.Type, c.Value))];
-            o.AllowedEnvironments = [.. ScaffoldPrincipal.AllowedEnvironments];
-        });
-else
-    builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
-        .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"));   // cookie OIDC (Auth section)
-builder.Services.AddAuthorizationBuilder()
-    .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
-
 var jsonOptions = new JsonSerializerOptions
 {
     PropertyNameCaseInsensitive = true,
@@ -150,8 +136,6 @@ if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error", create
 // Emit only when this host owns public TLS. Omit when Container Apps, Caddy, or another edge owns TLS.
 if (builder.Configuration.GetValue<bool>("Hosting:RedirectToHttps")) app.UseHttpsRedirection();
 app.UseStaticFiles();
-app.UseAuthentication();
-app.UseAuthorization();
 app.UseAntiforgery();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.Run();

@@ -71,9 +71,11 @@ With Aspire, destination resolution can be service-discovery driven. A cluster w
 ## Service Registration Pattern
 
 ```csharp
+using EF.Auth.Fixed;
 using EF.Auth.Tokens;
 using EF.Gateway;
 using EF.Host;
+using Microsoft.AspNetCore.Authorization;
 
 public static IServiceCollection AddGatewayServices(this IServiceCollection services, IConfiguration config)
 {

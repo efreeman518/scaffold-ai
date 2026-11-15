@@ -230,7 +230,7 @@ private static void AddAuthorization(IServiceCollection services)
 }
 ```
 
-The host authenticates and authorizes from its first wiring. `AuthMode` has two values: `Scaffold` (the EF.Auth fixed principal authenticates every request, so the backend maps no sign-in route) and `Entra` (the live provider, added to the same registration in Phase 5e: [../skills/identity-management.md](../skills/identity-management.md) section Live Provider Registration). `AuthMode` and `AuthModeResolver.Resolve` (an unknown value throws, so the host fails to start) live beside `ScaffoldPrincipal` in `Application.Contracts`. EF.Auth API list: [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Authentication (EF.Auth).
+The host authenticates and authorizes from its first wiring. `AuthMode` has two values: `Scaffold` (the default: the EF.Auth fixed principal authenticates every request, so the backend maps no sign-in route) and `Entra` (the live provider, added to the same registration in Phase 5e: [../skills/identity-management.md](../skills/identity-management.md) section Live Provider Registration). `AuthMode` and `AuthModeResolver.Resolve` (an unknown value throws, so the host fails to start) live beside `ScaffoldPrincipal` in `Application.Contracts`. EF.Auth API list: [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Authentication (EF.Auth).
 
 ```csharp
 // File: Host/{App}.Api/Auth/AuthConfiguration.cs
@@ -278,10 +278,11 @@ public enum AuthMode { Scaffold, Entra }
 
 public static class AuthModeResolver
 {
-    // No default: a host with a missing or unknown value fails startup.
+    // Unset means Scaffold; an unknown value fails startup. The fixed principal's AllowedEnvironments is the
+    // guard: a host outside that list fails to start in Scaffold mode.
     public static AuthMode Resolve(string? value) => value?.Trim().ToLowerInvariant() switch
     {
-        "scaffold" => AuthMode.Scaffold,
+        null or "" or "scaffold" => AuthMode.Scaffold,
         "entra" => AuthMode.Entra,
         _ => throw new InvalidOperationException($"AuthMode '{value}' is not Scaffold or Entra")
     };
@@ -293,7 +294,8 @@ public static class ScaffoldPrincipal
     public const string SchemeName = "Scaffold";
 
     // Environments the fixed identity may run in; kept in code so configuration can never widen it.
-    // Development and test hosts only: any other environment fails host start, and a deployed one is never listed.
+    // A login-free app that deploys as Production lists it deliberately and records that in its design
+    // decisions; any other environment fails host start.
     public static IReadOnlyList<string> AllowedEnvironments { get; } = ["Development", "Testing"];
 
     public static IReadOnlyList<(string Type, string Value)> Claims { get; } =
@@ -311,7 +313,7 @@ public static class ScaffoldPrincipal
 }
 ```
 
-`AddFixedPrincipal` authenticates every request as the configured claims, fails host start outside `AllowedEnvironments` (default `Development`, `Testing`) or with no claims, and logs one warning per scheme the first time it authenticates; generate no authentication handler. The scaffold principal authenticates HTTP requests only. Code running outside a request resolves the explicit system context (section Request Context Resolution), never this principal, its global-admin role, or the dev tenant. `AuthMode` is set in each host's `appsettings.Development.json` and `appsettings.Testing.json` and by each deployment's configuration, never in base `appsettings.json`. Every HTTP host that maps more than the health probes (API, Gateway, Blazor Server, a standalone notification host) resolves the mode through `AuthModeResolver` and sets the same fallback policy; the Gateway's registration is in [../skills/gateway.md](../skills/gateway.md) section Authentication Model.
+`AddFixedPrincipal` authenticates every request as the configured claims, fails host start outside `AllowedEnvironments` (default `Development`, `Testing`) or with no claims, and logs one warning per scheme the first time it authenticates; generate no authentication handler. The scaffold principal authenticates HTTP requests only. Code running outside a request resolves the explicit system context (section Request Context Resolution), never this principal, its global-admin role, or the dev tenant. The Gateway resolves the mode through the same `AuthModeResolver` and registers the same principal and fallback policy ([../skills/gateway.md](../skills/gateway.md) section Authentication Model).
 
 **Anonymous endpoints are opted in one by one**, each with its reason at the site. The set is closed:
 

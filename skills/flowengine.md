@@ -169,7 +169,7 @@ In `WebApplicationBuilderExtensions`:
 app.MapFlowEngineAdmin(prefix: "/api/flowengine");
 ```
 
-The package applies its `FlowEngine.Admin` and `FlowEngine.HumanTask` policies to these routes. Register them with `services.AddFlowEngineAdminPolicies()` (scope-claim policies), or register the app's own policies under those two names.
+The package applies its `FlowEngine.Admin` and `FlowEngine.HumanTask` policies to these routes. Register them with `services.AddFlowEngineAdminPolicies()` (scope-claim policies), or register the app's own policies under those two names. The `Scaffold` fixed principal carries no scope claim, so a scaffold-mode host registers its own (for example the global-admin role).
 
 ## Trigger model
 

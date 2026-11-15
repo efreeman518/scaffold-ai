@@ -101,7 +101,7 @@ Before generating code in each Phase 5 sub-phase, ask the following clarificatio
 
 5. **5e - Integration (Auth + AI):**
    - **Ask clarification questions first:** authentication provider, custom claims/roles, B2B vs B2C, token expiry. If AI in scope: AI search scope/filters, agent capabilities, content ingestion, cost/latency.
-   - Finalize identity (add the live provider to the `AuthMode` registration from 5b; the scaffold principal stays the development mode). When `includeAiServices: true`, scaffold AI search and/or agents - load only the templates matching the enabled capability - and scaffold the `AiProviderInfo` + `GET /api/v1/ai/status` provider signal by default (the live-AI lane gate and an ops signal; owner [../skills/ai-integration.md](../skills/ai-integration.md)). Gate: see [../support/execution-gates.md](../support/execution-gates.md) section 5e. Live search/agent checks run only when endpoints are provisioned; live AI proof is Azure AI Foundry only and runs in `Test.Aspire`.
+   - Finalize identity (add the live provider to the `AuthMode` registration from 5b; the scaffold principal stays the default). When `includeAiServices: true`, scaffold AI search and/or agents - load only the templates matching the enabled capability - and scaffold the `AiProviderInfo` + `GET /api/v1/ai/status` provider signal by default (the live-AI lane gate and an ops signal; owner [../skills/ai-integration.md](../skills/ai-integration.md)). Gate: see [../support/execution-gates.md](../support/execution-gates.md) section 5e. Live search/agent checks run only when endpoints are provisioned; live AI proof is Azure AI Foundry only and runs in `Test.Aspire`.
 
 ## Template Usage
 

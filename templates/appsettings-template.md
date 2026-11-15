@@ -13,6 +13,7 @@ This is a complete reference of all configuration sections used across the solut
 ```json
 {
   "AppName": "{Host}.Api",
+  "AuthMode": "Scaffold",
 
   "ConnectionStrings": {
     "Redis1": "localhost:6379"
@@ -135,6 +136,7 @@ This is a complete reference of all configuration sections used across the solut
 ```json
 {
   "AppName": "{Gateway}.Gateway",
+  "AuthMode": "Scaffold",
 
   "Gateway_EntraExt": {
     "Instance": "https://{tenant-name}.ciamlogin.com/",
@@ -186,7 +188,7 @@ This is a complete reference of all configuration sections used across the solut
           }
         },
         "Metadata": {
-          "TokenScope": "api://{api-client-id}/.default",
+          "TokenScope": "",
           "RelayUserClaims": "true"
         }
       }
@@ -245,18 +247,6 @@ This is a complete reference of all configuration sections used across the solut
 }
 ```
 
-## appsettings.Development.json (Gateway)
-
-```json
-{
-  "AuthMode": "Scaffold",
-  // Scaffold mode sends no downstream service token.
-  "ReverseProxy": { "Clusters": { "api-cluster": { "Metadata": { "TokenScope": "" } } } }
-}
-```
-
-Each HTTP host's `appsettings.Testing.json` carries the same `AuthMode` (and, on the Gateway, the same empty `TokenScope`), so a host the Aspire AppHost starts under test resolves its mode.
-
 ## Notes
 
 - Connection string names must match what the Bootstrapper expects: `{Project}DbContextTrxn` and `{Project}DbContextQuery`
@@ -271,6 +261,6 @@ Each HTTP host's `appsettings.Testing.json` carries the same `AuthMode` (and, on
 - A Gateway cluster's `Metadata:TokenScope` gets a downstream token from `AccessTokenCache`; `Metadata:RelayUserClaims` adds the relay header. A cluster without `TokenScope` passes the inbound `Authorization` header through unchanged
 - `Proxy`, `Cors`/`CorsSettings`, `RateLimiting:Tenants`, `RateLimiting:Edge`, `OpenTelemetry`, `Messaging:Inbox`, `OutboxDispatcher` and `Scheduling` are validated at registration or host start by their EF packages; an invalid value fails startup
 - `OutboxDispatcher:MaxAttempts` defaults to 5 when unset
-- `AuthMode` is one validated value (`Scaffold` or `Entra`) on every HTTP host. Base `appsettings.json` carries none, so a host with no value fails startup: `appsettings.Development.json` and `appsettings.Testing.json` set `Scaffold`, every test factory pins it in `HostSettings` ([test-templates-endpoint.md](test-templates-endpoint.md)), and a deployment sets the same intended mode on every host of the chain
+- `AuthMode` is one validated value (`Scaffold` or `Entra`) that the API and the Gateway read through `AuthModeResolver`; unset means `Scaffold`, and a deployment sets the same intended mode on both. In `Scaffold` mode a cluster's `TokenScope` stays empty; an `Entra` deployment sets it to the API's scope (`api://{api-client-id}/.default`)
 - `AiServices:Provider` is the sole activation source. Endpoint, deployment, and connection values validate the selected provider but never activate it. Default to `None`. `OpenAICompatible` additionally requires `AiServices:ApiKey`, supplied only through user secrets or an environment/secret store.
 - For production/Azure: use Key Vault references or App Configuration for secrets
