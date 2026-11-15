@@ -4,11 +4,11 @@ Use this skill when domain inputs enable `authProvider` and the solution needs a
 
 ## Phase 5e by authProvider
 
-| `authProvider` | Phase 5e adds | Gate rows that apply |
-|---|---|---|
-| `EntraID`, `EntraExternal` | The `Entra` branch on the API and the Gateway, its configuration and client affordances | Scaffold and Entra |
-| `None` (login-free) | No live branch; confirms `ScaffoldPrincipal.cs` lists each deployed environment | Scaffold only |
-| Any other provider | No live branch; records the provider in `HANDOFF.md` as deployment work | Scaffold only |
+| `authProvider` | Phase 5e adds | Gate rows that apply | Deployed (`Production`) host |
+|---|---|---|---|
+| `EntraID`, `EntraExternal` | The `Entra` branch on the API and the Gateway, its configuration and client affordances | Scaffold, Entra code path, and Live provider once provisioned | Runs with `AuthMode: Entra` and the provider settings; both are deployment values set with the live provider, the deployment-only dependency this phase logs in `HANDOFF.md` |
+| `None` (login-free) | No live branch; confirms `ScaffoldPrincipal.cs` lists each deployed environment and that `.scaffold/DESIGN-DECISIONS.md` records it | Scaffold only | Runs as the fixed principal |
+| Any other provider | No live branch; records the provider in `HANDOFF.md` as deployment work | Scaffold only | Not deployable until that provider is wired |
 
 ## Scaffold Mode vs Live Provider
 
@@ -17,7 +17,7 @@ Use this skill when domain inputs enable `authProvider` and the solution needs a
 - Phase 5e authentication finalization is complete when the app boots end-to-end with the scaffold principal and endpoint tests pass.
 - Live Entra setup is a `deployment-only` dependency: log it in `HANDOFF.md` and continue.
 - `AuthMode` is `Scaffold` in `appsettings.json` and `appsettings.Development.json`; an unset key also resolves to `Scaffold`.
-- Production/staging environments set `AuthMode` to `Entra`, unless the app is login-free ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration). The mode controls registration, mapped routes, and visible client sign-in choices together.
+- For `EntraID` and `EntraExternal`, production/staging environments set `AuthMode` to `Entra`. The mode controls registration, mapped routes, and visible client sign-in choices together.
 
 ## Identity Provider Scenarios
 
