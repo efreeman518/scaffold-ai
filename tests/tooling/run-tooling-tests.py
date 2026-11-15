@@ -1196,11 +1196,11 @@ class ValidatorMutationTests(unittest.TestCase):
         entries, source = self._vendor_source(repo)
         self.assertEqual(self._sync_vendor(repo, source, "--check").returncode, 0)
 
-        changed = source / entries["vendor/orchestrated-refactor/SKILL.md"]["path"]
+        changed = source / entries["vendor/orchestrated-dev/SKILL.md"]["path"]
         changed.write_bytes(changed.read_bytes() + b"Upstream change.\r\n")
         proc = self._sync_vendor(repo, source, "--check")
         self.assertEqual(proc.returncode, 1)
-        self.assertIn("stale: vendor/orchestrated-refactor/SKILL.md", proc.stdout)
+        self.assertIn("stale: vendor/orchestrated-dev/SKILL.md", proc.stdout)
 
         # A local edit is stale too, even when the source has not moved.
         local = repo / "vendor" / "engineering-criteria" / "SKILL.md"
@@ -1292,7 +1292,7 @@ class ValidatorMutationTests(unittest.TestCase):
         manifest = repo / "vendor" / "SOURCES.json"
         before = (criteria.read_bytes(), manifest.read_bytes())
         changed.write_bytes(changed.read_bytes() + b"Second change.\r\n")
-        untracked = entries["vendor/orchestrated-refactor/SKILL.md"]["path"]
+        untracked = entries["vendor/orchestrated-dev/SKILL.md"]["path"]
         (source / ".gitignore").write_text(untracked + "\n", encoding="utf-8")
         git("rm", "-q", "--cached", untracked)
         git("add", "-A")
