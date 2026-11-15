@@ -190,6 +190,10 @@ The container-backed tiers - `Test.Aspire` (mesh) and `Test.Integration` / `Test
 
 Suspect container resource pressure before editing test logic when health checks flap; the resource floor, WSL `.wslconfig`, and runtime-restart guidance live in [../support/troubleshooting.md](../support/troubleshooting.md) -> Docker / Container Runtime.
 
+## Lane switch
+
+One assembly serves every declared lane: tests resolve the lane with the hosts' `HostingLaneResolver` (`NonAzure` unless `{APP}_LANE=Azure`), start only that lane's stores, and CI runs the assembly once per declared lane. Generate the `Azure` arm (SQL Server, Azurite, Service Bus) only when `hostingLanes` includes `Azure`; it differs only where an **Azure arm** note says. A single-lane test calls `IntegrationTestSetup.RequireLane(lane)` (`Inconclusive` on the other lane). `Test.E2E` and `Test.Aspire` read the same `TestHostingLane`.
+
 ## Project Layout
 
 ```text

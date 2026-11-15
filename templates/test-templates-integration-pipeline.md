@@ -3,11 +3,11 @@
 | | |
 |---|---|
 | **Generates** | under `tests/Test.Integration/`: `RelationalAuditLogRepositoryTests.cs`, `RabbitMqTransportTests.cs`, `DomainEventPipelineTests.cs` |
-| **Requires** | [test-templates-integration.md](test-templates-integration.md): the tier's rules (sections Why this tier exists and Lane switch) and the fixtures, `IntegrationTestSetup` and project file these tests run on, generated in Phase 4 and Phase 5a |
+| **Requires** | [../skills/testing.md](../skills/testing.md) section Lane switch (lane resolution, `RequireLane`, **Azure arm** notes); the fixtures, `IntegrationTestSetup` and project file these tests run on, already generated in Phase 4 and Phase 5a from [test-templates-integration.md](test-templates-integration.md), which a Phase 5b session does not load |
 | **Phase** | Phase 5b |
 | **Protocol** | Tests-after, as the rest of the tier |
 
-The component tier's Phase 5b tests: one class against one real store in a standalone Testcontainer, on the fixtures the base template generates. An **Azure arm** note marks where the `Azure` lane differs.
+The component tier's Phase 5b tests: one class against one real store in a standalone Testcontainer, on the fixtures the base template generates.
 
 ---
 
@@ -307,7 +307,7 @@ Skip this template when the project does not have a projection service / read-mo
 
 ## Verification
 
-- [ ] Every check in the Verification list of [test-templates-integration.md](test-templates-integration.md) holds for these classes too: fixture connection strings only, `StartupError` gated, a class-level `<summary>` declaring tier (component) + store.
+- [ ] Each class takes its connection from a fixture, gates on the fixture's `StartupError`, carries a class-level `<summary>` declaring tier (component) + store, and calls `RequireLane` when it runs on one lane only.
 - [ ] `RelationalAuditLogRepositoryTests` exists when `auditProvider: Relational`; `RabbitMqTransportTests` when `messagingProvider: RabbitMq`; `DomainEventPipelineTests` only when `.scaffold/resource-implementation.yaml` declares a projection/read-model boundary.
 
 ---

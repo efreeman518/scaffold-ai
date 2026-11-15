@@ -1128,7 +1128,7 @@ def check_phase5_template_coverage(findings: Findings) -> None:
 LOADSET_SESSION_BASE = ["START-AI.md", "GROUND-RULES.md", "ai/SKILL.md"]
 
 # Required set (session base + skills + templates columns + base-context line).
-# Measured baselines: 5a ~70k, 5b ~106k, 5c ~84k, 5d ~61k, 5e ~49k tokens.
+# Measured 2026-11-15: 5a ~77k, 5b ~116k, 5c ~95k, 5d ~68k, 5e ~53k tokens.
 LOADSET_REQUIRED_CEILINGS = {
     "5a": 80_000,
     "5b": 122_000,
@@ -1137,7 +1137,7 @@ LOADSET_REQUIRED_CEILINGS = {
     "5e": 57_000,
 }
 
-# Full set (required + on-demand column). Measured worst: 5b ~139k tokens.
+# Full set (required + on-demand column). Measured worst 2026-11-15: 5b ~152k tokens.
 LOADSET_FULL_CEILING = 160_000
 
 

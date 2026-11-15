@@ -116,7 +116,7 @@ CANARIES = {
     "Compose interpolates only from `.env`": "support/compose-deployment.md",  # DockerCompose deployment owner (.env.base + images.env -> generated .env); iac/cicd/schema point here
     "Generate no rule-object layer": "skills/domain-model.md",  # rules live on the aggregate (Valid/Transition, DomainResult.Combine); entity/structure-validator templates point here
     "Never generate a parallel `docs/tech-design.md`": "templates/tech-design-template.md",  # docs/tech-design.html is the only design doc; diagrams doc carries source-plus-SVG rules only
-    "start only that lane's stores, and CI runs the assembly once per declared lane": "templates/test-templates-integration.md",  # test lane switch; aspire/e2e templates point to section Lane switch
+    "start only that lane's stores, and CI runs the assembly once per declared lane": "skills/testing.md",  # test lane switch; the integration, aspire and e2e templates point to section Lane switch
     "a prerequisite that is present but fails to start": "skills/testing.md",  # prerequisite rule: missing -> Inconclusive with enabling command, present-but-failing -> red; others point
     "cb.Properties<decimal>().HavePrecision(18, 4)": "templates/ef-configuration-template.md",  # provider-neutral scalar conventions (decimal, UTC temporals); data-layer-wiring/data-persistence/SKILL point to section Model Conventions
     "diagram-{NN}.{mmd,svg}": "support/tech-design-diagrams.md",  # diagram source+SVG naming under docs/diagrams/; the template's file table points here
@@ -246,7 +246,7 @@ are pointers.
 - EF scalar conventions (decimal precision, UTC temporals, no provider column types outside the forced branch):
   [templates/ef-configuration-template.md](../templates/ef-configuration-template.md) section Model Conventions.
 - Test lane switch (lane resolution, per-lane stores, once-per-lane CI run):
-  [templates/test-templates-integration.md](../templates/test-templates-integration.md) section Lane switch.
+  [skills/testing.md](../skills/testing.md) section Lane switch.
 - Test prerequisite classification (missing -> `Inconclusive` with the enabling command; present but failing -> red):
   [skills/testing.md](../skills/testing.md) section Never Silently Pass. Templates, gates, and troubleshooting point here.
 - Ontology projection (outputs, mapping, Fabric IQ ingestion, check semantics):

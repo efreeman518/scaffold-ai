@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Generates** | `tests/Test.Support/Hosting/TestDatabaseContainer.cs` (shared with other container tiers); under `tests/Test.Integration/`: `Infrastructure/DbContainerFixture.cs` + one fixture per other selected store, `Infrastructure/IntegrationTestSetup.cs`, `{Entity}RepositoryIntegrationTests.cs`. The audit, transport and projection tests of this tier are in [test-templates-integration-pipeline.md](test-templates-integration-pipeline.md) |
-| **Requires** | [repository-template](repository-template.md), [updater-template](updater-template.md), EF.IntegrationTesting (`ContainerFixture<T>`), EF.IntegrationTesting.PostgreSql / EF.IntegrationTesting.SqlServer (database fixtures), EF.Testing (`DockerRuntimePreflight`), Testcontainers packages for each other store the app uses |
+| **Requires** | [../skills/testing.md](../skills/testing.md) section Lane switch (lane resolution, `RequireLane`, **Azure arm** notes), [repository-template](repository-template.md), [updater-template](updater-template.md), EF.IntegrationTesting (`ContainerFixture<T>`), EF.IntegrationTesting.PostgreSql / EF.IntegrationTesting.SqlServer (database fixtures), EF.Testing (`DockerRuntimePreflight`), Testcontainers packages for each other store the app uses |
 | **Phase** | Fixtures generated in Phase 4 (component shells); `*RepositoryIntegrationTests` filled in during Phase 5a; the Phase 5b tests are in [test-templates-integration-pipeline.md](test-templates-integration-pipeline.md) |
 | **Protocol** | Tests-after for this tier - TDD lives in `Test.Unit` and `Test.Endpoints`. Integration verifies wiring against real infrastructure, so write the tests once the unit + endpoint tests pin behavior. |
 
@@ -22,10 +22,6 @@
 > **Component vs mesh:** mesh tests live in `Test.Aspire` ([test-templates-aspire.md](test-templates-aspire.md)); placement rule in [../skills/testing.md](../skills/testing.md) section Component vs Mesh split. `Test.Integration` must **not** reference `AppHost` or `Aspire.Hosting.Testing`.
 
 **Naming:** both canonical forms appear in this tier - `Given_{Entity}Created_When_ProjectionRuns_Then_{Entity}ViewProduced` for a behavioral scenario, `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` for a structural fact (owner: [../skills/testing.md](../skills/testing.md) section Test Naming Convention). The coverage matrix and gate checks reference method names exactly.
-
-## Lane switch
-
-One assembly serves every declared lane: tests resolve the lane with the hosts' `HostingLaneResolver` (`NonAzure` unless `{APP}_LANE=Azure`), start only that lane's stores, and CI runs the assembly once per declared lane. Generate the `Azure` arm (SQL Server, Azurite, Service Bus) only when `hostingLanes` includes `Azure`; it differs only where an **Azure arm** note says. A single-lane test calls `IntegrationTestSetup.RequireLane(lane)` (`Inconclusive` on the other lane). `Test.E2E` and `Test.Aspire` read the same `TestHostingLane`.
 
 ## Fixture model
 
