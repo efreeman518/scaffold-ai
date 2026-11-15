@@ -1120,15 +1120,17 @@ def check_phase5_template_coverage(findings: Findings) -> None:
 # "Context Budgets" advisory. The required set (session base + skills +
 # templates columns) stays under its measured ceiling, and the full set
 # (+ on-demand column) stays below a shared ceiling.
-# Tokens are estimated as chars/4. Ceilings are ~15% above the measured
-# 2026-07-13 unique-file baselines; if this check fires, prefer trimming or splitting the
-# offending files over raising the ceiling.
+# Tokens are estimated as chars/4. Ceilings were set ~15% above the unique-file
+# baselines measured on 2026-07-13; if this check fires, prefer trimming or splitting the
+# offending files over raising the ceiling. A conditional template that every scaffoldMode
+# loads when its condition holds (5b: test-templates-e2e) sits in the on-demand column, so
+# the full ceiling bounds it, not the required one.
 
 # Session base: files every Phase 5 session loads before the load set.
 LOADSET_SESSION_BASE = ["START-AI.md", "GROUND-RULES.md", "ai/SKILL.md"]
 
 # Required set (session base + skills + templates columns + base-context line).
-# Measured baselines: 5a ~70k, 5b ~106k, 5c ~84k, 5d ~61k, 5e ~49k tokens.
+# Measured 2026-11-15: 5a ~77k, 5b ~116k, 5c ~95k, 5d ~68k, 5e ~53k tokens.
 LOADSET_REQUIRED_CEILINGS = {
     "5a": 80_000,
     "5b": 122_000,
@@ -1137,7 +1139,7 @@ LOADSET_REQUIRED_CEILINGS = {
     "5e": 57_000,
 }
 
-# Full set (required + on-demand column). Measured worst: 5b ~139k tokens.
+# Full set (required + on-demand column). Measured worst 2026-11-15: 5b ~152k tokens.
 LOADSET_FULL_CEILING = 160_000
 
 

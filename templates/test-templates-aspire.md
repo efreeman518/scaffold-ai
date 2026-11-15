@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Generates** | `tests/Test.Aspire/AspireTestHost.cs`, `tests/Test.Aspire/AspireMeshLifecycle.cs`, `tests/Test.Aspire/AssemblyInfo.cs`, `tests/Test.Aspire/OutboxMeshTests.cs` (when an outbox is generated), `tests/Test.Aspire/ApiAuditPipelineTests.cs` + `FunctionAuditPipelineTests.cs` (`Azure` arm), Blazor-mesh smoke (when `includeBlazorUI`), `tests/Test.Aspire/Test.Aspire.csproj` |
-| **Requires** | an Aspire AppHost project, [test-templates-integration.md](test-templates-integration.md) (the component tier this splits from; section Lane switch owns `TestHostingLane`), `Aspire.Hosting.Testing` on Aspire-backed consumers, EF.IntegrationTesting.Aspire (host context) and EF.Testing (environment helpers) |
+| **Requires** | an Aspire AppHost project, [test-templates-integration.md](test-templates-integration.md) (the component tier this splits from; it generates `TestHostingLane`), [../skills/testing.md](../skills/testing.md) section Lane switch, `Aspire.Hosting.Testing` on Aspire-backed consumers, EF.IntegrationTesting.Aspire (host context) and EF.Testing (environment helpers) |
 | **Phase** | Host + lifecycle shells in Phase 4; mesh tests filled in Phase 5b (and Phase 5c for opt-in hosts: scheduler/worker, Functions, Blazor) |
 | **Protocol** | Tests-after - the mesh tier verifies the production AppHost graph end-to-end once the component and endpoint tiers pin behavior. |
 

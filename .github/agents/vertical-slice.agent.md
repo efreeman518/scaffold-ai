@@ -18,7 +18,7 @@ All instruction files live under `.instructions/` in the project root. All file 
 
 1. Read `.instructions/support/vertical-slice-checklist.md` - it is the primary execution guide (fast-path section).
 2. Read `.instructions/ai/placeholder-tokens.md` for naming conventions.
-3. Load the templates listed in the checklist's "Load Set for Slice" section (under `.instructions/templates/`).
+3. Load the files listed in the checklist's "Load Set for Slice" section (templates under `.instructions/templates/`, skills under `.instructions/skills/`).
 4. Confirm `scaffoldMode` and `testingProfile` from `.scaffold/resource-implementation.yaml`. If that file is absent, ask the developer for both rather than assuming defaults.
 
 ## Pre-Flight
