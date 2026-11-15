@@ -244,7 +244,8 @@ DEPLOYMENT_HARDENING_CONTRACT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "faulted access-context task",
     ),
     "patterns/api-host-wiring.md": (
-        "`Scaffold` (the default: the EF.Auth fixed principal authenticates every request",
+        "`Scaffold` (the EF.Auth fixed principal authenticates every request",
+        "No default: a host with a missing or unknown value fails startup.",
         ".SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build())",
         "**Anonymous endpoints are opted in one by one**",
     ),

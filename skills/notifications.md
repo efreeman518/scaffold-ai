@@ -121,7 +121,7 @@ public static IServiceCollection AddNotificationInfrastructure(
 
 Integrated mode: call from Bootstrapper.
 
-Standalone mode: register in notification host and expose minimal API endpoints.
+Standalone mode: register in notification host and expose minimal API endpoints behind the host auth wiring ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration).
 
 ---
 

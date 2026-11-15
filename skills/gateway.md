@@ -131,19 +131,26 @@ The Gateway authenticates the user token (Entra External/B2C), sends its own `Ac
 ```csharp
 private static void AddAuthentication(IServiceCollection services, IConfiguration config)
 {
-    services.AddAuthentication(options =>
-    {
-        options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
-    })
-    .AddMicrosoftIdentityWebApi(config.GetSection("Gateway_EntraExt"));
-    services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
-        { o.MapInboundClaims = false; o.TokenValidationParameters.RoleClaimType = "roles"; o.TokenValidationParameters.NameClaimType = "name"; });
+    // The one mode decision and the same fixed principal as the API.
+    var mode = AuthModeResolver.Resolve(config["AuthMode"]);
+    if (mode == AuthMode.Scaffold)
+        services.AddAuthentication(ScaffoldPrincipal.SchemeName)
+            .AddFixedPrincipal(ScaffoldPrincipal.SchemeName, o =>
+            {
+                o.Claims = [.. ScaffoldPrincipal.Claims.Select(c => new FixedClaim(c.Type, c.Value))];
+                o.AllowedEnvironments = [.. ScaffoldPrincipal.AllowedEnvironments];
+            });
+    else   // AuthMode.Entra: Phase 5e puts the live provider registration here; without it the mode fails startup.
+        throw new InvalidOperationException("AuthMode 'Entra' has no provider registration");
 
+    // Every AuthMode: a route with no policy of its own still requires an authenticated user.
+    services.AddAuthorizationBuilder()
+        .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
     services.AddSingleton<IAuthorizationHandler, TenantMatchHandler>();
 }
 ```
 
-Both hosts' claim types match `ForwardedClaims:ClaimTypes` ([identity-management.md](identity-management.md) section Claim-type contract); scaffold mode registers the fixed principal instead, and both modes set the fallback policy ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration).
+Both hosts' claim types match `ForwardedClaims:ClaimTypes` ([identity-management.md](identity-management.md) section Claim-type contract). The mode decision, the principal and the anonymous set are owned by [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration. Phase 5e adds the `Entra` registration from the identity skill's Gateway toggle.
 
 ---
 
@@ -159,6 +166,7 @@ app.UseAuthorization();
 app.UseRateLimiter();       // UseEdgeLimiter partitions on the forwarded client IP
 app.UseRequestTimeouts();
 app.MapDefaultEndpoints();  // MapEfHealthEndpoints
+// Anonymous GET /auth/mode is mapped here, before the proxy (patterns/api-host-wiring.md).
 app.MapReverseProxy().RequireAuthorization();
 ```
 

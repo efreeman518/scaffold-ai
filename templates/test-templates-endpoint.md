@@ -536,6 +536,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -571,7 +572,7 @@ public sealed class AuthenticationContractTests
     }
 
     [TestMethod]
-    public async Task Given_NoIdentity_When_ProtectedRouteRequested_Then_Returns401()
+    public async Task Given_NoIdentity_When_ApiRouteRequested_Then_Returns401()
     {
         // Arrange
         using var client = _noIdentity.CreateClient();
@@ -596,6 +597,24 @@ public sealed class AuthenticationContractTests
         // Assert
         Assert.IsNotNull(fallback, "An endpoint mapped with no policy must not be anonymous.");
         Assert.IsTrue(fallback.Requirements.OfType<DenyAnonymousAuthorizationRequirement>().Any());
+    }
+
+    [TestMethod]
+    public void Given_MappedEndpoints_When_AnonymousOnesListed_Then_OnlyTheClosedSetIsAnonymous()
+    {
+        // Arrange - add "auth/mode" when this host is the one clients call (no Gateway)
+        string[] expected = ["healthz", "healthz/live", "healthz/ready"];
+
+        // Act - every route that opted out of the fallback policy
+        var anonymous = _factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .Where(e => e.Metadata.GetMetadata<IAllowAnonymous>() is not null)
+            .Select(e => e.RoutePattern.RawText?.Trim('/') ?? string.Empty)
+            .Distinct()
+            .ToArray();
+
+        // Assert
+        CollectionAssert.AreEquivalent(expected, anonymous);
     }
 
     /// <summary>Authenticates no request; the base challenge answers 401.</summary>

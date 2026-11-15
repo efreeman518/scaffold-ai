@@ -123,22 +123,10 @@ Upgrade to production: replace `.AddCustom(...)` with `.AddMsal()`, change cspro
 
 ### Gateway: Config-Driven Auth Toggle
 
-Gateway selects auth from `AuthMode`, not from accidental config-section presence. `Scaffold` registers the fixed principal. `Entra` requires a complete Entra section and fails startup when it is missing; it must never fall back to anonymous passthrough.
+The Gateway resolves `AuthMode` and registers the `Scaffold` branch in Phase 5b ([gateway.md](gateway.md) section Authentication Model). Phase 5e puts the registration below in its `Entra` branch. `Entra` requires a complete Entra section and fails startup when it is missing; it never falls back to anonymous passthrough.
 
 ```csharp
-public static void AddAuthentication(this IServiceCollection services, IConfiguration config)
-{
-    var mode = config["AuthMode"] ?? "Scaffold";
-    if (mode.Equals("Scaffold", StringComparison.OrdinalIgnoreCase))
-    {
-        // The same EF.Auth fixed principal as the API (ScaffoldPrincipal claims and environments).
-        services.AddAuthentication(ScaffoldPrincipal.SchemeName)
-            .AddFixedPrincipal(ScaffoldPrincipal.SchemeName, ConfigureScaffoldPrincipal);
-        return;
-    }
-    if (!mode.Equals("Entra", StringComparison.OrdinalIgnoreCase))
-        throw new InvalidOperationException($"Unsupported AuthMode '{mode}'");
-
+    // AuthMode.Entra branch of the Gateway's AddAuthentication
     var entraSection = config.GetRequiredSection("Gateway_EntraExt");
     services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddMicrosoftIdentityWebApi(entraSection);
@@ -148,7 +136,6 @@ public static void AddAuthentication(this IServiceCollection services, IConfigur
         o.TokenValidationParameters.RoleClaimType = "roles";
         o.TokenValidationParameters.NameClaimType = "name";
     });
-}
 ```
 
 Config shape when enabled:

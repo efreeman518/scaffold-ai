@@ -272,6 +272,15 @@ public interface I{Project}AttachmentService
 **API endpoint** - `multipart/form-data` consumer; the server enforces size, file count and content type:
 
 ```csharp
+// File: Application.Contracts/AttachmentLimits.cs - the one place the upload limits are decided
+public static class AttachmentLimits
+{
+    public const long MaxFileBytes = 10 * 1024 * 1024;
+    public const long MaxRequestBytes = MaxFileBytes + 64 * 1024;   // one file plus its form fields
+    public static readonly IReadOnlySet<string> ContentTypes =
+        new HashSet<string> { "application/pdf", "image/png", "image/jpeg" };
+}
+
 group.MapPost("/upload", async (
     IFormFileCollection files,          // binds every uploaded file, so the count is checked
     [FromForm] string ownerType,
@@ -283,12 +292,14 @@ group.MapPost("/upload", async (
         return TypedResults.Problem(ProblemDetailsHelper.Create(
             StatusCodes.Status400BadRequest, "Exactly one file within the size limit is required."));
 
+    // The service resolves ownerType against the attachable entity types, authorizes the caller for ownerId,
+    // and accepts only content whose leading bytes match AttachmentLimits.ContentTypes (Non-negotiables).
     await using var stream = files[0].OpenReadStream();
     var result = await service.UploadAsync(stream, files[0].FileName, ownerType, ownerId, ct);
     return result.ToHttpResult();
 })
 .WithMetadata(new RequestSizeLimitAttribute(AttachmentLimits.MaxRequestBytes))   // body refused above the limit
-.DisableAntiforgery()   // bearer-token API, no cookie authentication
+.DisableAntiforgery()   // this host has no cookie authentication
 .WithMetadata(new ConsumesAttribute("multipart/form-data"))
 .RequireAuthorization();
 ```
@@ -327,8 +338,8 @@ public interface I{Project}ApiClient
 
 **Non-negotiables:**
 - `OpenReadStream(maxAllowedSize: ...)` - the default is 512 KB and silently truncates larger files in WASM. The client limit is a convenience; the server limits decide.
-- Authorization on the endpoint is unconditional, and `.DisableAntiforgery()` carries its reason at the site: the API authenticates by bearer token and uses no cookie authentication.
-- The service matches the file's leading bytes against a content-type allowlist (not the extension or the `Content-Type` the client sent) and rejects anything else. The server makes the storage key, keeps the client's file name only as sanitized display metadata, and stores the detected type: [azure-blob-storage.md](azure-blob-storage.md) section Attachment Rules.
+- Authorization on the endpoint is unconditional, and `.DisableAntiforgery()` carries its reason at the site: the API host has no cookie authentication in either `AuthMode`.
+- The service matches the file's leading bytes against a content-type allowlist (not the extension or the `Content-Type` the client sent) and rejects anything else. It resolves `ownerType` against the app's closed list of attachable entity types and checks, through the access decision, that the caller may attach to `ownerId` before it reads the stream. The server makes the storage key from validated values only, keeps the client's file name only as sanitized display metadata, and stores the detected type: [azure-blob-storage.md](azure-blob-storage.md) section Attachment Rules.
 - `[Multipart]` on the Refit method **and** `[AliasAs]` on every parameter - Refit's default name mangler emits PascalCase which the model binder fails to match.
 - Stream the file (`OpenReadStream`) instead of buffering to a byte array - large uploads OOM the circuit otherwise.
 

@@ -230,7 +230,7 @@ private static void AddAuthorization(IServiceCollection services)
 }
 ```
 
-The host authenticates and authorizes from its first wiring. `AuthMode` has two values: `Scaffold` (the default: the EF.Auth fixed principal authenticates every request, so the backend maps no sign-in route) and `Entra` (the live provider, added to the same registration in Phase 5e: [../skills/identity-management.md](../skills/identity-management.md) section Live Provider Registration). `AuthMode` and `AuthModeResolver.Resolve` (an unknown value throws, so the host fails to start) live beside `ScaffoldPrincipal` in `Application.Contracts`. EF.Auth API list: [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Authentication (EF.Auth).
+The host authenticates and authorizes from its first wiring. `AuthMode` has two values: `Scaffold` (the EF.Auth fixed principal authenticates every request, so the backend maps no sign-in route) and `Entra` (the live provider, added to the same registration in Phase 5e: [../skills/identity-management.md](../skills/identity-management.md) section Live Provider Registration). `AuthMode` and `AuthModeResolver.Resolve` (an unknown value throws, so the host fails to start) live beside `ScaffoldPrincipal` in `Application.Contracts`. EF.Auth API list: [../support/ef-packages-optional.md](../support/ef-packages-optional.md) section Authentication (EF.Auth).
 
 ```csharp
 // File: Host/{App}.Api/Auth/AuthConfiguration.cs
@@ -273,13 +273,27 @@ public static class AuthorizationPolicies
 ```
 
 ```csharp
+// File: Application.Contracts/AuthMode.cs - the one mode decision; every HTTP host calls it
+public enum AuthMode { Scaffold, Entra }
+
+public static class AuthModeResolver
+{
+    // No default: a host with a missing or unknown value fails startup.
+    public static AuthMode Resolve(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        "scaffold" => AuthMode.Scaffold,
+        "entra" => AuthMode.Entra,
+        _ => throw new InvalidOperationException($"AuthMode '{value}' is not Scaffold or Entra")
+    };
+}
+
 // File: Application.Contracts/ScaffoldPrincipal.cs - shared by the Api and the Gateway so both register one identity
 public static class ScaffoldPrincipal
 {
     public const string SchemeName = "Scaffold";
 
     // Environments the fixed identity may run in; kept in code so configuration can never widen it.
-    // A login-free app that deploys as Production lists it deliberately; any other environment fails host start.
+    // Development and test hosts only: any other environment fails host start, and a deployed one is never listed.
     public static IReadOnlyList<string> AllowedEnvironments { get; } = ["Development", "Testing"];
 
     public static IReadOnlyList<(string Type, string Value)> Claims { get; } =
@@ -297,14 +311,16 @@ public static class ScaffoldPrincipal
 }
 ```
 
-`AddFixedPrincipal` authenticates every request as the configured claims, fails host start outside `AllowedEnvironments` (default `Development`, `Testing`) or with no claims, and logs one warning per scheme the first time it authenticates; generate no authentication handler. The scaffold principal authenticates HTTP requests only. Code running outside a request resolves the explicit system context (section Request Context Resolution), never this principal, its global-admin role, or the dev tenant. A Gateway host registers the same principal and the same fallback policy.
+`AddFixedPrincipal` authenticates every request as the configured claims, fails host start outside `AllowedEnvironments` (default `Development`, `Testing`) or with no claims, and logs one warning per scheme the first time it authenticates; generate no authentication handler. The scaffold principal authenticates HTTP requests only. Code running outside a request resolves the explicit system context (section Request Context Resolution), never this principal, its global-admin role, or the dev tenant. `AuthMode` is set in `appsettings.Development.json` and by each deployment's configuration, never in base `appsettings.json`. Every HTTP host that maps more than the health probes (API, Gateway, Blazor Server, a standalone notification host) resolves the mode through `AuthModeResolver` and sets the same fallback policy; the Gateway's registration is in [../skills/gateway.md](../skills/gateway.md) section Authentication Model.
 
 **Anonymous endpoints are opted in one by one**, each with its reason at the site. The set is closed:
 
-- **Health probes** (`/healthz/live`, `/healthz/ready`, `/healthz`): `MapEfHealthEndpoints` maps them anonymous because an orchestrator probe carries no identity. The package exempts them from every rate limiter, so their checks stay cheap.
-- **`GET /auth/mode`** on the auth-owning host: a client reads the mode before it signs in. It returns only the validated public value (`{ "mode": "Scaffold" }` or `{ "mode": "Entra" }`), never tenant IDs, client IDs, authorities, or secrets, and it sits behind the host's rate limiter, partitioned per client address ([../skills/security.md](../skills/security.md) section Rate Limiting). Clients use it for presentation; the backend authorization gate remains the security boundary.
+- **Health probes** (`/healthz/live`, `/healthz/ready`, `/healthz`): `MapEfHealthEndpoints` maps them anonymous because an orchestrator probe carries no identity. The package exempts them from every rate limiter, so an orchestrator probe is never throttled.
+- **`GET /auth/mode`** on the host clients call (the Gateway when one is generated, else the API): a client reads the mode before it signs in. It returns only the validated public value (`{ "mode": "Scaffold" }` or `{ "mode": "Entra" }`), never tenant IDs, client IDs, authorities, or secrets, and it sits behind the host's rate limiter ([../skills/security.md](../skills/security.md) section Rate Limiting). Clients use it for presentation; the backend authorization gate remains the security boundary.
 
 ```csharp
+// In the pipeline of the host clients call, after MapDefaultEndpoints.
+var authMode = AuthModeResolver.Resolve(app.Configuration["AuthMode"]);
 app.MapGet("/auth/mode", () => TypedResults.Ok(new { mode = authMode.ToString() }))
     .AllowAnonymous();   // read before sign-in; returns the public mode only
 ```

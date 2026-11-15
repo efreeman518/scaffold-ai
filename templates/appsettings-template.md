@@ -13,7 +13,6 @@ This is a complete reference of all configuration sections used across the solut
 ```json
 {
   "AppName": "{Host}.Api",
-  "AuthMode": "Scaffold",
 
   "ConnectionStrings": {
     "Redis1": "localhost:6379"
@@ -136,7 +135,6 @@ This is a complete reference of all configuration sections used across the solut
 ```json
 {
   "AppName": "{Gateway}.Gateway",
-  "AuthMode": "Scaffold",
 
   "Gateway_EntraExt": {
     "Instance": "https://{tenant-name}.ciamlogin.com/",
@@ -229,6 +227,7 @@ This is a complete reference of all configuration sections used across the solut
 
 ```json
 {
+  "AuthMode": "Scaffold",
   // Fixed local-emulator credential for a run without Aspire; it opens only the developer's local container.
   "ConnectionStrings": {
     "{Project}DbContextTrxn": "Host=localhost;Port=35432;Database={project}db;Username=postgres;Password={postgres-password}",
@@ -260,6 +259,6 @@ This is a complete reference of all configuration sections used across the solut
 - A Gateway cluster's `Metadata:TokenScope` gets a downstream token from `AccessTokenCache`; `Metadata:RelayUserClaims` adds the relay header. A cluster without `TokenScope` passes the inbound `Authorization` header through unchanged
 - `Proxy`, `Cors`/`CorsSettings`, `RateLimiting:Tenants`, `RateLimiting:Edge`, `OpenTelemetry`, `Messaging:Inbox`, `OutboxDispatcher` and `Scheduling` are validated at registration or host start by their EF packages; an invalid value fails startup
 - `OutboxDispatcher:MaxAttempts` defaults to 5 when unset
-- `AuthMode` belongs on each auth-owning host and must be one validated value (`Scaffold` or `Entra`); production hosts use the same intended mode across the chain
+- `AuthMode` is one validated value (`Scaffold` or `Entra`) on every HTTP host. Base `appsettings.json` carries none, so a host with no value fails startup: `appsettings.Development.json` sets `Scaffold` (the Gateway's also leaves each cluster's `TokenScope` empty), a test host that does not run as `Development` sets it in its factory configuration, and a deployment sets the same intended mode on every host of the chain
 - `AiServices:Provider` is the sole activation source. Endpoint, deployment, and connection values validate the selected provider but never activate it. Default to `None`. `OpenAICompatible` additionally requires `AiServices:ApiKey`, supplied only through user secrets or an environment/secret store.
 - For production/Azure: use Key Vault references or App Configuration for secrets

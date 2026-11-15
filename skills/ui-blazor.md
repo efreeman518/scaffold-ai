@@ -128,7 +128,7 @@ builder.Services
         c.BaseAddress = new Uri(gatewayUrl);
         c.DefaultRequestHeaders.Add("Accept", "application/json");
     })
-    // Add auth handler here once auth is wired (see Auth section).
+    // The Gateway token handler is added here (Auth section).
     .AddStandardResilienceHandler();
 
 var app = builder.Build();
@@ -389,7 +389,7 @@ builder.Services.AddRefitClient<I{Project}ApiClient>(...)
 
 ### Server -> cookie + forward bearer
 
-For Blazor Server, auth at the edge is a cookie (OIDC), and the server forwards a service-principal bearer token to the Gateway. Use Microsoft.Identity.Web server-side; the Gateway's cluster `TokenScope` (EF.Gateway over the EF.Auth `AccessTokenCache`) acquires the downstream token.
+For Blazor Server, auth at the edge is a cookie (OIDC), and the server forwards a service-principal bearer token to the Gateway. Use Microsoft.Identity.Web server-side; the Gateway's cluster `TokenScope` (EF.Gateway over the EF.Auth `AccessTokenCache`) acquires the downstream token. The Blazor Server host resolves `AuthMode` through `AuthModeResolver` and sets the same fallback policy as the API ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration).
 
 See [identity-management.md](identity-management.md) for Entra External ID registration details - the UI app registration values slot into the `EntraExternal` section of `appsettings.json`.
 
