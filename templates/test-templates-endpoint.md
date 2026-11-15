@@ -34,7 +34,7 @@ If the test base evolves to wrap `HttpClient` in an extension method (e.g. `clie
 
 The plumbing for swapping the production DbContext + interceptors + pooled factories with a test-mode store ships in the `EF.IntegrationTesting` package as `EF.IntegrationTesting.AspNetCore.EfWebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>`. `Test.Support` carries only a thin app adapter, `WebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>`, and both `Test.Endpoints` (in-memory) and `Test.E2E` (Testcontainers database) derive specializations that declare the store and the lane.
 
-The adapter pins every mode-selecting config key (auth mode, provider toggles) explicitly - a Development-environment test host loads the developer's **user secrets**, which override both appsettings files and can flip test topology on one machine while CI stays green. Test factories extend base configuration; they never replace it wholesale, or the pinned keys silently vanish in derived factories.
+The adapter pins every mode-selecting config key (lane, provider toggles) explicitly - a Development-environment test host loads the developer's **user secrets**, which override both appsettings files and can flip test topology on one machine while CI stays green. Test factories extend base configuration; they never replace it wholesale, or the pinned keys silently vanish in derived factories.
 
 > **Phase 4 generates this file.** The adapter is part of the contract-scaffolding output (see [../ai/contract-scaffolding.md](../ai/contract-scaffolding.md), `### 4. Test Infrastructure`) so the solution builds and both `Test.Endpoints` and `Test.E2E` compile before Phase 5 begins; the swap takes effect in 5b.
 
@@ -200,7 +200,7 @@ public sealed class CustomApiFactory : WebApplicationFactoryBase<Program, {App}D
 
 `DbContextBase` stamps `Version` and the timestamps on save, so the in-memory contexts carry the ETag contract without an extra interceptor. The API host registers no outbox dispatcher, so staged rows stay in the in-memory database and no transport needs replacing.
 
-> **`NonAzure` pin:** `Hosting:Lane=NonAzure` and `AuthMode=Scaffold`, with inert `Redis1` (`abortConnect=false`), `Storage:S3:*`, and `Messaging:RabbitMq:ConnectionString` values, and a `CacheSettings` Redis connection name with no connection string so the cache and the rate limiter stay in process. **Azure pin:** inert Blob, Table, Cosmos and Service Bus endpoints; the SDK clients are lazy.
+> **`NonAzure` pin:** `Hosting:Lane=NonAzure` with inert `Redis1` (`abortConnect=false`), `Storage:S3:*`, and `Messaging:RabbitMq:ConnectionString` values, and a `CacheSettings` Redis connection name with no connection string so the cache and the rate limiter stay in process. **Azure pin:** inert Blob, Table, Cosmos and Service Bus endpoints; the SDK clients are lazy.
 
 The pooled-context swap, interceptor removal, factory plumbing, and reflection-based context creation are inherited. `Test.E2E` derives `DbApiFactory` from the same base on a real database container: [test-templates-e2e.md](test-templates-e2e.md) section DbApiFactory. Full distributed-app tests use `AspireTestHost` ([test-templates-aspire.md](test-templates-aspire.md)); one-class-vs-one-store tests use the `Test.Integration` fixtures ([test-templates-integration.md](test-templates-integration.md)). The WAF base is for HTTP-in-API-out testing.
 

@@ -201,7 +201,7 @@ The `[Scheduler]` schema is a migrator target like any other: the one-shot `{App
 - Use managed identity for ACR pull, SQL, Key Vault, App Config.
 - Keep SQL Entra-only (`azureADOnlyAuthentication: true`).
 - Put secrets in Key Vault / secret refs, not plain Bicep values.
-- A deployed host sets `AuthMode: Entra` (Phase 5e), unless the app is login-free by a recorded design decision ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration).
+- A deployed host's app settings carry `AuthMode: Entra` (Phase 5e), unless the app is login-free by a recorded design decision ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration).
 - Prefer private endpoints in production.
 - Map compliance requirements (classification, retention, audit) to deployable controls (diagnostic settings, retention policies, encryption settings, access restrictions).
 

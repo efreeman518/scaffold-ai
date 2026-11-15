@@ -242,7 +242,7 @@ Pick one convention per project and apply it everywhere. Never use dual-prefix p
 ## Verification
 
 - [ ] `AuthMode` resolves through `AuthModeResolver`, the fallback policy is set, and the only anonymous routes are the health probes and `GET /auth/mode`
-- [ ] Gateway auth tests (`tests/Test.Unit/Gateway/GatewayAuthModeTests.cs`) assert an unsupported mode is rejected at registration, `GET /auth/mode` is anonymous and returns the mode, and, as `AuthenticationContractTests` does for the API, the fallback policy and the closed anonymous set
+- [ ] Gateway auth tests follow the proof class `../scaffold-proof/tests/Test.Unit/Gateway/GatewayAuthModeTests.cs`, which builds the Gateway host in process: an unsupported mode is rejected at registration and `GET /auth/mode` is anonymous and returns the mode; the same host also gets the fallback-policy and closed-anonymous-set assertions of `AuthenticationContractTests`
 - [ ] YARP routes/clusters load from config
 - [ ] `AddDownstreamAuthTransforms(config)` registered; clusters declare `TokenScope` / `RelayUserClaims` metadata; no app token service or relay transform
 - [ ] Gateway and API bind the same `ForwardedClaims` section

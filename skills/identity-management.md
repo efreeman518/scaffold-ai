@@ -9,7 +9,7 @@ Use this skill when domain inputs enable `authProvider` and the solution needs a
 - Phase 5e authentication finalization is complete when the app boots end-to-end with the scaffold principal and endpoint tests pass.
 - Live Entra setup is a `deployment-only` dependency: log it in `HANDOFF.md` and continue.
 - `AuthMode` is `Scaffold` in `appsettings.json` and `appsettings.Development.json`; an unset key also resolves to `Scaffold`.
-- Production/staging environments override `AuthMode` to `Entra`. The mode controls registration, mapped routes, and visible client sign-in choices together.
+- Production/staging environments set `AuthMode` to `Entra`, unless the app is login-free ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration). The mode controls registration, mapped routes, and visible client sign-in choices together.
 
 ## Identity Provider Scenarios
 
@@ -21,7 +21,7 @@ Prompt the user at the start of this phase to select the appropriate scenario:
 | External / consumer users | Microsoft Entra External ID, Google, Facebook, Apple, OAuth2/OIDC | Customer-facing apps, self-service portals |
 | Hybrid | Entra ID + Entra External ID / social providers | Public UI for external users + enterprise back-office for internal users |
 
-The registrations in this skill cover Entra ID and Entra External ID, the `Entra` mode. For another provider the app ships in `Scaffold` mode and the provider is recorded in `HANDOFF.md` as deployment work.
+The registrations in this skill cover Entra ID and Entra External ID, the `Entra` mode. For another provider the live branch is deployment work recorded in `HANDOFF.md`: until it is wired the app runs only where the fixed principal is allowed (Development and test hosts), and the `Entra` rows of the Phase 5e gate do not apply to it.
 
 ### Admin Portal / Entra External ID Deployment Runbook
 
