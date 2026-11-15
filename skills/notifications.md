@@ -17,7 +17,7 @@ Use integrated for low/moderate throughput; standalone for high volume or operat
 
 1. Keep channel-specific logic in channel providers, not in unified service.
 2. Register providers conditionally from config presence.
-3. External provider calls take the resilience the host already gives them: the inherited standard handler for an `HttpClient`, the SDK's own retry options for an SDK client. Add no second handler; a send is not retried unless the provider honors an idempotency key ([resilience.md](resilience.md) section Internal-Call Guidance).
+3. External provider calls take the resilience the host already gives them: the inherited standard handler for an `HttpClient`, the SDK's own retry options, at their defaults, for an SDK client. Add no second handler and no handler that retries a send ([resilience.md](resilience.md) section Internal-Call Guidance); a failed send is retried by its caller or by redelivery of its message, as the sections below describe.
 4. Keep credentials in Key Vault/user-secrets, never inline in appsettings.
 5. `Infrastructure.Notification` must not depend on Domain/Application implementation projects.
 
@@ -342,4 +342,4 @@ Use the standard `IMessageHandler<T>` test patterns from the messaging skill:
 - [ ] channel providers register only when config exists
 - [ ] no Domain/Application implementation dependencies in infrastructure notification project
 - [ ] secrets are sourced from secure providers (not plain appsettings)
-- [ ] each provider client has exactly one resilience layer (the inherited standard handler or the SDK's retry options) and no send is retried without an idempotency key
+- [ ] each provider client has exactly one resilience layer (the inherited standard handler or the SDK's retry options); no added handler retries a send

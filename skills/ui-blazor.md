@@ -134,8 +134,8 @@ builder.Services
         c.BaseAddress = new Uri(gatewayUrl);
         c.DefaultRequestHeaders.Add("Accept", "application/json");
     })
-    // The Auth section chains the Gateway token handler here. No resilience handler is added: the client
-    // inherits the standard one from AddServiceDefaults, which does not retry a POST; a second one would.
+    // A token handler, when the Auth section calls for one, is chained here. No resilience handler is added:
+    // the client inherits the standard one from AddServiceDefaults, which does not retry a POST; a second one would.
     ;
 
 var app = builder.Build();
@@ -156,7 +156,6 @@ app.Run();
 Differences from Server:
 
 - `builder = WebAssemblyHostBuilder.CreateDefault(args)` - no `ConfigureWebHost`
-- No `AddServiceDefaults()`, `MapDefaultEndpoints()` or ServiceDefaults project reference: the browser app is not a server host. Its Refit client therefore inherits no resilience handler and adds the one it has: `.AddStandardResilienceHandler(o => o.Retry.DisableForUnsafeHttpMethods())`
 - No `AddServiceDefaults()`, `MapDefaultEndpoints()` or ServiceDefaults project reference: the browser app is not a server host. Its Refit client therefore inherits no resilience handler and adds the one it has: `.AddStandardResilienceHandler(o => o.Retry.DisableForUnsafeHttpMethods())`
 - Load `appsettings.json` from `wwwroot` via `HttpClient.GetStringAsync("appsettings.json")`
 - Use `AddMsalAuthentication` for Entra External ID (see Auth section)
@@ -392,7 +391,8 @@ builder.Services.AddScoped<ApiAuthHandler>();  // DelegatingHandler
 
 builder.Services.AddRefitClient<I{Project}ApiClient>(...)
     .ConfigureHttpClient(c => c.BaseAddress = new Uri(gatewayUrl))
-    .AddHttpMessageHandler<ApiAuthHandler>();
+    .AddHttpMessageHandler<ApiAuthHandler>()
+    .AddStandardResilienceHandler(o => o.Retry.DisableForUnsafeHttpMethods()); // the one handler (no ServiceDefaults here)
 ```
 
 `ApiAuthHandler` reads the token from `IAccessTokenProvider` in `SendAsync` and sets `Authorization: Bearer <token>`.

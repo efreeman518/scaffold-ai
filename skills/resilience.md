@@ -28,7 +28,7 @@ client.AddStandardResilienceHandler(o =>
 });
 ```
 
-The project that holds this code references `Microsoft.Extensions.Http.Resilience`. `HttpClient.Timeout` (100 s by default) still bounds the whole call, so raise it with a `TotalRequestTimeout` above it. A custom pipeline (`AddResilienceHandler` with hand-built retry, breaker or timeout strategies, a custom predicate or delay generator) needs a proven reason in a one-line comment at the site: a measured need or a contract the standard options cannot express.
+The project that holds this code references `Microsoft.Extensions.Http.Resilience`. `HttpClient.Timeout` (100 s by default) still bounds the whole call: when `TotalRequestTimeout` goes above 100 s, raise `HttpClient.Timeout` to at least the same value. A custom pipeline (`AddResilienceHandler` with hand-built retry, breaker or timeout strategies, a custom predicate or delay generator) needs a proven reason in a one-line comment at the site: a measured need or a contract the standard options cannot express.
 
 ## Internal-Call Guidance
 
