@@ -2,6 +2,14 @@
 
 Use this skill when domain inputs enable `authProvider` and the solution needs authentication or identity-backed user management. **This skill is applied in the integration phase (Phase 5e).** The hosts already authenticate every request with the `Scaffold` fixed principal and an authorization fallback policy from Phase 5b ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration); this phase adds the live provider.
 
+## Phase 5e by authProvider
+
+| `authProvider` | Phase 5e adds | Gate rows that apply |
+|---|---|---|
+| `EntraID`, `EntraExternal` | The `Entra` branch on the API and the Gateway, its configuration and client affordances | Scaffold and Entra |
+| `None` (login-free) | No live branch; confirms `ScaffoldPrincipal.cs` lists each deployed environment | Scaffold only |
+| Any other provider | No live branch; records the provider in `HANDOFF.md` as deployment work | Scaffold only |
+
 ## Scaffold Mode vs Live Provider
 
 **A generated app runs in `AuthMode: Scaffold` until a live provider is configured.** Generated apps must run locally without any live identity provider (Entra ID, Entra External ID) configured. Real provider setup is supplemental deployment hardening, not a scaffold requirement.
@@ -21,7 +29,7 @@ Prompt the user at the start of this phase to select the appropriate scenario:
 | External / consumer users | Microsoft Entra External ID, Google, Facebook, Apple, OAuth2/OIDC | Customer-facing apps, self-service portals |
 | Hybrid | Entra ID + Entra External ID / social providers | Public UI for external users + enterprise back-office for internal users |
 
-The registrations in this skill cover Entra ID and Entra External ID, the `Entra` mode. For another provider the live branch is deployment work recorded in `HANDOFF.md`: until it is wired the app runs only where the fixed principal is allowed (Development and test hosts), and the `Entra` rows of the Phase 5e gate do not apply to it.
+The registrations in this skill cover Entra ID and Entra External ID, the `Entra` mode. For another provider the live branch is deployment work recorded in `HANDOFF.md`: until it is wired the app runs only where the fixed principal is allowed (Development and test hosts). Section Phase 5e by authProvider says which steps and gate rows apply.
 
 ### Admin Portal / Entra External ID Deployment Runbook
 

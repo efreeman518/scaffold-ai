@@ -92,7 +92,7 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 
 ### Phase 5e - Integration (Auth + AI)
 
-**Authentication finalization:**
+**Authentication finalization** (steps and gate rows by `authProvider`: [../skills/identity-management.md](../skills/identity-management.md) section Phase 5e by authProvider):
 - [ ] Prompt for identity provider scenario (see options below)
 - [ ] Add the live provider branch to the `AuthMode` registration (the scaffold principal stays the default)
 - [ ] Gate both auth modes across DI registration, endpoint mapping, and client affordances

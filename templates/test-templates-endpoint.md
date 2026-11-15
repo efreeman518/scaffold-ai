@@ -34,7 +34,7 @@ If the test base evolves to wrap `HttpClient` in an extension method (e.g. `clie
 
 The plumbing for swapping the production DbContext + interceptors + pooled factories with a test-mode store ships in the `EF.IntegrationTesting` package as `EF.IntegrationTesting.AspNetCore.EfWebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>`. `Test.Support` carries only a thin app adapter, `WebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>`, and both `Test.Endpoints` (in-memory) and `Test.E2E` (Testcontainers database) derive specializations that declare the store and the lane.
 
-The adapter pins every mode-selecting config key (lane, provider toggles) explicitly - a Development-environment test host loads the developer's **user secrets**, which override both appsettings files and can flip test topology on one machine while CI stays green. Test factories extend base configuration; they never replace it wholesale, or the pinned keys silently vanish in derived factories.
+The adapter pins the lane and the provider toggles explicitly - a Development-environment test host loads the developer's **user secrets**, which override both appsettings files and can flip test topology on one machine while CI stays green. Test factories extend base configuration; they never replace it wholesale, or the pinned keys silently vanish in derived factories.
 
 > **Phase 4 generates this file.** The adapter is part of the contract-scaffolding output (see [../ai/contract-scaffolding.md](../ai/contract-scaffolding.md), `### 4. Test Infrastructure`) so the solution builds and both `Test.Endpoints` and `Test.E2E` compile before Phase 5 begins; the swap takes effect in 5b.
 
