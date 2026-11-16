@@ -96,12 +96,13 @@ public class {Entity}RepositoryQuery({Project}DbContextQuery dbContext)
     {
         Expression<Func<{Entity}, bool>>? filter = null;
 
+        // Prefix, not substring: see section Search Predicates on Growing Tables.
         var searchText = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
 
         if (tenantId.HasValue && searchText is not null)
         {
             var typedTenantId = TenantId.From(tenantId.Value);
-            filter = e => e.TenantId == typedTenantId && e.Name.Contains(searchText);
+            filter = e => e.TenantId == typedTenantId && e.Name.StartsWith(searchText);
         }
         else if (tenantId.HasValue)
         {
@@ -110,7 +111,7 @@ public class {Entity}RepositoryQuery({Project}DbContextQuery dbContext)
         }
         else if (searchText is not null)
         {
-            filter = e => e.Name.Contains(searchText);
+            filter = e => e.Name.StartsWith(searchText);
         }
 
         var result = await QueryPageProjectionAsync(
@@ -141,7 +142,7 @@ public class {Entity}RepositoryQuery({Project}DbContextQuery dbContext)
 
         return e =>
             (!requireTenantId || e.TenantId == tenantId) &&
-            (!hasName || e.Name.Contains(name)) &&
+            (!hasName || e.Name.StartsWith(name)) &&
             (!hasFlags || e.Flags.HasFlag(flags));
     }
 
@@ -357,7 +358,16 @@ Every query repo search method must follow this pattern. Use `{Entity}Mapper.Pro
 
 > **PageIndex pitfall:** `ComposeIQueryable` in EF.Data.Contracts expects **1-based** `pageIndex` (it does `pageIndex - 1` internally). `SearchRequest<T>.PageIndex` defaults to `0`. Without `Math.Max(1, request.PageIndex)`, a default request produces a negative SQL `OFFSET`, crashing with `SqlException: The offset specified in a OFFSET clause may not be negative`.
 
-> **Prove it with a real-SQL search test.** Because both the argument-swap and `includeTotal` regressions are invisible to fake providers, every searchable aggregate needs a `Test.Integration` search test against a SQL Testcontainer that asserts the returned page **and** `Total`. This is required at `balanced` and above - it is the specific failure that test exists to catch.
+> **Prove it with a real-SQL search test.** Because both the argument-swap and `includeTotal` regressions are invisible to fake providers, every searchable aggregate needs a `Test.Integration` search test against a SQL Testcontainer that asserts the returned page **and** `Total`. This is required in every testing profile - it is the specific failure that test exists to catch ([test-templates-integration.md](test-templates-integration.md) section Repository Integration Tests).
+
+### Search Predicates on Growing Tables
+
+A search over an entity whose rows grow with use (one row per user action, message, session or job run) costs in proportion to the rows its driving index selects, never to the table ([../vendor/engineering-criteria/data-access.md](../vendor/engineering-criteria/data-access.md), Query cost).
+
+- **Text search is prefix by default:** `e.Name.StartsWith(term)`, never `e.Name.Contains(term)`. A leading-wildcard `LIKE '%term%'` can use no B-tree index, so it reads every row the other predicates leave.
+- **The index that serves it** is the tenant-first `IX_{Entity}_TenantId_Name_Id` from [ef-configuration-template.md](ef-configuration-template.md). It bounds the read to one tenant on both providers. SQL Server also seeks the prefix in it. PostgreSQL (`Name LIKE @p || '%'`) seeks the prefix only when the database uses the C collation or the index's `Name` column carries the `text_pattern_ops` operator class, so on other collations the prefix filters inside the tenant's range; add that operator class in the PostgreSQL provider branch when one tenant's rows of the entity can grow large.
+- **An all-tenants search** (a context with `AllTenants = true`, such as a global admin's) carries no `TenantId` predicate, so the tenant-first index cannot bound it. Require the tenant on such a search, or give the entity a `Name`-leading index for it.
+- **Substring or fuzzy matching** needs a declared text index that serves it: PostgreSQL `pg_trgm` with a GIN index on the column; on SQL Server full-text serves only word and prefix terms, so bound the candidates by an indexed predicate first. Where the app has a search service, route substring search there and keep the repository on the prefix query.
 
 ### Paged queries require a deterministic total order
 
@@ -394,7 +404,7 @@ if (!string.IsNullOrWhiteSpace(filter.Email))
 
 Applies to `QueryPageProjectionAsync`, `ListAsync`, `Where`, `Any`, `First`, `Single`, `QuerySpec`, search handlers, and message handlers. The `.Value` unwrap idiom is correct only in domain code or post-materialization LINQ-to-objects, for example `entity.Children.First(c => c.Id.Value == id)` or `list.Select(e => e.Id.Value)`.
 
-Prefer typed-to-typed comparison (`e.TenantId == tenantId`) over implicit `Guid` comparison. Value objects with no LIKE-able backing, such as `Email` or `Locale`, are exact matches. Keep `Contains` / `StartsWith` / `LIKE` for plain string columns such as `Name`, `Title`, or `DisplayName`.
+Prefer typed-to-typed comparison (`e.TenantId == tenantId`) over implicit `Guid` comparison. Value objects with no LIKE-able backing, such as `Email` or `Locale`, are exact matches. Keep `StartsWith` / `LIKE` for plain string columns such as `Name`, `Title`, or `DisplayName`, and `Contains` for those only where a text index serves it (section Search Predicates on Growing Tables).
 
 ## Critical: Delete Pattern (MUST call `Delete(entity)`)
 

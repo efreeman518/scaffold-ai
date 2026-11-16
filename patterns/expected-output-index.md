@@ -71,7 +71,7 @@ Default scaffold and TaskFlow reference app keep DTOs and mappers in `Applicatio
 | Unit (mapper parity, consolidated) | `tests/Test.Unit/Mappers/MapperProjectionParityTests.cs` |
 | Unit (services) | `tests/Test.Unit/Services/{Entity}ServiceTests.cs` |
 | Unit (CQRS) | `tests/Test.Unit/Cqrs/{Entity}CqrsValidationTests.cs` *(when applicationStyle: cqrs or switch)* |
-| Unit (repositories) | `tests/Test.Unit/Repositories/{Entity}RepositoryTrxnTests.cs`, `{Entity}RepositoryQueryTests.cs` |
+| Unit (repositories) | `tests/Test.Unit/Repositories/{Entity}RepositoryTrxnTests.cs` |
 | UI (headless presentation) | `tests/Test.UI/Presentation/{Entity}PresentationModelTests.cs` *(when UI model/presentation coverage exists)* |
 | Endpoint contract tests | `tests/Test.Endpoints/Endpoints/{Entity}EndpointsTests.cs` |
 | CQRS endpoint switch tests | `tests/Test.Endpoints/CqrsEndpointModeTests.cs` *(when applicationStyle: switch)* |
@@ -80,7 +80,7 @@ Default scaffold and TaskFlow reference app keep DTOs and mappers in `Applicatio
 | E2E workflow tests | `tests/Test.E2E/{Entity}WorkflowTests.cs` |
 | Integration (component) - store fixtures | `tests/Test.Support/Hosting/TestDatabaseContainer.cs`, `tests/Test.Integration/Infrastructure/DbContainerFixture.cs` (+ `RedisContainerFixture.cs`, `RabbitMqBrokerFixture.cs`, `SeaweedFsContainerFixture.cs` per selected store; `AzuriteContainerFixture.cs` on the `Azure` arm) |
 | Integration (component) - assembly lifecycle | `tests/Test.Integration/Infrastructure/IntegrationTestSetup.cs` (starts store fixtures in parallel; captures `StartupError`) |
-| Integration (component) - repo integration | `tests/Test.Integration/{Entity}RepositoryIntegrationTests.cs` (migrations + CRUD + tenant filter + M:N) |
+| Integration (component) - repo integration | `tests/Test.Integration/{Entity}RepositoryIntegrationTests.cs` (migrations + search and paging + CRUD + tenant filter + M:N) |
 | Integration (component) - audit repo | `tests/Test.Integration/RelationalAuditLogRepositoryTests.cs` (the `Azure` arm's Table sink is proven by the mesh audit pipelines) |
 | Integration (component) - RabbitMQ transport | `tests/Test.Integration/RabbitMqTransportTests.cs` *(when messagingProvider: RabbitMq)* |
 | Integration (component) - projection pipeline | `tests/Test.Integration/DomainEventPipelineTests.cs` |

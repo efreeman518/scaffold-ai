@@ -35,8 +35,8 @@ Quick lookup: "I need to scaffold X" -> load these files.
 | Artifact | Template | Phase | Required Skill |
 |---|---|---|---|
 | Domain entity + rule tests | `test-templates-domain.md` | 5a | `skills/testing.md` |
-| Repository tests (in-memory unit) | `test-templates-repository.md` | 5a | `skills/testing.md` |
-| Integration (component): fixtures and repository tests, one class vs one store (standalone Testcontainers) | `test-templates-integration.md` | 5a | `skills/testing.md` |
+| Repository write tests (in-memory unit) | `test-templates-repository.md` | 5a | `skills/testing.md` |
+| Integration (component): fixtures and repository tests incl. search and paging in every profile, one class vs one store (standalone Testcontainers) | `test-templates-integration.md` | 5a | `skills/testing.md` |
 | Integration (component): audit, RabbitMQ transport and projection tests | `test-templates-integration-pipeline.md` | 5b | `skills/testing.md` |
 | Aspire (mesh): full AppHost graph over HTTP (lazy-started) | `test-templates-aspire.md` | 5b | `skills/testing.md` |
 | Service + mapper + message-handler tests | `test-templates-service.md` | 5b | `skills/testing.md` |

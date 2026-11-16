@@ -76,7 +76,7 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 - [ ] **Checkpoint:** `dotnet build`, each enabled host responds, `dotnet test -m:1` passes; per-host gate status recorded in `HANDOFF.md`
 
 ### Phase 5d - Quality + Delivery
-- [ ] Service-level Integration tests against real external services (Testcontainers database, broker, cache) - `Test.Integration`, `TestCategory=Integration` (balanced + comprehensive profiles)
+- [ ] Service-level Integration tests against real external services (Testcontainers database, broker, cache) - `Test.Integration`, `TestCategory=Integration` (repository search and paging in every profile; the rest balanced + comprehensive)
 - [ ] Multi-endpoint E2E workflow tests against the Testcontainers database - `Test.E2E`, `TestCategory=E2E` (comprehensive profile)
 - [ ] Architecture tests (EF.Testing.Architecture layering rules)
 - [ ] Load tests (if comprehensive profile)

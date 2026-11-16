@@ -216,7 +216,7 @@ public static class IntegrationTestSetup
 
 Cover **migration apply** + **CRUD against the real database** + **child includes** + **updater navigation-add round-trip** (for entities with an `{Entity}Updater`) + **M:N junction navigation** + **tenant query filter** + **polymorphic indexes** when applicable + **paged search projection per searchable aggregate**. Build contexts via `DbContainerFixture` and gate on `StartupError` in `[TestInitialize]`. Every SQL statement stays standard (`INFORMATION_SCHEMA`, quoted identifiers) and every scalar goes through `Convert.ToInt32` - PostgreSQL returns `bigint` for `COUNT(*)` - so one test body runs on both providers.
 
-> **Paged search projection is required at `balanced`+ for every searchable aggregate.** Call the repo's search method (which wraps `QueryPageProjectionAsync`) for a normal `PageIndex=1, PageSize=n` request and assert **both** the page contents **and** `Total`. Only this tier catches swapped `pageSize`/`pageIndex` (near-empty page) or `includeTotal:false` (`Total = -1`); fast-tier fakes return correct-looking results. See the "Call it with named arguments" note in [repository-template.md](repository-template.md).
+> **Paged search projection is required in every testing profile for every searchable aggregate.** Call the repo's search method (which wraps `QueryPageProjectionAsync`) for a normal `PageIndex=1, PageSize=n` request and assert **both** the page contents **and** `Total`. Only this tier catches swapped `pageSize`/`pageIndex` (near-empty page) or `includeTotal:false` (`Total = -1`); fast-tier fakes return correct-looking results. See the "Call it with named arguments" note in [repository-template.md](repository-template.md).
 
 > **Typed IDs:** entity `Id` is a typed value struct (`{Entity}Id`), so compare it with a raw `Guid` through `.Value` (`Assert.AreEqual(categoryId, result.CategoryId.Value)`, `result.CategoryId?.Value` when nullable) - a direct comparison does not compile. Construct the generic repository pair with the typed ID parameter (`new {App}RepositoryTrxn<Tag, TagId>(db)`); bespoke `{Entity}RepositoryTrxn` repos take none.
 
@@ -324,6 +324,36 @@ public class {Entity}RepositoryIntegrationTests
         await db.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, cancellationToken: ct);
         var deleted = await db.{Entities}.FindAsync([entity.TenantId, id], ct);
         Assert.IsNull(deleted);
+    }
+
+    [TestMethod]
+    [Timeout(120000)]
+    public async Task Search_WithNamePrefix_ReturnsMatchingPageAndTotal()
+    {
+        var ct = TestContext.CancellationToken;
+        await using var db = DbContainerFixture.CreateTrxnContext();
+        await db.Database.MigrateAsync(ct);
+
+        // A per-test marker keeps rows that other tests seed out of the prefix match.
+        var marker = $"Search-{Guid.NewGuid():N}";
+        var matching = await SeedSearchRowsAsync(db, name: $"{marker}-Alpha", count: 2, ct);
+        matching.AddRange(await SeedSearchRowsAsync(db, name: $"{marker}-AlphaTwo", count: 1, ct));
+        await SeedSearchRowsAsync(db, name: $"{marker}-Beta", count: 1, ct);
+        await using var queryDb = DbContainerFixture.CreateQueryContext();
+        var repo = new {Entity}RepositoryQuery(queryDb);
+
+        var page = await repo.Search{Entity}Async(new SearchRequest<{Entity}SearchFilter>
+        {
+            PageIndex = 1,
+            PageSize = 2,
+            Filter = new {Entity}SearchFilter { Name = $"{marker}-Alpha" }
+        }, ct);
+
+        // Total counts every match while the page holds PageSize rows, so swapped pageSize/pageIndex
+        // arguments or includeTotal:false fail here.
+        Assert.AreEqual(matching.Count, page.Total);
+        Assert.AreEqual(2, page.Data.Count);
+        CollectionAssert.IsSubsetOf(page.Data.Select(item => item.Id!.Value).ToList(), matching);
     }
 
     [TestMethod]
@@ -518,9 +548,12 @@ public class {Entity}RepositoryIntegrationTests
 
 ### Repository test coverage matrix
 
+The migration row and the two search rows are generated in every testing profile; `minimal` generates only those, and `balanced`+ adds every other row that applies.
+
 | Scenario | Generate when |
 |---|---|
 | `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` | Always - once per schema, not per entity. |
+| `Search_WithNamePrefix_ReturnsMatchingPageAndTotal` | Every repository with a search filter. Seed matching and non-matching rows under a per-test marker and assert the page size and `Total`. |
 | `Search_WithDuplicateSortKeys_HasStablePageMembership` | Every repository with paging. Seed more than one page with the same business sort key and assert exact IDs, no omissions, and no duplicates. |
 | `{Entity}_CrudOperations_WorkAgainstRealSql` | Every entity with mutations. |
 | `{Entity}_WithChildren_PersistsCorrectly` | Entity has owned/dependent child collections (1:N). Persistence + includes only - seeds children via `db.{ChildEntities}.Add(...)`, so it does NOT exercise the updater/navigation-add path (see next row). |

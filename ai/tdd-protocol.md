@@ -91,7 +91,7 @@ dotnet test --filter "TestCategory=Unit"
 dotnet test --filter "TestCategory=Unit"
 ```
 
-6. **Write repository tests** from `test-templates-repository.md`.
+6. **Write repository tests**: write plumbing from `test-templates-repository.md`, search and paging from `test-templates-integration.md` (real database).
 7. **Implement EF configuration + repositories**:
 
 - Create `{Entity}Configuration.cs`.
