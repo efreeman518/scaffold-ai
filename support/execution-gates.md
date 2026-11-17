@@ -28,6 +28,8 @@ dotnet build
 dotnet test --filter "TestCategory=Unit"   # or scope to current sub-phase (Endpoint, Integration, etc.)
 ```
 
+A sub-phase or slice that adds or changes a repository search also runs `dotnet test tests/Test.Integration --filter "TestCategory=Integration"`: its search and paging tests run on the real database in every profile (Inconclusive without a container runtime).
+
 Run `dotnet restore` only when one of the following is true (otherwise skip - it is wasted work):
 
 - `Directory.Packages.props` or any `.csproj` changed since the last restore.
@@ -90,7 +92,7 @@ dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint"
 Exit criteria:
 - [ ] Domain entities exist with real logic (shells replaced)
 - [ ] Transition tests pass for each state-machine entity
-- [ ] Repository tests pass
+- [ ] Repository tests pass: write-side in `Test.Unit`, search and paging against the real database in `Test.Integration`
 - [ ] `{Entity}Builder.Build()` activated (returns valid entities)
 - [ ] No-op repository stubs replaced with real implementations in `RegisterServices.cs`
 - [ ] DbContext files compile with EF configurations
@@ -100,6 +102,7 @@ Commands:
 ```powershell
 dotnet build
 dotnet test --filter "TestCategory=Unit"
+dotnet test tests/Test.Integration --filter "TestCategory=Integration"   # once the migration below exists: repository search and paging on the real database; Inconclusive without a container runtime
 dotnet test --filter "TestCategory=LiveAI" -m:1 # only when a live provider is intentionally available
 ```
 

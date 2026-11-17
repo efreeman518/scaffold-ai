@@ -33,7 +33,7 @@ Tests must verify behavior through public interfaces or endpoints. Avoid asserti
 3. **Implement ONLY enough to pass.** Write the minimum production code needed to make the failing tests pass. Do not add untested behavior.
 4. **Confirm GREEN immediately.** Run `dotnet test` after implementation. All tests must pass. If any fail, fix before moving to the next slice.
 5. **Never batch multiple slices.** Complete the full RED -> GREEN cycle for one entity slice before starting the next.
-6. **Test files land before production files.** The ordering rule is about artifacts, not about how many files one tool call writes - batch the whole slice's test files in one pass if that is efficient. What must hold: every test file for the slice exists, compiles, and has produced a recorded RED run (rule 2) **before** any production implementation file for that slice is written or changed. The only exception is activating `{Entity}Builder.Build()` alongside entity implementation (Step 5 of Phase 5a). Commit the test files on their own first, at the recorded RED - that makes the ordering verifiable after the fact with `git log --stat` instead of only at the moment it happened. When a delegated worker does not commit, its recorded RED run is the ordering proof; its orchestrator still commits the test files first, then the rest.
+6. **Test files land before production files.** The ordering rule is about artifacts, not about how many files one tool call writes - batch the whole slice's test files in one pass if that is efficient. What must hold: every test file for the slice exists, compiles, and has produced a recorded RED run (rule 2) **before** any production implementation file for that slice is written or changed. The exceptions are activating `{Entity}Builder.Build()` alongside entity implementation (Step 5 of Phase 5a) and the real-database search and paging tests, which are written after the repositories they call (Step 7 of Phase 5a). Commit the test files on their own first, at the recorded RED - that makes the ordering verifiable after the fact with `git log --stat` instead of only at the moment it happened. When a delegated worker does not commit, its recorded RED run is the ordering proof; its orchestrator still commits the test files first, then the rest.
 7. **Do not accept compile-fail as RED.** Fix compile issues first, then confirm assertion-fail RED.
 8. **No horizontal red/green.** Write and green one vertical tracer before expanding the same pattern to the next entity or layer.
 9. **Cover every terminal branch and in-handler transform.** A handler/service method with more than one terminal outcome leaves **one test per branch** - e.g. a completion handler whose pass path sets `Completed` and whose fail path sets `CompletedPartial` needs both tested, not just the passing path. Any in-handler clamp / normalize / transform leaves **one test for that transform** - e.g. a dimension-score clamp to `[0, max]`. A binary terminal branch or a clamp with only the happy path tested is incomplete behavior (rule 3 inverted: non-trivial logic leaves a runnable check).
@@ -91,12 +91,13 @@ dotnet test --filter "TestCategory=Unit"
 dotnet test --filter "TestCategory=Unit"
 ```
 
-6. **Write repository tests** from `test-templates-repository.md`.
+6. **Write the repository write-side tests** from `test-templates-repository.md`.
 7. **Implement EF configuration + repositories**:
 
 - Create `{Entity}Configuration.cs`.
 - Implement `{Entity}RepositoryTrxn` and `{Entity}RepositoryQuery`.
 - Wire `DbSet<{Entity}>` and swap the no-op DI registrations.
+- Fill the search and paging rows of `{Entity}RepositoryIntegrationTests` from `test-templates-integration.md` (tests-after, against the real database).
 
 8. **Run GREEN again**:
 
@@ -110,6 +111,7 @@ dotnet test --filter "TestCategory=Unit"
 dotnet ef migrations add InitialCreate ...
 dotnet build
 dotnet test --filter "TestCategory=Unit"
+dotnet test tests/Test.Integration --filter "TestCategory=Integration"   # repository search and paging on the real database; Inconclusive without a container runtime
 ```
 
 Git checkpoint after gate passes.

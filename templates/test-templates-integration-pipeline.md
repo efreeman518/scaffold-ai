@@ -281,7 +281,7 @@ public class DomainEventPipelineTests
         Assert.IsTrue(entityResult.IsSuccess);
         var entity = entityResult.Value!;
         ctx.{Entities}.Add(entity);
-        await ctx.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins);
+        await ctx.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, cancellationToken: TestContext.CancellationToken);
 
         await using var queryCtx = DbContainerFixture.CreateQueryContext(connStr);
         var viewRepo = new InMemory{Entity}ViewRepository();
@@ -290,9 +290,9 @@ public class DomainEventPipelineTests
             viewRepo,
             NullLogger<{Entity}ViewProjectionService>.Instance);
 
-        await projectionService.Project{Entity}Async(entity.Id);
+        await projectionService.Project{Entity}Async(entity.Id.Value, TestContext.CancellationToken);
 
-        var view = await viewRepo.GetAsync(entity.Id.ToString(), TenantId.ToString());
+        var view = await viewRepo.GetAsync(entity.Id.Value.ToString(), TenantId.ToString(), TestContext.CancellationToken);
         Assert.IsNotNull(view, "View should be created by projection");
         Assert.AreEqual("Integration Test {Entity}", view.Name);
     }

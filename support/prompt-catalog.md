@@ -85,7 +85,7 @@ Then append the relevant sub-phase block below.
 ```text
 Follow .instructions/ai/tdd-protocol.md: write domain/rule/repository tests first (red), then implement to green.
 Contracts and entity shells already exist from Phase 4. Activate builders after entity logic is implemented.
-Gate: `dotnet build` + `dotnet test --filter TestCategory=Unit`.
+Gate: `dotnet build` + `dotnet test --filter TestCategory=Unit` + `dotnet test tests/Test.Integration --filter TestCategory=Integration` (repository search and paging on the real database).
 When gate passes, update HANDOFF.md (currentSubPhase: 5b), commit, review and finish per .instructions/support/OPERATIONS.md Git Checkpoint Protocol, and close session.
 ```
 

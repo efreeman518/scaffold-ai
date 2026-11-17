@@ -51,7 +51,8 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 - [ ] Activate {Entity}Builder.Build() with real entity Create()
 - [ ] Replace no-op repository stubs with real implementations
 - [ ] Scaffold EF migration
-- [ ] **Checkpoint:** `dotnet build` + `dotnet test --filter "TestCategory=Unit"` passes
+- [ ] Fill the search and paging tests of `Test.Integration` (real database, every profile)
+- [ ] **Checkpoint:** `dotnet build` + `dotnet test --filter "TestCategory=Unit"` + `dotnet test tests/Test.Integration --filter "TestCategory=Integration"` (repository search and paging) passes
 
 ### Phase 5b - App Core + Runtime/Edge (TDD for app/API, tests-after for runtime)
 - [ ] Write service unit tests (red) -> implement services + mappers + validators (green)
@@ -76,7 +77,7 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 - [ ] **Checkpoint:** `dotnet build`, each enabled host responds, `dotnet test -m:1` passes; per-host gate status recorded in `HANDOFF.md`
 
 ### Phase 5d - Quality + Delivery
-- [ ] Service-level Integration tests against real external services (Testcontainers database, broker, cache) - `Test.Integration`, `TestCategory=Integration` (balanced + comprehensive profiles)
+- [ ] Service-level Integration tests against real external services (Testcontainers database, broker, cache) - `Test.Integration`, `TestCategory=Integration` (the rest of the component tier; balanced + comprehensive profiles)
 - [ ] Multi-endpoint E2E workflow tests against the Testcontainers database - `Test.E2E`, `TestCategory=E2E` (comprehensive profile)
 - [ ] Architecture tests (EF.Testing.Architecture layering rules)
 - [ ] Load tests (if comprehensive profile)

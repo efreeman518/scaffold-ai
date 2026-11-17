@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Generates** | `tests/Test.Unit/Repositories/{Entity}RepositoryTrxnTests.cs`, `tests/Test.Unit/Repositories/{Entity}RepositoryQueryTests.cs` |
+| **Generates** | `tests/Test.Unit/Repositories/{Entity}RepositoryTrxnTests.cs` |
 | **Requires** | [repository-template](repository-template.md), entity (implemented in 5a), `DbContextOptionsFactory` (EF.IntegrationTesting) |
 | **Phase** | 5a (Foundation TDD) |
 | **Protocol** | Write these tests AFTER entity is implemented (green). See [../ai/tdd-protocol.md](../ai/tdd-protocol.md). |
@@ -14,10 +14,15 @@ default; `<Subject>_<Condition>_<Outcome>` applies when a named member or struct
 
 ---
 
+This file covers repository write plumbing only: create, read by key, update through a domain method and delete.
 Contexts run on the EF in-memory provider through `DbContextOptionsFactory.BuildInMemoryOptions<T>(dbName)`
-(fast, no relational constraints); constraint, migration, and translation coverage belongs to the component
-tier ([test-templates-integration.md](test-templates-integration.md)). `AuditId` is a required member; set
-`TenantId` so the tenant query filter admits the seeded rows.
+(fast, no relational constraints). `AuditId` is a required member; set `TenantId` so the tenant query filter admits
+the seeded rows.
+
+Search, filter and paging tests do not belong here. The in-memory provider evaluates predicates, string comparison
+and paging in .NET, so such a test can pass for a query the database translates differently or cannot translate.
+They run against the lane's real database in every testing profile ([test-templates-integration.md](test-templates-integration.md)
+section Repository Integration Tests); constraint and migration coverage is in the same template, at `balanced`+.
 
 ## Repository Trxn Tests
 
@@ -65,79 +70,6 @@ public class {Entity}RepositoryTrxnTests
         // Assert - Deleted
         var deleted = await repo.Get{Entity}Async(entity.Id);
         Assert.IsNull(deleted);
-    }
-}
-```
-
----
-
-## Repository Query Tests
-
-### File: `tests/Test.Unit/Repositories/{Entity}RepositoryQueryTests.cs`
-
-```csharp
-[TestClass]
-[TestCategory("Unit")]
-public class {Entity}RepositoryQueryTests
-{
-    private static readonly Guid TenantId = Guid.NewGuid();
-
-    [TestMethod]
-    public async Task Given_SeededEntities_When_SearchWithFilter_Then_ReturnsMatchingEntities()
-    {
-        // Arrange
-        await using var db = await SeedAsync("Alpha", "Beta", "AlphaTwo");
-        var repo = new {Entity}RepositoryQuery(db);
-
-        // Act
-        var page = await repo.Search{Entity}Async(
-            new SearchRequest<{Entity}SearchFilter>
-            {
-                PageIndex = 1,
-                PageSize = 10,
-                Filter = new {Entity}SearchFilter { SearchTerm = "Alpha" }
-            });
-
-        // Assert
-        Assert.AreEqual(2, page.Total);
-        Assert.IsTrue(page.Data.All(i => i.Name.Contains("Alpha")));
-    }
-
-    [TestMethod]
-    public async Task Given_PaginatedRequest_When_SearchExecuted_Then_ReturnsCorrectPage()
-    {
-        // Arrange
-        await using var db = await SeedAsync(Enumerable.Range(0, 15).Select(i => $"Item{i}").ToArray());
-        var repo = new {Entity}RepositoryQuery(db);
-
-        // Act
-        var page = await repo.Search{Entity}Async(
-            new SearchRequest<{Entity}SearchFilter>
-            {
-                PageIndex = 2,
-                PageSize = 10,
-                Filter = new {Entity}SearchFilter()
-            });
-
-        // Assert
-        Assert.AreEqual(15, page.Total);
-        Assert.AreEqual(5, page.Data.Count);
-    }
-
-    // Seeds through a write context, then reads through a query context over the same in-memory database.
-    private static async Task<{App}DbContextQuery> SeedAsync(params string[] names)
-    {
-        var dbName = Guid.NewGuid().ToString();
-        await using (var trxn = new {App}DbContextTrxn(
-            DbContextOptionsFactory.BuildInMemoryOptions<{App}DbContextTrxn>(dbName))
-        { AuditId = "test", TenantId = TenantId })
-        {
-            foreach (var name in names)
-                trxn.Set<{Entity}>().Add({Entity}.Create(TenantId, name).Value!);
-            await trxn.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins);
-        }
-        return new {App}DbContextQuery(DbContextOptionsFactory.BuildInMemoryOptions<{App}DbContextQuery>(dbName))
-        { AuditId = "test", TenantId = TenantId };
     }
 }
 ```

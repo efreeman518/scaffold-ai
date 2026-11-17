@@ -216,7 +216,7 @@ public static class IntegrationTestSetup
 
 Cover **migration apply** + **CRUD against the real database** + **child includes** + **updater navigation-add round-trip** (for entities with an `{Entity}Updater`) + **M:N junction navigation** + **tenant query filter** + **polymorphic indexes** when applicable + **paged search projection per searchable aggregate**. Build contexts via `DbContainerFixture` and gate on `StartupError` in `[TestInitialize]`. Every SQL statement stays standard (`INFORMATION_SCHEMA`, quoted identifiers) and every scalar goes through `Convert.ToInt32` - PostgreSQL returns `bigint` for `COUNT(*)` - so one test body runs on both providers.
 
-> **Paged search projection is required at `balanced`+ for every searchable aggregate.** Call the repo's search method (which wraps `QueryPageProjectionAsync`) for a normal `PageIndex=1, PageSize=n` request and assert **both** the page contents **and** `Total`. Only this tier catches swapped `pageSize`/`pageIndex` (near-empty page) or `includeTotal:false` (`Total = -1`); fast-tier fakes return correct-looking results. See the "Call it with named arguments" note in [repository-template.md](repository-template.md).
+> **Paged search projection is required in every testing profile for every searchable aggregate.** Call the repo's search method (which wraps `QueryPageProjectionAsync`) for a normal `PageIndex=1, PageSize=n` request and assert **both** the page contents **and** `Total`. Only this tier catches swapped `pageSize`/`pageIndex` (near-empty page) or `includeTotal:false` (`Total = -1`); fast-tier fakes return correct-looking results. See the "Call it with named arguments" note in [repository-template.md](repository-template.md).
 
 > **Typed IDs:** entity `Id` is a typed value struct (`{Entity}Id`), so compare it with a raw `Guid` through `.Value` (`Assert.AreEqual(categoryId, result.CategoryId.Value)`, `result.CategoryId?.Value` when nullable) - a direct comparison does not compile. Construct the generic repository pair with the typed ID parameter (`new {App}RepositoryTrxn<Tag, TagId>(db)`); bespoke `{Entity}RepositoryTrxn` repos take none.
 
@@ -228,6 +228,7 @@ Cover **migration apply** + **CRUD against the real database** + **child include
 ### File: `tests/Test.Integration/{Entity}RepositoryIntegrationTests.cs`
 
 ```csharp
+using EF.Common.Contracts;                 // SearchRequest<T>, Sort
 using EF.Data.Contracts;
 using Microsoft.EntityFrameworkCore;
 using {Project}.Application.Models;        // {Entity}Dto / {ChildEntity}Dto for the updater round-trip test
@@ -328,6 +329,43 @@ public class {Entity}RepositoryIntegrationTests
 
     [TestMethod]
     [Timeout(120000)]
+    public async Task Search_WithNamePrefix_ReturnsMatchingPageAndTotal()
+    {
+        var ct = TestContext.CancellationToken;
+        await using var db = DbContainerFixture.CreateTrxnContext();
+        await db.Database.MigrateAsync(ct);
+
+        // A per-test marker keeps rows that other tests seed out of the prefix match.
+        var marker = $"Search-{Guid.NewGuid():N}";
+        var matching = new List<Guid>();
+        foreach (var suffix in new[] { "Alpha", "AlphaTwo", "AlphaThree" })
+            matching.AddRange(await SeedSearchRowsAsync(db, name: $"{marker}-{suffix}", count: 1, ct));
+        await SeedSearchRowsAsync(db, name: $"{marker}-Beta", count: 1, ct);
+        // Holds the term but does not start with it: a substring predicate would count this row.
+        await SeedSearchRowsAsync(db, name: $"X-{marker}-Alpha", count: 1, ct);
+        await using var queryDb = DbContainerFixture.CreateQueryContext();
+        var repo = new {Entity}RepositoryQuery(queryDb);
+
+        var page = await repo.Search{Entity}Async(new SearchRequest<{Entity}SearchFilter>
+        {
+            PageIndex = 1,
+            PageSize = 2,
+            Filter = new {Entity}SearchFilter { TenantId = TenantA, SearchTerm = $"{marker}-Alpha" }
+        }, ct);
+
+        // Total counts every match while the page holds PageSize rows, so swapped pageSize/pageIndex
+        // arguments or includeTotal:false fail here.
+        Assert.AreEqual(matching.Count, page.Total);
+        Assert.AreEqual(2, page.Data.Count);
+        CollectionAssert.IsSubsetOf(page.Data.Select(item => item.Id!.Value).ToList(), matching);
+
+        // The lookup uses the same prefix rule.
+        var lookup = await repo.Lookup{Entity}Async(TenantA, $"{marker}-Alpha", ct);
+        Assert.AreEqual(matching.Count, lookup.Items.Count);
+    }
+
+    [TestMethod]
+    [Timeout(120000)]
     public async Task Search_WithDuplicateSortKeys_HasStablePageMembership()
     {
         var ct = TestContext.CancellationToken;
@@ -347,7 +385,7 @@ public class {Entity}RepositoryIntegrationTests
                 PageIndex = pageIndex,
                 PageSize = 5,
                 Sorts = [new Sort(nameof({Entity}.Name), SortOrder.Ascending)],
-                Filter = new {Entity}SearchFilter { Name = "Same sort key" }
+                Filter = new {Entity}SearchFilter { SearchTerm = "Same sort key" }
             }, ct);
 
             Assert.AreEqual(expectedIds.Count, page.Total);
@@ -362,7 +400,7 @@ public class {Entity}RepositoryIntegrationTests
             PageIndex = 1,
             PageSize = 5,
             Sorts = [new Sort(nameof({Entity}.Name), SortOrder.Ascending)],
-            Filter = new {Entity}SearchFilter { Name = "Same sort key" }
+            Filter = new {Entity}SearchFilter { SearchTerm = "Same sort key" }
         }, ct);
         CollectionAssert.AreEqual(
             actualIds.Take(5).ToList(),
@@ -376,7 +414,7 @@ public class {Entity}RepositoryIntegrationTests
         CancellationToken ct)
     {
         var rows = Enumerable.Range(0, count)
-            .Select(_ => new {Entity}Builder().WithName(name).Build())
+            .Select(_ => new {Entity}Builder().WithTenantId(TenantA).WithName(name).Build())
             .ToList();
         db.{Entities}.AddRange(rows);
         await db.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, cancellationToken: ct);
@@ -518,9 +556,12 @@ public class {Entity}RepositoryIntegrationTests
 
 ### Repository test coverage matrix
 
+The two search rows are generated in every testing profile; `minimal` generates only those (each applies the migrations itself), and `balanced`+ adds every other row that applies.
+
 | Scenario | Generate when |
 |---|---|
-| `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` | Always - once per schema, not per entity. |
+| `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` | `balanced`+ - once per schema, not per entity. |
+| `Search_WithNamePrefix_ReturnsMatchingPageAndTotal` | Every repository with a search filter. Seed rows that start with the term, one that does not and one that only contains it, under a per-test marker, and assert the page size and `Total`. |
 | `Search_WithDuplicateSortKeys_HasStablePageMembership` | Every repository with paging. Seed more than one page with the same business sort key and assert exact IDs, no omissions, and no duplicates. |
 | `{Entity}_CrudOperations_WorkAgainstRealSql` | Every entity with mutations. |
 | `{Entity}_WithChildren_PersistsCorrectly` | Entity has owned/dependent child collections (1:N). Persistence + includes only - seeds children via `db.{ChildEntities}.Add(...)`, so it does NOT exercise the updater/navigation-add path (see next row). |
@@ -572,8 +613,8 @@ public class {Entity}RepositoryIntegrationTests
 - [ ] One `IntegrationTestSetup` owns the package Docker preflight plus the sole `[AssemblyInitialize]`/`[AssemblyCleanup]` and starts only the resolved lane's fixtures; every fixture is a package `ContainerFixture` and reports `StartupError`.
 - [ ] Failed Docker preflight is `Inconclusive`; a post-preflight startup failure fails with the full exception; a single-lane test calls `RequireLane`.
 - [ ] Contexts come from `TestDatabaseContainer.BuildOptions` (central provider helper), never a hand-written `UseNpgsql`/`UseSqlServer` call.
-- [ ] `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` exists exactly once per assembly (not per entity).
-- [ ] Tenant query filter test exists when `enableMultiTenant: true`; M:N test exists when entity uses a junction.
+- [ ] At `balanced`+: `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` exists exactly once per assembly (not per entity).
+- [ ] At `balanced`+: tenant query filter test exists when `enableMultiTenant: true`; M:N test exists when entity uses a junction.
 - [ ] Every test class has a class-level `<summary>` declaring tier (component) + store.
 - [ ] No fixture or test performs a manual `docker rm`/`docker container prune` sweep.
 
