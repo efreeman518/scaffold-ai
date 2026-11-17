@@ -39,11 +39,11 @@ public static class {Entity}Endpoints
     {
         group.MapPost("/search", Search)
             .Produces<PagedResponse<{Entity}Dto>>(StatusCodes.Status200OK)
-            .WithSummary("Search {Entities} with paging, filters, and sorts");
+            .WithSummary("Search {Entities} with paging, filters, and sorts; the search term matches from the start of the name");
 
         group.MapGet("/lookup", Lookup)
             .Produces<StaticList<StaticItem<Guid, Guid?>>>(StatusCodes.Status200OK)
-            .WithSummary("Lookup list for autocomplete");
+            .WithSummary("Lookup list for autocomplete; the search text matches from the start of the name");
 
         group.MapGet("/{id:guid}", GetById)
             .Produces<DefaultResponse<{Entity}Dto>>(StatusCodes.Status200OK)

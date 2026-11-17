@@ -537,7 +537,8 @@ def gate(phase: str, target: Path, pre_migrations: set[str] | None = None) -> tu
             notes.append("HANDOFF contractsScaffolded is not true")
         return ok, notes
 
-    test_filter = "TestCategory=Unit" if phase == "5a" else "TestCategory=Unit|TestCategory=Endpoint"
+    # 5a also runs the component tier: every profile keeps its repository search tests there (Inconclusive without Docker).
+    test_filter = "TestCategory=Unit|TestCategory=Integration" if phase == "5a" else "TestCategory=Unit|TestCategory=Endpoint"
     if build_ok:
         test_cmd = ["dotnet", "test", "--filter", test_filter] + ([str(slnx)] if slnx else [])
         test_ok, test_tail = run_gate_cmd(test_cmd, target)
@@ -683,7 +684,7 @@ def main() -> int:
         print("every gate: clean tree on the scaffold branch HANDOFF.md names, every slice branch merged into it (Git Checkpoint Protocol)")
         print("3: implementation-plan.md exists + HANDOFF currentPhase=4")
         print("4: canonical root solution/config + src/tests projects + dotnet build + HANDOFF contractsScaffolded=true")
-        print("5a: dotnet build + dotnet test --filter TestCategory=Unit")
+        print('5a: dotnet build + dotnet test --filter "TestCategory=Unit|TestCategory=Integration"')
         print('5b: dotnet build + dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint"')
         print(f'slice: dotnet build + dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint" '
               f'+ class {SLICE_ENTITY} present + migration additivity (GR-13)')

@@ -228,6 +228,7 @@ Cover **migration apply** + **CRUD against the real database** + **child include
 ### File: `tests/Test.Integration/{Entity}RepositoryIntegrationTests.cs`
 
 ```csharp
+using EF.Common.Contracts;                 // SearchRequest<T>, Sort
 using EF.Data.Contracts;
 using Microsoft.EntityFrameworkCore;
 using {Project}.Application.Models;        // {Entity}Dto / {ChildEntity}Dto for the updater round-trip test
@@ -334,11 +335,15 @@ public class {Entity}RepositoryIntegrationTests
         await using var db = DbContainerFixture.CreateTrxnContext();
         await db.Database.MigrateAsync(ct);
 
-        // A per-test marker keeps rows that other tests seed out of the prefix match.
+        // A per-test marker keeps rows that other tests seed out of the prefix match. Every name is distinct, so
+        // an entity with a unique name per tenant seeds too.
         var marker = $"Search-{Guid.NewGuid():N}";
-        var matching = await SeedSearchRowsAsync(db, name: $"{marker}-Alpha", count: 2, ct);
-        matching.AddRange(await SeedSearchRowsAsync(db, name: $"{marker}-AlphaTwo", count: 1, ct));
+        var matching = new List<Guid>();
+        foreach (var suffix in new[] { "Alpha", "AlphaTwo", "AlphaThree" })
+            matching.AddRange(await SeedSearchRowsAsync(db, name: $"{marker}-{suffix}", count: 1, ct));
         await SeedSearchRowsAsync(db, name: $"{marker}-Beta", count: 1, ct);
+        // Holds the term but does not start with it: a substring predicate would count this row.
+        await SeedSearchRowsAsync(db, name: $"X-{marker}-Alpha", count: 1, ct);
         await using var queryDb = DbContainerFixture.CreateQueryContext();
         var repo = new {Entity}RepositoryQuery(queryDb);
 
@@ -346,7 +351,7 @@ public class {Entity}RepositoryIntegrationTests
         {
             PageIndex = 1,
             PageSize = 2,
-            Filter = new {Entity}SearchFilter { Name = $"{marker}-Alpha" }
+            Filter = new {Entity}SearchFilter { TenantId = TenantA, SearchTerm = $"{marker}-Alpha" }
         }, ct);
 
         // Total counts every match while the page holds PageSize rows, so swapped pageSize/pageIndex
@@ -354,6 +359,10 @@ public class {Entity}RepositoryIntegrationTests
         Assert.AreEqual(matching.Count, page.Total);
         Assert.AreEqual(2, page.Data.Count);
         CollectionAssert.IsSubsetOf(page.Data.Select(item => item.Id!.Value).ToList(), matching);
+
+        // The lookup uses the same prefix rule.
+        var lookup = await repo.Lookup{Entity}Async(TenantA, $"{marker}-Alpha", ct);
+        Assert.AreEqual(matching.Count, lookup.Items.Count);
     }
 
     [TestMethod]
@@ -377,7 +386,7 @@ public class {Entity}RepositoryIntegrationTests
                 PageIndex = pageIndex,
                 PageSize = 5,
                 Sorts = [new Sort(nameof({Entity}.Name), SortOrder.Ascending)],
-                Filter = new {Entity}SearchFilter { Name = "Same sort key" }
+                Filter = new {Entity}SearchFilter { SearchTerm = "Same sort key" }
             }, ct);
 
             Assert.AreEqual(expectedIds.Count, page.Total);
@@ -392,7 +401,7 @@ public class {Entity}RepositoryIntegrationTests
             PageIndex = 1,
             PageSize = 5,
             Sorts = [new Sort(nameof({Entity}.Name), SortOrder.Ascending)],
-            Filter = new {Entity}SearchFilter { Name = "Same sort key" }
+            Filter = new {Entity}SearchFilter { SearchTerm = "Same sort key" }
         }, ct);
         CollectionAssert.AreEqual(
             actualIds.Take(5).ToList(),
@@ -548,12 +557,12 @@ public class {Entity}RepositoryIntegrationTests
 
 ### Repository test coverage matrix
 
-The migration row and the two search rows are generated in every testing profile; `minimal` generates only those, and `balanced`+ adds every other row that applies.
+The migration row, the two search rows and the tenant query filter row are generated in every testing profile; `minimal` generates only those, and `balanced`+ adds every other row that applies.
 
 | Scenario | Generate when |
 |---|---|
 | `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` | Always - once per schema, not per entity. |
-| `Search_WithNamePrefix_ReturnsMatchingPageAndTotal` | Every repository with a search filter. Seed matching and non-matching rows under a per-test marker and assert the page size and `Total`. |
+| `Search_WithNamePrefix_ReturnsMatchingPageAndTotal` | Every repository with a search filter. Seed rows that start with the term, one that does not and one that only contains it, under a per-test marker, and assert the page size and `Total`. |
 | `Search_WithDuplicateSortKeys_HasStablePageMembership` | Every repository with paging. Seed more than one page with the same business sort key and assert exact IDs, no omissions, and no duplicates. |
 | `{Entity}_CrudOperations_WorkAgainstRealSql` | Every entity with mutations. |
 | `{Entity}_WithChildren_PersistsCorrectly` | Entity has owned/dependent child collections (1:N). Persistence + includes only - seeds children via `db.{ChildEntities}.Add(...)`, so it does NOT exercise the updater/navigation-add path (see next row). |
@@ -606,7 +615,7 @@ The migration row and the two search rows are generated in every testing profile
 - [ ] Failed Docker preflight is `Inconclusive`; a post-preflight startup failure fails with the full exception; a single-lane test calls `RequireLane`.
 - [ ] Contexts come from `TestDatabaseContainer.BuildOptions` (central provider helper), never a hand-written `UseNpgsql`/`UseSqlServer` call.
 - [ ] `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` exists exactly once per assembly (not per entity).
-- [ ] Tenant query filter test exists when `enableMultiTenant: true`; M:N test exists when entity uses a junction.
+- [ ] Tenant query filter test exists when `enableMultiTenant: true`; M:N test exists when entity uses a junction (`balanced`+).
 - [ ] Every test class has a class-level `<summary>` declaring tier (component) + store.
 - [ ] No fixture or test performs a manual `docker rm`/`docker container prune` sweep.
 

@@ -116,7 +116,7 @@ Severity policy for `MSTEST0049` (and the generation-time verify gate that enfor
 
 | Profile | Include by default |
 |---|---|
-| `minimal` | Test.Support + Unit + Endpoint + Integration (component) for migrations and repository search and paging |
+| `minimal` | Test.Support + Unit + Endpoint + Integration (component) for migrations, repository search and paging, and the tenant query filter |
 | `balanced` | Minimal + the rest of Integration (component) + Architecture + `Test.UI` when UI model/presentation coverage exists + `Test.Mobile` when Uno is in scope |
 | `comprehensive` | Balanced + E2E + Aspire mesh + PlaywrightUI (incl. `WasmUI`) + Load + Benchmarks + Mutation (capability gates below) |
 
@@ -128,7 +128,7 @@ The `resource-implementation.yaml` test booleans drive **generation**: `balanced
 
 EF query-translation correctness requires a real relational provider. Unit and endpoint tests run on the in-memory provider, which evaluates predicates, projections, owned-type filters, value-converted columns (`TenantId`, nullable typed FKs, `Email`, `Locale`) and `LIKE` in .NET, so they stay green while translation throws at runtime. Every profile therefore runs each searchable aggregate's search and paging tests against the real database in `Test.Integration`; the in-memory provider covers write plumbing only. `Test.E2E` (where generated) adds HTTP workflow coverage on top.
 
-The real provider must be the **deployed** provider. Container-backed tiers run on the resolved lane (`NonAzure` unless `{APP}_LANE=Azure`), so a green run proves query translation only for that lane's provider - shaper and translation failures are provider-specific. A change to code whose behavior can differ between providers (queries and their translation, projections, locking, collation or case rules, provider-specific SQL) runs its narrowest real-database check on every provider in `databaseProviders`, not only the local lane's; the full relational suites run on every declared lane at least once per release.
+The real provider must be the **deployed** provider. Container-backed tiers run on the resolved lane (`NonAzure` unless `{APP}_LANE=Azure`), so a green run proves query translation only for that lane's provider - shaper and translation failures are provider-specific. A change to code whose behavior can differ between providers (queries and their translation, projections, locking, collation or case rules, provider-specific SQL) runs its narrowest real-database check on every declared lane (`{APP}_LANE`), not only the local one; the full relational suites run on every declared lane at least once per release.
 
 Any assertion whose expected result crosses a time boundary uses an injected `TimeProvider` fixed to an explicit instant. This includes recurrence generation, expiry, retention, leases, retries, and scheduled-window queries. `TimeProvider.System` in such a test makes the boundary move between arrange and act and can change counts without a product defect.
 
@@ -491,7 +491,7 @@ The Docker/deadline/wait/diagnostic/cleanup mechanics live in [../templates/test
 
 - [ ] Unit tests pass.
 - [ ] Endpoint tests run via WAF in-memory host.
-- [ ] Each searchable aggregate has at least one real relational-provider search/list path in `balanced` or higher.
+- [ ] Each searchable aggregate has its search and paging tests against the real database in `Test.Integration`, in every profile.
 - [ ] Harness split is respected (WAF vs hosted Playwright).
 - [ ] Categories match intended command filters.
 - [ ] Mutation tests use `TestCategory=Mutation` and the Stryker config uses the same test-case filter.

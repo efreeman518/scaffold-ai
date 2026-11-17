@@ -91,12 +91,13 @@ dotnet test --filter "TestCategory=Unit"
 dotnet test --filter "TestCategory=Unit"
 ```
 
-6. **Write repository tests**: write plumbing from `test-templates-repository.md`, search and paging from `test-templates-integration.md` (real database).
+6. **Write the repository write-side tests** from `test-templates-repository.md`.
 7. **Implement EF configuration + repositories**:
 
 - Create `{Entity}Configuration.cs`.
 - Implement `{Entity}RepositoryTrxn` and `{Entity}RepositoryQuery`.
 - Wire `DbSet<{Entity}>` and swap the no-op DI registrations.
+- Fill the search and paging rows of `{Entity}RepositoryIntegrationTests` from `test-templates-integration.md` (tests-after, against the real database).
 
 8. **Run GREEN again**:
 
@@ -110,6 +111,7 @@ dotnet test --filter "TestCategory=Unit"
 dotnet ef migrations add InitialCreate ...
 dotnet build
 dotnet test --filter "TestCategory=Unit"
+dotnet test tests/Test.Integration --filter "TestCategory=Integration"   # repository search and paging on the real database; Inconclusive without a container runtime
 ```
 
 Git checkpoint after gate passes.

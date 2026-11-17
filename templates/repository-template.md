@@ -111,6 +111,8 @@ public class {Entity}RepositoryQuery({Project}DbContextQuery dbContext)
         }
         else if (searchText is not null)
         {
+            // No tenant: only a cross-tenant role reaches this (the service pins every other caller's tenant),
+            // so it is an operator read across tenants that no tenant-first index bounds.
             filter = e => e.Name.StartsWith(searchText);
         }
 
@@ -135,14 +137,14 @@ public class {Entity}RepositoryQuery({Project}DbContextQuery dbContext)
 
         var requireTenantId = filter.TenantId.HasValue;
         var tenantId = requireTenantId ? TenantId.From(filter.TenantId.GetValueOrDefault()) : default;
-        var hasName = !string.IsNullOrWhiteSpace(filter.Name);
-        var name = hasName ? filter.Name.Trim() : string.Empty;
+        var hasTerm = !string.IsNullOrWhiteSpace(filter.SearchTerm);
+        var term = hasTerm ? filter.SearchTerm.Trim() : string.Empty;
         var hasFlags = filter.Flags.HasValue;
         var flags = filter.Flags.GetValueOrDefault();
 
         return e =>
             (!requireTenantId || e.TenantId == tenantId) &&
-            (!hasName || e.Name.StartsWith(name)) &&
+            (!hasTerm || e.Name.StartsWith(term)) &&
             (!hasFlags || e.Flags.HasFlag(flags));
     }
 
@@ -331,7 +333,7 @@ pair (bespoke Trxn interfaces deleted) and keep a bespoke `Search`-bearing query
 ```csharp
 // FAIL WRONG - materializes full entities, no projection, manual paging
 var query = DB.Categories.AsNoTracking().AsQueryable();
-if (filter.Name != null) query = query.Where(...);
+if (filter.SearchTerm != null) query = query.Where(...);
 var total = await query.CountAsync(ct);
 var data = await query.OrderBy(...).Skip(...).Take(...).ToListAsync(ct);
 return new PagedResponse<Category> { Data = data, ... };
@@ -365,9 +367,10 @@ Every query repo search method must follow this pattern. Use `{Entity}Mapper.Pro
 A search over an entity whose rows grow with use (one row per user action, message, session or job run) costs in proportion to the rows its driving index selects, never to the table ([../vendor/engineering-criteria/data-access.md](../vendor/engineering-criteria/data-access.md), Query cost).
 
 - **Text search is prefix by default:** `e.Name.StartsWith(term)`, never `e.Name.Contains(term)`. A leading-wildcard `LIKE '%term%'` can use no B-tree index, so it reads every row the other predicates leave.
-- **The index that serves it** is the tenant-first `IX_{Entity}_TenantId_Name_Id` from [ef-configuration-template.md](ef-configuration-template.md). It bounds the read to one tenant on both providers. SQL Server also seeks the prefix in it. PostgreSQL (`Name LIKE @p || '%'`) seeks the prefix only when the database uses the C collation or the index's `Name` column carries the `text_pattern_ops` operator class, so on other collations the prefix filters inside the tenant's range; add that operator class in the PostgreSQL provider branch when one tenant's rows of the entity can grow large.
-- **An all-tenants search** (a context with `AllTenants = true`, such as a global admin's) carries no `TenantId` predicate, so the tenant-first index cannot bound it. Require the tenant on such a search, or give the entity a `Name`-leading index for it.
-- **Substring or fuzzy matching** needs a declared text index that serves it: PostgreSQL `pg_trgm` with a GIN index on the column; on SQL Server full-text serves only word and prefix terms, so bound the candidates by an indexed predicate first. Where the app has a search service, route substring search there and keep the repository on the prefix query.
+- **The index that serves it** is the tenant-first `IX_{Entity}_TenantId_Name_Id` from [ef-configuration-template.md](ef-configuration-template.md): a tenant predicate with a `Name` prefix reads inside one tenant's range of it, in `Name` order. On PostgreSQL the prefix itself seeks only under the C collation, or through a second index whose `Name` column carries the `text_pattern_ops` operator class (the first index keeps serving the `Name, Id` order); under any other collation it filters inside the tenant's range.
+- **A search with no tenant** is the cross-tenant role's (the lookup's last branch, or a search filter without `TenantId` on an all-tenants context). No tenant-first index bounds it; it is an operator read, and the comment at the lookup branch says so.
+- **Substring or fuzzy matching** needs a declared text index that serves it: PostgreSQL `pg_trgm` (the extension declared in the migration) with a GIN index on the column, and a term of at least three characters, since a shorter one yields no trigram to seek; on SQL Server full-text serves only word and prefix terms, so bound the candidates by an indexed predicate first. Where the app has a search service, route substring search there and keep the repository on the prefix query.
+- **The endpoint says so:** the search and lookup summaries state that text matches from the start of the name ([endpoint-template.md](endpoint-template.md)).
 
 ### Paged queries require a deterministic total order
 
