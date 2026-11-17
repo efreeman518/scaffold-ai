@@ -28,6 +28,8 @@ dotnet build
 dotnet test --filter "TestCategory=Unit"   # or scope to current sub-phase (Endpoint, Integration, etc.)
 ```
 
+A sub-phase or slice that adds or changes a repository search also runs `dotnet test tests/Test.Integration --filter "TestCategory=Integration"`: its search and paging tests run on the real database in every profile (Inconclusive without a container runtime).
+
 Run `dotnet restore` only when one of the following is true (otherwise skip - it is wasted work):
 
 - `Directory.Packages.props` or any `.csproj` changed since the last restore.

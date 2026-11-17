@@ -560,7 +560,7 @@ The two search rows are generated in every testing profile; `minimal` generates 
 
 | Scenario | Generate when |
 |---|---|
-| `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` | Always - once per schema, not per entity. |
+| `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` | `balanced`+ - once per schema, not per entity. |
 | `Search_WithNamePrefix_ReturnsMatchingPageAndTotal` | Every repository with a search filter. Seed rows that start with the term, one that does not and one that only contains it, under a per-test marker, and assert the page size and `Total`. |
 | `Search_WithDuplicateSortKeys_HasStablePageMembership` | Every repository with paging. Seed more than one page with the same business sort key and assert exact IDs, no omissions, and no duplicates. |
 | `{Entity}_CrudOperations_WorkAgainstRealSql` | Every entity with mutations. |
@@ -613,7 +613,7 @@ The two search rows are generated in every testing profile; `minimal` generates 
 - [ ] One `IntegrationTestSetup` owns the package Docker preflight plus the sole `[AssemblyInitialize]`/`[AssemblyCleanup]` and starts only the resolved lane's fixtures; every fixture is a package `ContainerFixture` and reports `StartupError`.
 - [ ] Failed Docker preflight is `Inconclusive`; a post-preflight startup failure fails with the full exception; a single-lane test calls `RequireLane`.
 - [ ] Contexts come from `TestDatabaseContainer.BuildOptions` (central provider helper), never a hand-written `UseNpgsql`/`UseSqlServer` call.
-- [ ] `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` exists exactly once per assembly (not per entity).
+- [ ] At `balanced`+: `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` exists exactly once per assembly (not per entity).
 - [ ] At `balanced`+: tenant query filter test exists when `enableMultiTenant: true`; M:N test exists when entity uses a junction.
 - [ ] Every test class has a class-level `<summary>` declaring tier (component) + store.
 - [ ] No fixture or test performs a manual `docker rm`/`docker container prune` sweep.
