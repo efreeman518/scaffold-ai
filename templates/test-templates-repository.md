@@ -22,7 +22,7 @@ the seeded rows.
 Search, filter and paging tests do not belong here. The in-memory provider evaluates predicates, string comparison
 and paging in .NET, so such a test can pass for a query the database translates differently or cannot translate.
 They run against the lane's real database in every testing profile ([test-templates-integration.md](test-templates-integration.md)
-section Repository Integration Tests), as do constraint and migration coverage.
+section Repository Integration Tests); constraint and migration coverage is in the same template, at `balanced`+.
 
 ## Repository Trxn Tests
 
