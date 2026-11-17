@@ -51,7 +51,7 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 - [ ] Activate {Entity}Builder.Build() with real entity Create()
 - [ ] Replace no-op repository stubs with real implementations
 - [ ] Scaffold EF migration
-- [ ] Fill the migration, search and paging, and tenant query filter tests of `Test.Integration` (real database, every profile)
+- [ ] Fill the search and paging tests of `Test.Integration` (real database, every profile)
 - [ ] **Checkpoint:** `dotnet build` + `dotnet test --filter "TestCategory=Unit"` + `dotnet test tests/Test.Integration --filter "TestCategory=Integration"` (repository search and paging) passes
 
 ### Phase 5b - App Core + Runtime/Edge (TDD for app/API, tests-after for runtime)

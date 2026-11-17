@@ -164,7 +164,7 @@ MVS scope: api-only. Skip projects for Gateway, Function App, Uno/Blazor/React U
 Expected solution: Aspire AppHost, API host, Application/Domain/Infrastructure projects, Test.Support, Test.Unit, Test.Endpoints, Test.Integration (database fixture only).
 ```
 
-**Done when:** `dotnet build` is green and the solution contains the AppHost, API host, Application/Domain/Infrastructure projects, the four test projects (`Test.Integration` holds the migration and repository search tests of the `minimal` profile), and any `src/Packages/<packagePrefix>.*` projects required by `packageStrategy`. No optional hosts.
+**Done when:** `dotnet build` is green and the solution contains the AppHost, API host, Application/Domain/Infrastructure projects, the four test projects (`Test.Integration` holds the repository search tests of the `minimal` profile), and any `src/Packages/<packagePrefix>.*` projects required by `packageStrategy`. No optional hosts.
 
 ### Phase 5 - Implementation (5a + 5b only for MVS)
 
@@ -216,7 +216,7 @@ dotnet run --project src\Host\Aspire\AppHost
 
 If Aspire is deliberately disabled, configure the API's SQL connection names to an explicit reachable SQL endpoint before running it directly. Missing SQL configuration is a failed MVS prerequisite, not a lazy-optional fallback. If all checks pass, the Final Scaffold Validation session records them and sets `workflowStatus: complete`; MVS is then complete.
 
-The CI `--dry-run` is an extraction smoke only: it proves prompt and YAML extraction without invoking an agent, .NET, Docker, or SQL. Before an instruction-set release, run the non-dry-run golden path with a real supported agent and retain its build, Unit, Endpoint, health, and SQL-backed CRUD results as release evidence.
+The CI `--dry-run` is an extraction smoke only: it proves prompt and YAML extraction without invoking an agent, .NET, Docker, or SQL. Before an instruction-set release, run the non-dry-run golden path with a real supported agent and retain its build, Unit, Endpoint, Integration, health, and SQL-backed CRUD results as release evidence.
 
 ## Promoting beyond MVS
 

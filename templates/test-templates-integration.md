@@ -335,8 +335,7 @@ public class {Entity}RepositoryIntegrationTests
         await using var db = DbContainerFixture.CreateTrxnContext();
         await db.Database.MigrateAsync(ct);
 
-        // A per-test marker keeps rows that other tests seed out of the prefix match. Every name is distinct, so
-        // an entity with a unique name per tenant seeds too.
+        // A per-test marker keeps rows that other tests seed out of the prefix match.
         var marker = $"Search-{Guid.NewGuid():N}";
         var matching = new List<Guid>();
         foreach (var suffix in new[] { "Alpha", "AlphaTwo", "AlphaThree" })
@@ -415,7 +414,7 @@ public class {Entity}RepositoryIntegrationTests
         CancellationToken ct)
     {
         var rows = Enumerable.Range(0, count)
-            .Select(_ => new {Entity}Builder().WithName(name).Build())
+            .Select(_ => new {Entity}Builder().WithTenantId(TenantA).WithName(name).Build())
             .ToList();
         db.{Entities}.AddRange(rows);
         await db.SaveChangesAsync(OptimisticConcurrencyWinner.ClientWins, cancellationToken: ct);
@@ -557,7 +556,7 @@ public class {Entity}RepositoryIntegrationTests
 
 ### Repository test coverage matrix
 
-The migration row, the two search rows and the tenant query filter row are generated in every testing profile; `minimal` generates only those, and `balanced`+ adds every other row that applies.
+The two search rows are generated in every testing profile; `minimal` generates only those (each applies the migrations itself), and `balanced`+ adds every other row that applies.
 
 | Scenario | Generate when |
 |---|---|
@@ -615,7 +614,7 @@ The migration row, the two search rows and the tenant query filter row are gener
 - [ ] Failed Docker preflight is `Inconclusive`; a post-preflight startup failure fails with the full exception; a single-lane test calls `RequireLane`.
 - [ ] Contexts come from `TestDatabaseContainer.BuildOptions` (central provider helper), never a hand-written `UseNpgsql`/`UseSqlServer` call.
 - [ ] `Migrations_ApplyCleanlyTwice_WithHistoryInOwnedSchema` exists exactly once per assembly (not per entity).
-- [ ] Tenant query filter test exists when `enableMultiTenant: true`; M:N test exists when entity uses a junction (`balanced`+).
+- [ ] At `balanced`+: tenant query filter test exists when `enableMultiTenant: true`; M:N test exists when entity uses a junction.
 - [ ] Every test class has a class-level `<summary>` declaring tier (component) + store.
 - [ ] No fixture or test performs a manual `docker rm`/`docker container prune` sweep.
 

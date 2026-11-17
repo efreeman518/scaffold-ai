@@ -116,7 +116,7 @@ Severity policy for `MSTEST0049` (and the generation-time verify gate that enfor
 
 | Profile | Include by default |
 |---|---|
-| `minimal` | Test.Support + Unit + Endpoint + Integration (component) for migrations, repository search and paging, and the tenant query filter |
+| `minimal` | Test.Support + Unit + Endpoint + Integration (component) for repository search and paging |
 | `balanced` | Minimal + the rest of Integration (component) + Architecture + `Test.UI` when UI model/presentation coverage exists + `Test.Mobile` when Uno is in scope |
 | `comprehensive` | Balanced + E2E + Aspire mesh + PlaywrightUI (incl. `WasmUI`) + Load + Benchmarks + Mutation (capability gates below) |
 

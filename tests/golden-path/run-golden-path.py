@@ -538,7 +538,9 @@ def gate(phase: str, target: Path, pre_migrations: set[str] | None = None) -> tu
         return ok, notes
 
     # 5a also runs the component tier: every profile keeps its repository search tests there (Inconclusive without Docker).
-    test_filter = "TestCategory=Unit|TestCategory=Integration" if phase == "5a" else "TestCategory=Unit|TestCategory=Endpoint"
+    test_filter = {"5a": "TestCategory=Unit|TestCategory=Integration",
+                   "slice": "TestCategory=Unit|TestCategory=Endpoint|TestCategory=Integration"}.get(
+        phase, "TestCategory=Unit|TestCategory=Endpoint")
     if build_ok:
         test_cmd = ["dotnet", "test", "--filter", test_filter] + ([str(slnx)] if slnx else [])
         test_ok, test_tail = run_gate_cmd(test_cmd, target)
@@ -686,7 +688,7 @@ def main() -> int:
         print("4: canonical root solution/config + src/tests projects + dotnet build + HANDOFF contractsScaffolded=true")
         print('5a: dotnet build + dotnet test --filter "TestCategory=Unit|TestCategory=Integration"')
         print('5b: dotnet build + dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint"')
-        print(f'slice: dotnet build + dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint" '
+        print(f'slice: dotnet build + dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint|TestCategory=Integration" '
               f'+ class {SLICE_ENTITY} present + migration additivity (GR-13)')
         return 0
 
