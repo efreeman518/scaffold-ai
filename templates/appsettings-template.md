@@ -202,10 +202,8 @@ This is a complete reference of all configuration sections used across the solut
 {
   "OutboxDispatcher": { "MaxAttempts": 10 },
   "Scheduling": {
-    "UsePersistence": true,
-    "MaxConcurrency": 5,
-    "PollIntervalSeconds": 30,
-    "Retention": { "OccurrenceRetention": "7.00:00:00" },
+    "Slots": 5,
+    "Retention": { "RunRetention": "7.00:00:00" },
     "Health": { "StallThreshold": "12:00:00" }
   }
 }

@@ -43,7 +43,7 @@ health.AddCosmosDbHealthCheck("cosmos-db", tags: ["full"]);                     
 health.AddServiceBusHealthCheck("{Project}SBClient", "{topic}", "service-bus", "full");         // EF.Messaging
 health.AddRabbitMqHealthCheck(tags: "ready");                                                  // EF.Messaging.RabbitMq, consumer host
 health.AddLeasedWorkBacklogCheck<OutboxMessage>("outbox", tags: ["ready"]);                    // EF.Data.Outbox, dispatcher host
-health.AddSchedulerHealthCheck<{App}TickerQDbContext>(tags: ["ready"]);                         // EF.BackgroundServices.TickerQ
+health.AddSchedulerHealthCheck<{App}SchedulerDbContext>(tags: ["ready"]);                       // EF.Data.Scheduling
 health.AddDownstreamHealthCheck("{project}-api", o => o.Url = apiHealthUrl, tags: ["full"]);    // EF.Gateway, gateway host
 ```
 

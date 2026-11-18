@@ -141,7 +141,7 @@ if (!isTesting)
 var migrator = builder.AddProject<Projects.{Host}_DatabaseMigrator>("{host}migrator")
     .WithReference(db, connectionName: "{Project}DbContextTrxn")
     .WithReference(db, connectionName: "{Project}FlowEngineDbContext")
-    .WithReference(db, connectionName: "TickerQDbContext")
+    .WithReference(db, connectionName: "{App}SchedulerDbContext")
     .WaitFor(db);
 
 // -- API: one WithReference per pooled DbContext connection name, plus Redis
@@ -154,11 +154,11 @@ var api = builder.AddProject<Projects.{Host}_Api>("{host}api")
     .WaitForCompletion(migrator)
     .WithExternalHttpEndpoints();
 
-// -- Scheduler: same DB refs, pinned to one replica (dev/prod only)
+// -- Scheduler: same DB refs plus its store
 var scheduler = builder.AddProject<Projects.{Host}_Scheduler>("{host}scheduler")
     .WithReference(db, connectionName: "{Project}DbContextTrxn")
     .WithReference(db, connectionName: "{Project}DbContextQuery")
-    .WithReplicas(1)
+    .WithReference(db, connectionName: "{App}SchedulerDbContext")
     .WaitFor(db)
     .WaitForCompletion(migrator);
 

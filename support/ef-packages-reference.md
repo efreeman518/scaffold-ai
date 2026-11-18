@@ -122,7 +122,7 @@ Capability-gated packages (CQRS, column encryption, auth and the gateway claims 
 | `IBackgroundTaskQueue` / `ChannelBackgroundTaskQueue` | EF.BackgroundServices (`EF.BackgroundServices.Work`) | Queue for background task processing; `AddChannelBackgroundTaskQueue()` registers it with its hosted service |
 | `ScopedBackgroundService` | EF.BackgroundServices | Base class for scoped background services |
 | `LeasedWorkerBase<TOptions>` / `LeasedWorkerOptions` / `RetryBackoff` | EF.BackgroundServices (`EF.BackgroundServices.Leased`) | Polling worker over leased work rows: `ProcessBatchAsync(CancellationToken)`, `MaxAttempts` 5, `RetryBaseDelay`, `RetryMaxDelay`, `SettlementTimeout`; `AddLeasedWorkerService<TWorker, TOptions>()` validates options at host start |
-| `IScheduledJobHandler`, `ScheduledJobTelemetry` | EF.BackgroundServices (`EF.BackgroundServices.Scheduling`) | Scheduled job handler contract and `scheduler.job.*` metrics; the TickerQ runner is in [ef-packages-optional.md](ef-packages-optional.md) section Scheduling |
+| `IScheduledJobHandler`, `ScheduledJobTelemetry` | EF.BackgroundServices (`EF.BackgroundServices.Scheduling`) | Scheduled job handler contract and `scheduler.job.*` metrics; the EF.Data.Scheduling runner is in [ef-packages-optional.md](ef-packages-optional.md) section Scheduling |
 
 #### Critical Wiring Notes
 
@@ -185,7 +185,7 @@ Services cache through EF.Cache `ITypedCache` directly ([../skills/caching.md](.
 
 - **5a:** EF.Common, EF.Domain, EF.Domain.Contracts, EF.Data, EF.Data.Contracts, EF.Common.Contracts; EF.Data.PostgreSql / EF.Data.SqlServer per provider arm; EF.Data.Encryption when columns are encrypted
 - **5b:** EF.AspNetCore, EF.Host, EF.OpenTelemetry, EF.AspNetCore.DataProtection, EF.Cache, EF.Tenancy when multi-tenant, EF.CQRS when `applicationStyle` is `cqrs` or `switch`, EF.Auth (fixed principal, claims relay), EF.RateLimiting / EF.RateLimiting.Redis and EF.Gateway when enabled, EF.FilterBuilder, optional Key Vault
-- **5c:** messaging (EF.Messaging.Contracts, EF.Data.Outbox, EF.Messaging, EF.Messaging.RabbitMq, EF.Messaging.Functions), scheduling (EF.BackgroundServices.TickerQ), storage (EF.Storage, EF.Storage.S3, EF.Table, EF.CosmosDb), durable audit (EF.Audit.*), and UI client (EF.UI.Client, EF.UI.Refit, EF.Http.Resilience) packages when enabled
+- **5c:** messaging (EF.Messaging.Contracts, EF.Data.Outbox, EF.Messaging, EF.Messaging.RabbitMq, EF.Messaging.Functions), scheduling (EF.Data.Scheduling), storage (EF.Storage, EF.Storage.S3, EF.Table, EF.CosmosDb), durable audit (EF.Audit.*), and UI client (EF.UI.Client, EF.UI.Refit, EF.Http.Resilience) packages when enabled
 - **4 (test infrastructure):** EF.Testing, EF.IntegrationTesting plus the provider packages (`Test.Support` WAF adapter and database fixture), EF.IntegrationTesting.Aspire for `Test.Aspire`
 - **5d:** EF.Testing.Architecture for `Test.Architecture`; `LoadRunner` from EF.Testing for `Test.Load`
 - **5e:** EF.Auth and optional EF.MSGraph; EF.AI and EF.AI.Testing (when AI in scope)

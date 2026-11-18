@@ -1368,11 +1368,11 @@ class RetiredEfSurfaceTests(unittest.TestCase):
         for text in ("EF.Utility.UI", "NBomber", "NetArchTest.Rules", "RedisRateLimiting.AspNetCore",
                      "AddGrpcClient2", "AddOpenTelemetryWithConfig", "AddHeaderPropagation()",
                      "[ScopedMessageHandler]", "ConcurrencyMismatchException", "readNoLock: true",
-                     "EF.IntegrationTesting.Environment"):
+                     "EF.IntegrationTesting.Environment", "EF.BackgroundServices.TickerQ"):
             self.assertIsNotNone(pattern.search(text), text)
         for text in ("services.AddRedisRateLimiting();", "EF.RateLimiting.Redis", "EF.Utility", "EF.UI.Refit",
                      "EF.Testing.Architecture", "EF.Testing.Environment", "AddEFGrpcClient",
-                     "AddCorrelationIdPropagation()", "ReadIsolation.Default"):
+                     "AddCorrelationIdPropagation()", "ReadIsolation.Default", "EF.Data.Scheduling"):
             self.assertIsNone(pattern.search(text), text)
 
     def test_every_retired_id_on_a_line_is_reported(self):

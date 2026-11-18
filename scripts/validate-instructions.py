@@ -1499,6 +1499,7 @@ RETIRED_EF_SURFACE_PATTERN = re.compile(
     r"EF\.Utility\.UI\b|EF\.IntegrationTesting\.Environment\b|\bNBomber\b|\bNetArchTest\b"
     r"|(?<![\w.])RedisRateLimiting\b|\bAddGrpcClient2\b|\bAddOpenTelemetryWithConfig\b"
     r"|HeaderPropagation\w*|\bScopedMessageHandler\b|\bConcurrencyMismatchException\b|\breadNoLock\b"
+    r"|TickerQ"
 )
 PACKAGE_TYPE_DECLARATION_PATTERN = re.compile(
     r"\b(?:class|interface|record)\s+(?:LoadRunner|InboxStore|OutboxStore|OutboxStaging|OutboxStagingInterceptor"
@@ -1506,7 +1507,7 @@ PACKAGE_TYPE_DECLARATION_PATTERN = re.compile(
     r"|DefaultExceptionHandler|GlobalExceptionHandler|I?TenantBoundaryValidator|EntityBaseConfiguration"
     r"|UtcDateTime(?:Offset)?Converter|ConcurrencyGuard|IfMatchEndpointFilter|ETagEndpointFilter|UuidV7|StrictEnum"
     r"|DomainEventContainer|ITenantEntityDto|IStartupTask|IScheduledJobHandler|SchedulerHealthCheck"
-    r"|TickerQOccurrenceRetentionHandler|AspireTestHostContext|DockerRuntimePreflight|StubHttpMessageHandler"
+    r"|SchedulerRetentionHandler|SchedulerSchemaValidator|AspireTestHostContext|DockerRuntimePreflight|StubHttpMessageHandler"
     r"|I?BusyTracker|BusyDelegatingHandler|ProblemDetailsDelegatingHandler|NoOpChatClient)\b"
 )
 
