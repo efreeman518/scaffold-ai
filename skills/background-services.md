@@ -27,7 +27,7 @@ Use `{Host}.Scheduler` for cron and one-off jobs with persisted scheduling state
 - `{Host}.Scheduler`: persisted cron and one-off jobs.
 - `{Host}.BackgroundServices`: channel consumers, long-running listeners, queue pumps.
 - Use both when needed, but keep their responsibilities and deployment independent.
-- **A `BackgroundService` failure stops the host.** When `ExecuteAsync` throws, the host stops and `RunAsync` throws. A worker that must survive a failure catches and handles it inside `ExecuteAsync` (log, back off, continue its loop).
+- **A `BackgroundService` failure stops the host.** When `ExecuteAsync` throws, the host logs the exception and shuts down (`BackgroundServiceExceptionBehavior.StopHost`, the default); `RunAsync` then completes normally, so the process can exit with status 0. Where a restart or alert policy depends on a failed exit, set a nonzero `Environment.ExitCode` in the worker's failure path. A worker that must survive a failure catches and handles it inside `ExecuteAsync` (log, back off, continue its loop).
 
 ---
 
