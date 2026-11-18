@@ -230,7 +230,7 @@ For libraries/services with no CLI or MCP server, record documentation and repo 
 | Aspire integrations | 2-5 | Official integration catalog, AppHost APIs, local mode support | `https://aspire.dev/integrations/` |
 | Aspire Azure integrations | 2-5 | Azure `AddAzure*`, `RunAsEmulator`, `RunAsContainer`, existing-resource modes | `https://aspire.dev/integrations/cloud/azure/overview/` |
 | _e.g., FusionCache_ | _5b_ | _GitHub repo + wiki_ | _`https://github.com/ZiggyCreatures/FusionCache`_ |
-| _e.g., TickerQ_ | _5c_ | _NuGet readme + samples_ | _`https://github.com/user/TickerQ`_ |
+| _e.g., Quartz_ | _5c_ | _NuGet readme + samples_ | _`https://github.com/user/Quartz`_ |
 | _e.g., Testcontainers_ | _5d_ | _Docs site_ | _`https://dotnet.testcontainers.org/`_ |
 
 ### Discovery Notes
@@ -238,7 +238,7 @@ For libraries/services with no CLI or MCP server, record documentation and repo 
 _During Phase 3, search for CLIs, MCP servers, and online resources matching project-specific libraries/services (npm `mcp + <library>`, MCP registry, GitHub, official docs). Record findings using three-tier preference: CLI -> MCP -> online resources._
 
 - _e.g., FusionCache - no CLI or MCP; GitHub wiki added to Online Resources_
-- _e.g., TickerQ - no CLI or MCP; NuGet readme added to Online Resources_
+- _e.g., Quartz - no CLI or MCP; NuGet readme added to Online Resources_
 - _e.g., YARP - no dedicated MCP; Microsoft Docs MCP covers it via `microsoft_docs_search`_
 
 ## Risk / Blockers

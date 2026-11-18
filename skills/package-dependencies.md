@@ -155,7 +155,7 @@ Which project references which `<packagePrefix>.*` package, matching the TaskFlo
 | `{App}.Application.Services` | EF.Common, EF.Common.Contracts | Services, `{Entity}StructureValidator` over `EntityDtoRules` |
 | `{App}.Application.Cqrs` | EF.CQRS, EF.Common.Contracts, EF.Data.Contracts | Only when `applicationStyle` is `cqrs` or `switch` |
 | `{App}.Application.MessageHandlers` | EF.BackgroundServices, EF.Audit.Contracts | Internal-bus handlers, `IntegrationEventConsumerBase` consumers (EF.Messaging.Contracts through Application.Contracts) |
-| `{App}.Infrastructure.Data` | EF.Data, EF.Data.Contracts, EF.Common.Contracts, EF.Domain.Contracts; EF.Data.PostgreSql and/or EF.Data.SqlServer per provider arm; EF.Data.Encryption, EF.Data.Outbox, EF.Audit.Data when enabled | DbContexts, configurations, outbox/inbox model |
+| `{App}.Infrastructure.Data` | EF.Data, EF.Data.Contracts, EF.Common.Contracts, EF.Domain.Contracts; EF.Data.PostgreSql and/or EF.Data.SqlServer per provider arm; EF.Data.Encryption, EF.Data.Outbox, EF.Audit.Data, EF.Data.Scheduling when enabled | DbContexts, configurations, outbox/inbox model |
 | `{App}.Infrastructure.Repositories` | EF.Data, EF.Data.Contracts, EF.Audit.Contracts | Repositories and updaters |
 | `{App}.Infrastructure.Caching` | EF.Cache | `AddTypedCache` and the shared Redis connection |
 | `{App}.Infrastructure.Storage` | EF.Storage, EF.Storage.Contracts, EF.Table, EF.Audit.AzureTable (Azure lane) | Blob/Table repositories, Azure Table audit sink |
@@ -165,7 +165,7 @@ Which project references which `<packagePrefix>.*` package, matching the TaskFlo
 | `{App}.Bootstrapper` | EF.Host, EF.AspNetCore, EF.AspNetCore.DataProtection, EF.Data, EF.Common, EF.BackgroundServices; EF.Messaging (Service Bus arm), EF.Storage / EF.Storage.S3 / EF.CosmosDb per store, EF.AI when enabled | Shared host registration |
 | `{App}.Api` | EF.AspNetCore, EF.Auth, EF.Common; EF.RateLimiting.Redis (brings EF.RateLimiting) or EF.RateLimiting; EF.Grpc when gRPC is enabled | HTTP concerns |
 | `{App}.Gateway` | EF.Gateway (brings EF.Auth), EF.RateLimiting | YARP transforms, edge limiter |
-| `{App}.Scheduler` | EF.BackgroundServices, EF.BackgroundServices.TickerQ | Direct reference: the TickerQ source generator flows only to a project that references the package |
+| `{App}.Scheduler` | EF.BackgroundServices, EF.Data.Scheduling | Scheduled jobs ([../support/ef-packages-optional.md](../support/ef-packages-optional.md#scheduling-efdatascheduling)) |
 | `{App}.Functions` | EF.Messaging.Functions | Service Bus triggers |
 | `{App}.DatabaseMigrator` | EF.Data | Migration runner |
 | `{App}.Blazor` | EF.Http.Resilience | Read hedging on the UI read client |
@@ -416,7 +416,6 @@ Durable, JSON-defined workflow orchestration engine. Add only when the requireme
 
 - `Refit` / `Refit.HttpClientFactory` (typed clients; `RefitCallHelper` in EF.UI.Refit)
 - `Microsoft.Extensions.Http.Resilience` (ServiceDefaults standard handler; EF.Http.Resilience builds on it)
-- `TickerQ.EntityFrameworkCore` (the scheduler's `TickerQDbContext` in the migration-owning data project) and `TickerQ.Dashboard` (when the dashboard is enabled); `TickerQ` itself arrives through EF.BackgroundServices.TickerQ
 
 Pattern reference: [external-api.md](external-api.md)
 

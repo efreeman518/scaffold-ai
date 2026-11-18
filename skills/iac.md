@@ -186,13 +186,12 @@ Fan `appInsights.outputs.connectionString` into every host module (API, Gateway,
 1. One AppHost project => one deployable host module.
 2. Connection names match exactly (`WithReference` <-> `ConnectionStrings__*`).
 3. Gateway is the only external ingress by default.
-4. Scheduler stays single replica (`minReplicas = maxReplicas = 1`) when using TickerQ.
-5. ServiceDefaults telemetry maps to **one shared** workspace-based App Insights (see section App Insights) fanned to every host - no per-host App Insights components.
-6. Keep Aspire resource names, IaC names, and appsettings keys aligned.
+4. ServiceDefaults telemetry maps to **one shared** workspace-based App Insights (see section App Insights) fanned to every host - no per-host App Insights components.
+5. Keep Aspire resource names, IaC names, and appsettings keys aligned.
 
-### TickerQ schema deployment
+### Scheduler schema deployment
 
-The `[Scheduler]` schema is a migrator target like any other: the one-shot `{App}.DatabaseMigrator` Container Apps Job applies it before scheduler rollout (see [../skills/cicd.md](../skills/cicd.md) section Production DB Migration (Migrator Job)). IaC ships a container-app-job module for the migrator (manual trigger, migrator image, job name exposed as an output).
+The `scheduler` schema is a migrator target like any other: the one-shot `{App}.DatabaseMigrator` Container Apps Job applies it before scheduler rollout (see [../skills/cicd.md](../skills/cicd.md) section Production DB Migration (Migrator Job)). IaC ships a container-app-job module for the migrator (manual trigger, migrator image, job name exposed as an output).
 
 ---
 

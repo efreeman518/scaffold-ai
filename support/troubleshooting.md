@@ -153,7 +153,7 @@ When a third-party library (scheduler, queue, dashboard, job runner) uses EF-bac
 
 1. **Identify the schema owner.** The app owns third-party operational schema through an app-owned migration context applied by the migrator host (see [data-persistence-advanced.md](data-persistence-advanced.md) -> Third-Party Operational Store Schemas). If the library is instead auto-creating tables at startup, that is the defect - disable it and add the migration target.
 2. **Do not conflate startup success with schema presence.** Many libraries start without error even when their backing tables are missing - failures appear later during seeding, first job execution, or dashboard queries, and are easily misread as connection or configuration issues.
-3. **Verify the schema directly.** Query `INFORMATION_SCHEMA.TABLES` or the database tool of your choice to confirm the expected tables exist before investigating application-level failures. Then confirm the migrator ran (its history table, e.g. `Scheduler.__EFMigrationsHistory_TickerQ`, has rows) and that the host's startup validation is wired.
+3. **Verify the schema directly.** Query `INFORMATION_SCHEMA.TABLES` or the database tool of your choice to confirm the expected tables exist before investigating application-level failures. Then confirm the migrator ran (its history table, e.g. `scheduler.__EFMigrationsHistory_Scheduler`, has rows) and that the host's startup validation is wired.
 4. **Record the schema ownership model** in `HANDOFF.md` and `.scaffold/resource-implementation.yaml` so future sessions do not re-diagnose the same issue.
 
 ---

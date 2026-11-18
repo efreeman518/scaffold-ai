@@ -113,17 +113,17 @@ Framework-free RabbitMQ transport.
 | `RabbitMqOptions`, `RabbitMqConsumerOptions` (section `Messaging:RabbitMq:Consumers:<queue>`: `RetryBaseDelay`, `RetryMaxDelay`, `AttemptTrackingWindow`) | EF.Messaging.RabbitMq | Connection and consumer options; a failed delivery waits its retry delay before the requeue |
 | `AddRabbitMqMessaging(config, "Messaging:RabbitMq")`, `AddRabbitMqConsumer<THandler>(...)`, `AddRabbitMqTopology(...)`, `AddRabbitMqHealthCheck(...)` | EF.Messaging.RabbitMq | Registration |
 
-### Scheduling (EF.BackgroundServices.TickerQ)
+### Scheduling (EF.Data.Scheduling)
 
-TickerQ over the scheduler's operational store. Cron declaration and health policy: [../skills/background-services.md](../skills/background-services.md).
+Job declaration, configuration, context shape and health policy: [../skills/background-services.md](../skills/background-services.md).
 
 | Type | Package | Used For |
 |---|---|---|
-| `AddEFTickerQ<TDbContext>(config, configureDbContext, schema, configure)` / `AddEFTickerQ(config, configure)`, `TickerQSchedulerSettings` (section `Scheduling`) | EF.BackgroundServices.TickerQ | Registration with UTC, `{MachineName}:{ProcessId}` node identity and a distributed lock around cron seeding; the in-memory overload suits one replica and tests |
-| `ScheduledJobRunner.RunAsync<THandler>(context, ct)` | EF.BackgroundServices.TickerQ | Runs an `IScheduledJobHandler` in TickerQ's execution scope with one span, `scheduler.job.*` metrics and TickerQ's cancellation contract |
-| `TickerQSchemaValidator.ValidateAsync<TDbContext>(services)` | EF.BackgroundServices.TickerQ | Names every missing TickerQ table; never creates schema |
-| `TickerQOccurrenceRetentionHandler<TDbContext>`, `TickerQRetentionSettings` (section `Scheduling:Retention`) | EF.BackgroundServices.TickerQ | Deletes finished occurrences past retention |
-| `AddSchedulerHealthCheck<TDbContext>(tags)`, `SchedulerHealthSettings` (section `Scheduling:Health`, `StallThreshold` required) | EF.BackgroundServices.TickerQ | Stall check on the latest cron execution |
+| `ApplySchedulingModel(schema)` | EF.Data.Scheduling | Scheduler tables in the scheduler context's `OnModelCreating` |
+| `AddEFScheduler<TContext>()` + `.AddJob<THandler>(name, o => ...)`, `AddEFSchedulerClient<TContext>()` | EF.Data.Scheduling | Executing host (planner and worker) / scheduling-only process |
+| `IJobScheduler`, `ISchedulerAdmin` | EF.Data.Scheduling | Scoped one-off scheduling; job, run and queue queries, trigger, retry parked |
+| `SchedulerSchemaValidator.ValidateAsync<TContext>(services)` | EF.Data.Scheduling | Names every missing table; never creates schema |
+| `SchedulerRetentionHandler<TContext>`, `AddSchedulerHealthCheck<TContext>(tags)` | EF.Data.Scheduling | Run-history retention job; stall check |
 
 ### Azure Storage (EF.Storage)
 

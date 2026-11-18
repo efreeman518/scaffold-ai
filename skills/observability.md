@@ -59,7 +59,7 @@ EF.AspNetCore owns `X-Correlation-Id`; generate no correlation middleware. Servi
 
 ### Background Services
 
-Scheduled jobs run through the TickerQ `ScheduledJobRunner`, which starts one `{job} execute` activity on source `EF.Scheduler` and records `scheduler.job.*` metrics; export that source and meter. Other background loops create explicit `Activity` spans:
+The EF.Data.Scheduling worker runs each job attempt as one `{job} execute` activity on source `EF.Scheduler` and records `scheduler.job.*` metrics; export that source and meter. Other background loops create explicit `Activity` spans:
 
 ```csharp
 using var activity = ActivitySource.StartActivity("ProcessDueReminders");
