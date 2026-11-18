@@ -601,7 +601,7 @@ Add `**/StrykerOutput/` to `.gitignore`.
 
 The Integration (`Test.Integration` component), Aspire (`Test.Aspire` mesh), and E2E (`Test.E2E`) tiers are scaffolded during Phase 5a/5b - not Phase 5d. The patterns live in their own templates:
 
-- [test-templates-integration.md](test-templates-integration.md) - component: `DbContainerFixture` + per-store fixtures + `IntegrationTestSetup`, repository, audit, RabbitMQ transport, and projection tests.
+- [test-templates-integration.md](test-templates-integration.md) - component: `DbContainerFixture` + per-store fixtures + `IntegrationTestSetup` and repository tests; [test-templates-integration-pipeline.md](test-templates-integration-pipeline.md) - audit, RabbitMQ transport, and projection tests.
 - [test-templates-aspire.md](test-templates-aspire.md) - mesh: `AspireTestHost` (lazy) + `AspireMeshLifecycle`, `OutboxMeshTests`, Azure-arm audit pipelines.
 - [test-templates-e2e.md](test-templates-e2e.md) - `DbApiFactory`, `{Entity}WorkflowTests` (full CRUD + paged search + child-aggregate workflows against the lane's database).
 

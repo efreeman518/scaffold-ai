@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Generates** | `tests/Test.E2E/DbApiFactory.cs`, `tests/Test.E2E/E2EAssemblyHooks.cs`, `tests/Test.E2E/{Entity}WorkflowTests.cs`; consumes `TestDatabaseContainer` from `tests/Test.Support/Hosting`, `DockerRuntimePreflight` (EF.Testing) and `ContainerFixture<T>` (EF.IntegrationTesting) |
-| **Requires** | [test-templates-endpoint](test-templates-endpoint.md) (for the shared `WebApplicationFactoryBase`), [test-templates-integration](test-templates-integration.md) section Lane switch (`TestHostingLane`, `TestDatabaseContainer`), a real database via Testcontainers |
+| **Requires** | [test-templates-endpoint](test-templates-endpoint.md) (for the shared `WebApplicationFactoryBase`), [../skills/testing.md](../skills/testing.md) section Lane switch, `TestHostingLane` and `TestDatabaseContainer` as [test-templates-integration](test-templates-integration.md) generates them, a real database via Testcontainers |
 | **Phase** | Generated in Phase 4 (factory shell) and filled in during Phase 5b once services + endpoints are green |
 | **Protocol** | Tests-after. Unit + Endpoint tests in `Test.Endpoints` already pin per-endpoint behavior; E2E validates multi-endpoint **workflows** against the real database - paging plans, FK constraints, projection translation, owned-type round-trip, and child-aggregate lifecycles. |
 
@@ -408,7 +408,7 @@ Deserialize with `JsonTestOptions.Default` ([test-templates-endpoint.md](test-te
 ### Prefer the API/gateway path for write assertions
 Assert writes by calling the API/gateway directly (the `DbApiFactory` client), not by driving the
 Blazor UI. A browser-driven write adds two failure modes unrelated to the behavior under test: a MudBlazor
-dialog + Refit `AddStandardResilienceHandler` can return 400 before the request leaves the client (the
+dialog + the Refit client's standard resilience handler can return 400 before the request leaves the client (the
 same payload sent direct-to-gateway succeeds), and `@bind-Value` commits on blur so a programmatic fill
 can submit stale/empty values (see [troubleshooting.md](../support/troubleshooting.md) and
 [ui-blazor-forms.md](../skills/ui-blazor-forms.md)). Reserve browser-driven steps for render and

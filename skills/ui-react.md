@@ -54,7 +54,7 @@ Do not duplicate DTO semantics by hand when shared/generated contracts are avail
 - Normalize `DefaultResponse<T>` / paged search envelopes in one API client layer.
 - Match the backend's page-index base exactly; verify it empirically (request page 0 vs page 1 against a seeded list) rather than assuming, and do not silently switch the UI to a different base than the API uses.
 - For aggregate roots, create/update the aggregate with nested child collections in one save when backend mappers/updaters support it. Do not add child API calls on create just because the UI has child controls.
-- Dev tenant/auth headers must follow the Gateway/API dev-auth rules. Never hard-code production tokens or tenant IDs in the React app.
+- In `Scaffold` mode the client sends no auth or tenant header: the Gateway and API authenticate every request as the fixed principal. Never hard-code production tokens or tenant IDs in the React app.
 
 ## Aspire + Vite
 

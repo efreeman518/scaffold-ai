@@ -86,7 +86,7 @@ CANARIES = {
     'AddSqlServer("sql", sqlPassword, port: isTesting ? null : 38433)': "patterns/infrastructure-wiring.md",  # Aspire Resource Wiring graph; quick-reference keeps a minimal correct stub and points here
     "This holds even for entities the scaffold contracts but does not activate": "templates/no-op-stub-template.md",  # no-op-stub never-throw rule; skills carry a "never-throw rule" pointer, never restate
     "ApplicationStyleResolver.Resolve(config[ApplicationStyleResolver.ConfigKey]": "templates/cqrs-endpoint-template.md",  # applicationStyle:switch route-mapping code shape; api.md points here
-    "public static class ScaffoldPrincipal": "skills/identity-management.md",  # EF.Auth fixed-principal claims shared by Api and Gateway; api-host-wiring/data-layer/templates only reference it by name
+    "public static class ScaffoldPrincipal": "patterns/api-host-wiring.md",  # EF.Auth fixed-principal claims shared by Api and Gateway, with the Phase 5b auth wiring; identity-management/data-layer/templates only reference it by name
     "JwtBearer `MapInboundClaims` is an explicit decision": "skills/identity-management.md",  # claim-name mapping decision behind the relay, request context and limiter claim types
     "ManagedIdentityCredential": "skills/ai-integration.md",  # production credential-preference rule; DefaultAzureCredential itself is a cross-cutting primitive, not canaried
     "Verified generated shapes": "ai/SKILL.md",  # GR-18 first-party DTO-read / constructor-read discipline; ai-integration.md carries only the AI-surface cite
@@ -121,7 +121,7 @@ CANARIES = {
     "OpenApiSpecVersion.OpenApi3_1": "skills/api.md",
     "Generate no rule-object layer": "skills/domain-model.md",  # rules live on the aggregate (Valid/Transition, Result.Combine); entity/structure-validator templates point here
     "Never generate a parallel `docs/tech-design.md`": "templates/tech-design-template.md",  # docs/tech-design.html is the only design doc; diagrams doc carries source-plus-SVG rules only
-    "start only that lane's stores, and CI runs the assembly once per declared lane": "templates/test-templates-integration.md",  # test lane switch; aspire/e2e templates point to section Lane switch
+    "start only that lane's stores, and CI runs the assembly once per declared lane": "skills/testing.md",  # test lane switch; the integration, aspire and e2e templates point to section Lane switch
     "a prerequisite that is present but fails to start": "skills/testing.md",  # prerequisite rule: missing -> Inconclusive with enabling command, present-but-failing -> red; others point
     "cb.Properties<decimal>().HavePrecision(18, 4)": "templates/ef-configuration-template.md",  # provider-neutral scalar conventions (decimal, UTC temporals); data-layer-wiring/data-persistence/SKILL point to section Model Conventions
     "diagram-{NN}.{mmd,svg}": "support/tech-design-diagrams.md",  # diagram source+SVG naming under docs/diagrams/; the template's file table points here
@@ -217,7 +217,8 @@ are pointers.
 - No-op implementation shape and never-throw hazard:
   [templates/no-op-stub-template.md](../templates/no-op-stub-template.md). Phase files keep mode policy.
 - CQRS generated shapes: the `templates/cqrs-*-template.md` set. Skills keep route/validation policy.
-- Scaffold/live auth toggle, the EF.Auth fixed principal (`ScaffoldPrincipal`) and the JwtBearer `MapInboundClaims` decision:
+- Phase 5b auth wiring (the `AuthMode` toggle, the EF.Auth fixed principal `ScaffoldPrincipal`, the fallback policy, the anonymous set):
+  [patterns/api-host-wiring.md](../patterns/api-host-wiring.md). The live provider and the JwtBearer `MapInboundClaims` decision:
   [skills/identity-management.md](../skills/identity-management.md).
 - Fail-closed tenant filter, the all-tenants rule and the system identity's cross-tenant roles:
   [skills/multi-tenant.md](../skills/multi-tenant.md). Data-layer wiring passes the rule; it does not restate it.
@@ -255,7 +256,7 @@ are pointers.
 - EF scalar conventions (decimal precision, UTC temporals, no provider column types outside the forced branch):
   [templates/ef-configuration-template.md](../templates/ef-configuration-template.md) section Model Conventions.
 - Test lane switch (lane resolution, per-lane stores, once-per-lane CI run):
-  [templates/test-templates-integration.md](../templates/test-templates-integration.md) section Lane switch.
+  [skills/testing.md](../skills/testing.md) section Lane switch.
 - Test prerequisite classification (missing -> `Inconclusive` with the enabling command; present but failing -> red):
   [skills/testing.md](../skills/testing.md) section Never Silently Pass. Templates, gates, and troubleshooting point here.
 - Ontology projection (outputs, mapping, Fabric IQ ingestion, check semantics):

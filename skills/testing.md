@@ -116,8 +116,8 @@ Severity policy for `MSTEST0049` (and the generation-time verify gate that enfor
 
 | Profile | Include by default |
 |---|---|
-| `minimal` | Test.Support + Unit + Endpoint |
-| `balanced` | Minimal + Integration (component) + Architecture + `Test.UI` when UI model/presentation coverage exists + `Test.Mobile` when Uno is in scope |
+| `minimal` | Test.Support + Unit + Endpoint + Integration (component) for repository search and paging |
+| `balanced` | Minimal + the rest of Integration (component) + Architecture + `Test.UI` when UI model/presentation coverage exists + `Test.Mobile` when Uno is in scope |
 | `comprehensive` | Balanced + E2E + Aspire mesh + PlaywrightUI (incl. `WasmUI`) + Load + Benchmarks + Mutation (capability gates below) |
 
 Other files link here, never restate it. Gate: every generated tier (by profile or explicit flag) passes (default-off opt-in tiers as Inconclusive).
@@ -126,9 +126,9 @@ Start balanced; add hosted UI and performance suites once slices stabilize. **Ge
 
 The `resource-implementation.yaml` test booleans drive **generation**: `balanced`+ implies `includeArchitectureTests`; `comprehensive` implies `includeE2ETests` + `includeAspireTests` + `includePlaywrightUITests` (plus Load/Benchmarks/Mutation) when those flags are omitted. Setting a flag explicitly overrides the profile default. `includeMobileTests` (`Test.Mobile`, Uno native Appium) and the Skia-canvas `WasmUI` bridge tier require `includeUnoUI`. Generate `Test.UI` when UI model/presentation coverage exists; it is the fast headless UI lane (UI services, presentation models, MVUX state). Do not confuse `includeE2ETests` (`Test.E2E`, WebApplicationFactory + Testcontainers database) with `includePlaywrightUITests` (`Test.PlaywrightUI`, browser-driven) - they are distinct tiers.
 
-EF query-translation correctness requires a real relational provider. `minimal` does not cover translated predicates, projections, owned-type filters, or value-converted columns (`TenantId`, nullable typed FKs, `Email`, `Locale`, `Contains` / `LIKE`) because endpoint tests use the in-memory WAF path, so the lower tiers stay green while translation throws at runtime. In `balanced` and higher, add at least one real-database search/list path per searchable aggregate: `Test.E2E` (where generated) for HTTP workflow coverage or `Test.Integration` for repository/component coverage.
+EF query-translation correctness requires a real relational provider. Unit and endpoint tests run on the in-memory provider, which evaluates predicates, projections, owned-type filters, value-converted columns (`TenantId`, nullable typed FKs, `Email`, `Locale`) and `LIKE` in .NET, so they stay green while translation throws at runtime. Every profile therefore runs each searchable aggregate's search and paging tests against the real database in `Test.Integration`; the in-memory provider covers write plumbing only. `Test.E2E` (where generated) adds HTTP workflow coverage on top.
 
-The real provider must be the **deployed** provider. Container-backed tiers run on the resolved lane (`NonAzure` unless `{APP}_LANE=Azure`), so a green run proves query translation only for that lane's provider - shaper and translation failures are provider-specific. Run the relational suites on the lane of every deployed provider at least once per release, and on every change to query projections.
+The real provider must be the **deployed** provider. Container-backed tiers run on the resolved lane (`NonAzure` unless `{APP}_LANE=Azure`), so a green run proves query translation only for that lane's provider - shaper and translation failures are provider-specific. A change to code whose behavior can differ between providers (queries and their translation, projections, locking, collation or case rules, provider-specific SQL) runs its narrowest real-database check on every declared lane (`{APP}_LANE`), not only the local one; the full relational suites run on every declared lane at least once per release.
 
 Any assertion whose expected result crosses a time boundary pins time: an injected `FakeTimeProvider` (Microsoft.Extensions.TimeProvider.Testing) set to an explicit instant, or a fixed `now` passed to the domain ([domain-model.md](domain-model.md) section Clock). This includes recurrence generation, expiry, retention, leases, retries, scheduled-window queries and completion stamps. `TimeProvider.System` there moves the boundary between arrange and act and can change counts without a product defect.
 
@@ -190,6 +190,10 @@ The container-backed tiers - `Test.Aspire` (mesh) and `Test.Integration` / `Test
 
 Suspect container resource pressure before editing test logic when health checks flap; the resource floor, WSL `.wslconfig`, and runtime-restart guidance live in [../support/troubleshooting.md](../support/troubleshooting.md) -> Docker / Container Runtime.
 
+## Lane switch
+
+One assembly serves every declared lane: tests resolve the lane with the hosts' `HostingLaneResolver` (`NonAzure` unless `{APP}_LANE=Azure`), start only that lane's stores, and CI runs the assembly once per declared lane. Generate the `Azure` arm (SQL Server, Azurite, Service Bus) only when `hostingLanes` includes `Azure`; it differs only where an **Azure arm** note in the tier's template says. A single-lane component test calls `IntegrationTestSetup.RequireLane(lane)` and a single-lane mesh test `AspireTestHost.RequireLaneOrInconclusive` (`Inconclusive` on the other lane). `Test.E2E` and `Test.Aspire` read the same `TestHostingLane`.
+
 ## Project Layout
 
 ```text
@@ -218,11 +222,11 @@ When any of `Test.Aspire`, the `WasmUI` bridge tier, or `Test.Mobile` is in scop
 
 | Project | Harness | Test scope | Template |
 |---|---|---|---|
-| `Test.Unit` | Pure CLR + Moq | Domain rules, mappers, application services with mocks | [test-templates-domain.md](../templates/test-templates-domain.md), [test-templates-repository.md](../templates/test-templates-repository.md), [test-templates-service.md](../templates/test-templates-service.md) |
+| `Test.Unit` | Pure CLR + Moq; EF in-memory for repository write plumbing | Domain rules, mappers, application services with mocks, repository writes | [test-templates-domain.md](../templates/test-templates-domain.md), [test-templates-repository.md](../templates/test-templates-repository.md), [test-templates-service.md](../templates/test-templates-service.md) |
 | `Test.UI` | Pure CLR + Moq, no app head | Headless UI services, theme/catalog logic, presentation models, MVUX state/feed tests. References `{Project}.Uno.Core` and `{Project}.Uno.Presentation`, never `{Project}.Uno`. | [test-templates-presentation.md](../templates/test-templates-presentation.md) |
 | `Test.Endpoints` | `WebApplicationFactory<TProgram>` + EF InMemory | Single endpoint contract: status code, response shape, validation, auth | [test-templates-endpoint.md](../templates/test-templates-endpoint.md) |
 | `Test.E2E` | `WebApplicationFactory<TProgram>` + Testcontainers database (lane provider) | Multi-endpoint workflows against the real database: paged search distinct-page, projection round-trip, FK constraints, child aggregate lifecycle | [test-templates-e2e.md](../templates/test-templates-e2e.md) |
-| `Test.Integration` | Standalone Testcontainers (database / Redis / RabbitMQ / S3; Azurite on the Azure arm) | Component: one class vs one real store - repo CRUD/migrations, tenant filter, M:N, audit-repo round-trip, broker transport, projection pipeline | [test-templates-integration.md](../templates/test-templates-integration.md) |
+| `Test.Integration` | Standalone Testcontainers (database / Redis / RabbitMQ / S3; Azurite on the Azure arm) | Component: one class vs one real store - repo CRUD/migrations, repository search and paging, tenant filter, M:N, audit-repo round-trip, broker transport, projection pipeline | [test-templates-integration.md](../templates/test-templates-integration.md), [test-templates-integration-pipeline.md](../templates/test-templates-integration-pipeline.md) |
 | `Test.Aspire` | Aspire `DistributedApplicationTestingBuilder` | Mesh: full AppHost graph over HTTP - outbox -> broker -> consumer, Azure-arm audit pipelines, Blazor-mesh smoke | [test-templates-aspire.md](../templates/test-templates-aspire.md) |
 | `Test.PlaywrightUI` | Real hosted stack (Aspire / docker-compose / preview) | Browser-driven UI - hosts both the `PlaywrightUI` DOM lane and the `WasmUI` canvas-bridge lane (`WasmUI` is a category here, not a separate project) | [testing-quality.md](testing-quality.md) section Hosted Browser UI |
 | `Test.Architecture` | EF.Testing.Architecture | Layer dependency rules | [test-templates-quality.md](../templates/test-templates-quality.md) |
@@ -458,8 +462,9 @@ The Docker/deadline/wait/diagnostic/cleanup mechanics live in [../templates/test
 | Template | Phase | Purpose |
 |---|---|---|
 | [../templates/test-templates-domain.md](../templates/test-templates-domain.md) | 5a | Domain entity + rule tests |
-| [../templates/test-templates-repository.md](../templates/test-templates-repository.md) | 5a | Repository tests (in-memory unit) |
-| [../templates/test-templates-integration.md](../templates/test-templates-integration.md) | 5a / 5b | Component: `TestDatabaseContainer`, `DbContainerFixture` + per-store fixtures + `IntegrationTestSetup`, `{Entity}RepositoryIntegrationTests`, `RelationalAuditLogRepositoryTests`, `RabbitMqTransportTests`, `DomainEventPipelineTests` |
+| [../templates/test-templates-repository.md](../templates/test-templates-repository.md) | 5a | Repository write tests (in-memory unit) |
+| [../templates/test-templates-integration.md](../templates/test-templates-integration.md) | 5a | Component: `TestDatabaseContainer`, `DbContainerFixture` + per-store fixtures + `IntegrationTestSetup`, `{Entity}RepositoryIntegrationTests` |
+| [../templates/test-templates-integration-pipeline.md](../templates/test-templates-integration-pipeline.md) | 5b | Component: `RelationalAuditLogRepositoryTests`, `RabbitMqTransportTests`, `DomainEventPipelineTests` |
 | [../templates/test-templates-aspire.md](../templates/test-templates-aspire.md) | 5b | Mesh: `AspireTestHost` (lazy) + `AspireMeshLifecycle`, `OutboxMeshTests`, Azure-arm audit pipelines |
 | [../templates/test-templates-service.md](../templates/test-templates-service.md) | 5b | Service + mapper tests + consolidated `MapperProjectionParityTests` |
 | [../templates/test-templates-endpoint.md](../templates/test-templates-endpoint.md) | 5b | Endpoint contract tests via WAF + InMemory; `WebApplicationFactoryBase` reference |
@@ -472,7 +477,7 @@ The Docker/deadline/wait/diagnostic/cleanup mechanics live in [../templates/test
 
 - [ ] Unit tests pass.
 - [ ] Endpoint tests run via WAF in-memory host.
-- [ ] Each searchable aggregate has at least one real relational-provider search/list path in `balanced` or higher.
+- [ ] Each searchable aggregate has its search and paging tests against the real database in `Test.Integration`, in every profile.
 - [ ] Harness split is respected (WAF vs hosted Playwright).
 - [ ] Categories match intended command filters.
 - [ ] Mutation tests use `TestCategory=Mutation` and the Stryker config uses the same test-case filter.

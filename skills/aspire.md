@@ -410,7 +410,7 @@ Aspire resolves `AddParameter` values in this priority order (highest wins):
 
 - **Never put `Parameters:sql-password` (or any credential parameter) in any AppHost `appsettings` file.** It overrides everything silently. Keep those files as `{}` or omit the `Parameters` key entirely.
 - **A key parameter has a correct-length default or none.** When the consumer decodes the value (AES or HMAC key, Data Protection key), a manifest default is exactly the required number of random bytes, base64-encoded; a generated character string decodes to the wrong length. Otherwise omit the default. A test decodes the resolved value and asserts its byte length.
-- **Define passwords as a single shared constant** (e.g., `LocalSqlSettings.SharedSaPassword`). Use that constant as the `AddParameter` default and in test fixture setup. Change in one place only.
+- **Define passwords as a single shared constant** (e.g., `LocalSqlSettings.SharedSaPassword`). Use that constant as the `AddParameter` default and in test fixture setup. Change in one place only. It is the fixed local-emulator credential: with Aspire it lives only in this run-mode parameter, with its reason at the site, and no base `appsettings.json` carries a credential ([appsettings-template.md](../templates/appsettings-template.md) section Notes).
 - **Persistent SQL volumes lock in the SA password at volume creation time.** If you change the password constant, you must delete the named volume (e.g., `taskflow-sql-data`) before the next run - the container will re-initialize with the new password.
 - **Gate persistent lifetime + data volume on `!IsAspireTesting()`.** Apply `.WithLifetime(ContainerLifetime.Persistent)` and `.WithDataVolume(...)` only in local `dotnet run` (canonical graph: [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section Aspire Resource Wiring). Under `IsAspireTesting()` the container must stay **ephemeral** so that `DistributedApplication.DisposeAsync()` in the mesh fixture's teardown removes exactly the containers that run started - no machine-wide cleanup, no leaked SQL/Redis container holding a port, and no risk to another project's or session's containers. This is what lets the test tier avoid any `docker rm` sweep entirely. The `IsAspireTesting()` helper already exists (the same one that gates opt-in resources - see [testing.md](testing.md), Opt-In Graph Scope).
 - **Killing the AppHost process does not stop Docker/Podman containers.** Persistent containers are intentional - clean them up **deliberately, by this project's resource name/volume**, never by a generic Aspire label:
@@ -427,6 +427,7 @@ Aspire resolves `AddParameter` values in this priority order (highest wins):
 // AppHost/LocalSqlSettings.cs
 public static class LocalSqlSettings
 {
+    // Fixed local-emulator credential: opens only the run-mode container on this machine.
     public const string SharedSaPassword = "YourStr0ngP@ssword!";
 }
 
@@ -480,10 +481,10 @@ var tunnel = builder.AddDevTunnel(
     tunnelId: "{project}-dev-tunnel",
     options: new DevTunnelOptions { AllowAnonymous = false });
 
-tunnel.WithReference(gateway.GetEndpoint("https-gateway"), allowAnonymous: true);
+tunnel.WithReference(gateway.GetEndpoint("https-gateway"), allowAnonymous: false);
 ```
 
-Use persistent `tunnelId` for stable callback URLs.
+Use persistent `tunnelId` for stable callback URLs. The tunnel requires sign-in: in `Scaffold` mode every request that reaches the Gateway is the fixed principal. Anonymous tunnel access, for a third-party callback, is opened only for a host running `AuthMode: Entra`.
 
 ---
 

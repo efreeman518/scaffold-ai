@@ -28,6 +28,8 @@ dotnet build
 dotnet test --filter "TestCategory=Unit"   # or scope to current sub-phase (Endpoint, Integration, etc.)
 ```
 
+A sub-phase or slice that adds or changes a repository search also runs `dotnet test tests/Test.Integration --filter "TestCategory=Integration"`: its search and paging tests run on the real database in every profile (Inconclusive without a container runtime).
+
 Run `dotnet restore` only when one of the following is true (otherwise skip - it is wasted work):
 
 - `Directory.Packages.props` or any `.csproj` changed since the last restore.
@@ -90,7 +92,7 @@ dotnet test --filter "TestCategory=Unit|TestCategory=Endpoint"
 Exit criteria:
 - [ ] Domain entities exist with real logic (shells replaced)
 - [ ] Transition tests pass for each state-machine entity
-- [ ] Repository tests pass
+- [ ] Repository tests pass: write-side in `Test.Unit`, search and paging against the real database in `Test.Integration`
 - [ ] `{Entity}Builder.Build()` activated (returns valid entities)
 - [ ] No-op repository stubs replaced with real implementations in `RegisterServices.cs`
 - [ ] DbContext files compile with EF configurations
@@ -100,6 +102,7 @@ Commands:
 ```powershell
 dotnet build
 dotnet test --filter "TestCategory=Unit"
+dotnet test tests/Test.Integration --filter "TestCategory=Integration"   # once the migration below exists: repository search and paging on the real database; Inconclusive without a container runtime
 dotnet test --filter "TestCategory=LiveAI" # live provider only
 ```
 
@@ -127,6 +130,7 @@ After generation, run `dotnet ef migrations has-pending-model-changes` for every
 Exit criteria:
 - [ ] Service unit tests pass (mock-based, via Moq)
 - [ ] Endpoint integration tests pass (via `CustomApiFactory` + `WebApplicationFactory`)
+- [ ] `AuthenticationContractTests` pass: a request with no identity gets 401, and the fallback policy requires an authenticated user
 - [ ] No-op service stubs replaced with real implementations in `RegisterServices.cs`
 - [ ] API endpoint mappings added in `WebApplicationBuilderExtensions.cs`
 - [ ] `DbSet<{Entity}>` exists in Trxn + Query DbContexts
@@ -440,13 +444,13 @@ Delivery checks:
 
 ### Authentication Finalization (within 5e)
 
-**Scaffold mode is the default.** Authentication finalization is complete when the app builds, tests pass, and auth works with the config-driven scaffold principal. Live identity provider setup is supplemental hardening - it does **not** block scaffold completion.
+**Scaffold mode is the default.** Authentication finalization is complete when the app builds, tests pass, auth works with the config-driven scaffold principal, and the rows below that apply to the app pass. Which rows apply: [../skills/identity-management.md](../skills/identity-management.md) section Phase 5e by authProvider. Live identity provider setup is supplemental hardening - it does **not** block scaffold completion.
 
 | Mode | Required |
 |---|---|
-| Scaffold/Local (default) | `AuthMode` toggle present; app boots with scaffold/local principal; DI registration, endpoint mapping, and client affordances select the local path; anonymous `GET /auth/mode` reports the selected public mode; local login/register/refresh routes exist; endpoint and presentation tests pass |
-| Entra code path (provider may still be deferred) | Entra handler selected; anonymous `GET /auth/mode` reports `Entra`; local login/register/refresh routes return 404 because they are not mapped; clients hide the local email form and expose only the Entra action; mode-matrix tests pass without requiring a live tenant; deterministic PKCE/callback/issuer/endpoint/state/origin/path/popup/token-audience tests pass; Uno browser-WASM includes `ICustomWebUi`, same-origin `login-callback.htm` using the COOP-proof `localStorage` return channel, and a plain browser `HttpClient` factory |
-| Live provider (only when intentionally provisioned) | Auth provider configured with real tenant values; registration/roles/consent complete; authenticated endpoint behavior verified against live tokens; scaffold stub cannot activate; one real interactive sign-in per enabled UI head from the published `Release` build verifies its actual browser/mobile/desktop mechanism |
+| Scaffold (default) | `AuthMode` toggle present; app boots with the scaffold principal; DI registration, endpoint mapping, and client affordances select the scaffold path; anonymous `GET /auth/mode` on the host clients call reports `Scaffold`; endpoint and presentation tests pass |
+| Entra code path (`authProvider` `EntraID` or `EntraExternal`; provider may still be deferred) | Entra handler selected; anonymous `GET /auth/mode` on the host clients call reports `Entra`; clients hide the development email form and expose only the Entra action; mode-matrix tests pass without requiring a live tenant; deterministic PKCE/callback/issuer/endpoint/state/origin/path/popup/token-audience tests pass; Uno browser-WASM includes `ICustomWebUi`, same-origin `login-callback.htm` using the COOP-proof `localStorage` return channel, and a plain browser `HttpClient` factory |
+| Live provider (only when intentionally provisioned) | Auth provider configured with real tenant values; registration/roles/consent complete; authenticated endpoint behavior verified against live tokens; the scaffold principal cannot activate; one real interactive sign-in per enabled UI head from the published `Release` build verifies its actual browser/mobile/desktop mechanism |
 
 Commands:
 

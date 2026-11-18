@@ -442,7 +442,7 @@ Scaffold with `.AddCustom()` (no external identity provider required). When read
 5. `AuthTokenHandler` (reads `ITokenCache`) works identically with both providers
 6. Configure Gateway with its Entra External ID section (see [identity-management.md](identity-management.md))
 
-The login model first reads anonymous `GET /auth/mode` from the auth-owning host. Show the development email form only for `Scaffold`/`Local`; show the Entra interactive action only for `Entra`. A build/runtime mismatch is a configuration error, not permission to fall back to local login.
+The login model first reads anonymous `GET /auth/mode` from the host it calls. Show the development email form only for `Scaffold`, where the custom provider signs in on the client without a backend call; show the Entra interactive action only for `Entra`. A build/runtime mismatch is a configuration error, not permission to fall back to the development sign-in.
 
 ### Browser-WASM MSAL Custom Web UI
 
@@ -456,7 +456,7 @@ For every MSAL-enabled `#if __WASM__` target, ship all three browser-specific pi
 
 The return channel is one-time state, not token storage. Require non-empty OIDC state, correlate the key to the current auth attempt, clear it before opening and immediately after success/failure, validate the callback origin/path and correlation value before returning it to MSAL, never store access/refresh tokens, and keep popup/poll cancellation bounded. Browser storage APIs can throw on managed devices or privacy-restricted profiles; catch that boundary and surface a recoverable "browser storage unavailable" sign-in error instead of hanging, crashing, or silently weakening correlation. Fail clearly on popup blocking, timeout, malformed callback, or unexpected origin.
 
-Automated auth bypass and local-session `WasmUI` tests do not execute these pieces. Before deployment, complete one real interactive sign-in per enabled UI head from its published `Release` build, including browserwasm, and verify the resulting token reaches the Gateway. Debug-only proof is insufficient because browser-WASM timing and trimming differ in Release.
+Automated auth bypass and `Scaffold`-mode `WasmUI` tests do not execute these pieces. Before deployment, complete one real interactive sign-in per enabled UI head from its published `Release` build, including browserwasm, and verify the resulting token reaches the Gateway. Debug-only proof is insufficient because browser-WASM timing and trimming differ in Release.
 
 ### Android MSAL Interactive Sign-In
 

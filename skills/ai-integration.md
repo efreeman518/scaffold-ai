@@ -612,8 +612,8 @@ Provider dispatch is a closed switch, not an availability fallback chain:
 // isConfigured is provider-derived (a real model only): "stub" and "none" report false, so synthesized
 // dev content is never mistaken for a model and a live smoke never reports green on stub or none.
 // `group` is the versioned AI route group (/api/v1/ai), so this maps to /api/v1/ai/status - the
-// canonical path the CI/live lanes probe. A deployment MAY additionally expose an anonymous,
-// unversioned /ai/status alias for infra probes; the versioned path stays canonical.
+// canonical path the CI/live lanes probe. A deployment MAY additionally expose an
+// unversioned /ai/status alias for infra probes, under the same authorization; the versioned path stays canonical.
 group.MapGet("/status", (
     [FromServices] AiProviderInfo provider) =>
     Results.Ok(new { provider = provider.Name, isConfigured = provider.Name is "azure" or "openai-compatible" }))

@@ -53,7 +53,6 @@ namespace Application.Models.{Entity};
 
 public record {Entity}SearchFilter : DefaultSearchFilter
 {
-    public string? Name { get; set; }
     public {Entity}Flags? Flags { get; set; }
 }
 ```

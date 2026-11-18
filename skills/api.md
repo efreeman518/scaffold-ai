@@ -155,7 +155,7 @@ Note: Aspire-hosted deployments typically handle CORS through the gateway - only
 
 `RegisterApiServices.cs` owns API-only concerns (public method: `AddApiServices`):
 
-- Auth per `AuthMode` (EF.Auth `AddFixedPrincipal` in scaffold mode, JwtBearer otherwise) + authorization policies (admin role, user role)
+- Authentication per `AuthMode` and the authorization fallback policy, from the first host wiring ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration), plus named policies (admin role, user role)
 - `AddEfProblemDetails()` + `AddExceptionClassifier(MapExceptions)` ([exception-handler-template.md](../templates/exception-handler-template.md))
 - OpenAPI/Scalar (feature-flagged via `OpenApiSettings:Enable`) plus `AddConcurrencyOpenApiContract()` for the `If-Match` / `ETag` contract
 - Rate limiting (`AddTenantRateLimiting`, [security.md](security.md) section Rate Limiting)
@@ -193,7 +193,7 @@ internal sealed record ApiDocument(ApiVersion Version, string GroupName)
 `WebApplicationBuilderExtensions.cs` must preserve middleware order:
 ProxyForwarding -> SecurityHeaders -> CorrelationId -> ExceptionHandler -> CORS -> Authentication -> Authorization -> RateLimiter -> RequestTimeouts (limiter placement: [security.md](security.md) section Pipeline Registration). `UseProxyForwarding()` runs first because everything after it reads scheme, host or client IP.
 
-Map versioned groups and apply policy at the group level (adjust route pattern to project needs - tenant-scoped, versioned, or simple `/api/` prefix):
+Map versioned groups and apply policy at the group level (adjust route pattern to project needs - tenant-scoped, versioned, or simple `/api/` prefix). A route with no policy of its own takes the fallback policy, and `.AllowAnonymous()` appears only on the closed set the host wiring lists:
 
 ```csharp
 // Simple pattern for unversioned/internal routes when a versioned public contract is not needed.
@@ -379,6 +379,7 @@ Endpoint metadata: Endpoint Contract rule 8 and [endpoint-template.md](../templa
 - [ ] `Program.cs` wires bootstrapper + API services before `Build()`
 - [ ] Endpoints are static classes under `Endpoints/` with `Map{Entity}Endpoints(...)`
 - [ ] Route groups apply `.RequireAuthorization(...)` at the correct scope
+- [ ] The fallback policy requires an authenticated user; only the health probes and `GET /auth/mode` are anonymous
 - [ ] Handlers that need `HttpContext` place it first; every handler places `CancellationToken` last
 - [ ] Every result maps through `ToHttp` or an exhaustive `switch` with no discard arm - no `IsSuccess`/`else` guards, no raw-id `NotFound(id)`
 - [ ] Routes declare every status they can answer; each entity group declares 403

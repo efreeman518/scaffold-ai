@@ -51,11 +51,13 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 - [ ] Activate {Entity}Builder.Build() with real entity Create()
 - [ ] Replace no-op repository stubs with real implementations
 - [ ] Scaffold EF migration
-- [ ] **Checkpoint:** `dotnet build` + `dotnet test --filter "TestCategory=Unit"` passes
+- [ ] Fill the search and paging tests of `Test.Integration` (real database, every profile)
+- [ ] **Checkpoint:** `dotnet build` + `dotnet test --filter "TestCategory=Unit"` + `dotnet test tests/Test.Integration --filter "TestCategory=Integration"` (repository search and paging) passes
 
 ### Phase 5b - App Core + Runtime/Edge (TDD for app/API, tests-after for runtime)
 - [ ] Write service unit tests (red) -> implement services + mappers + validators (green)
 - [ ] Write endpoint integration tests (red) -> implement endpoints (green)
+- [ ] API host authentication from its first wiring: `Scaffold` fixed principal, authorization fallback policy, anonymous `GET /auth/mode` on the host clients call; authentication contract tests pass
 - [ ] Replace no-op service stubs with real implementations
 - [ ] Message handlers (if events defined)
 - [ ] Bootstrapper DI wiring finalized
@@ -75,7 +77,7 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 - [ ] **Checkpoint:** `dotnet build`, each enabled host responds, `dotnet test --max-parallel-test-modules 1` passes; per-host gate status recorded in `HANDOFF.md`
 
 ### Phase 5d - Quality + Delivery
-- [ ] Service-level Integration tests against real external services (Testcontainers database, broker, cache) - `Test.Integration`, `TestCategory=Integration` (balanced + comprehensive profiles)
+- [ ] Service-level Integration tests against real external services (Testcontainers database, broker, cache) - `Test.Integration`, `TestCategory=Integration` (the rest of the component tier; balanced + comprehensive profiles)
 - [ ] Multi-endpoint E2E workflow tests against the Testcontainers database - `Test.E2E`, `TestCategory=E2E` (comprehensive profile)
 - [ ] Architecture tests (EF.Testing.Architecture layering rules)
 - [ ] Load tests (if comprehensive profile)
@@ -91,14 +93,13 @@ Run this check before writing Phase 4 tasks. Fix source artifacts first, not gen
 
 ### Phase 5e - Integration (Auth + AI)
 
-**Authentication finalization:**
+**Authentication finalization** (the boxes are the `EntraID` / `EntraExternal` steps; other `authProvider` values: [../skills/identity-management.md](../skills/identity-management.md) section Phase 5e by authProvider):
 - [ ] Prompt for identity provider scenario (see options below)
-- [ ] Replace auth stubs with real identity configuration (config-driven scaffold principal as default)
-- [ ] Gate every auth mode across DI registration, endpoint mapping, and client affordances
-- [ ] Add anonymous `GET /auth/mode`; local login/register/refresh routes exist only in Scaffold/Local modes
+- [ ] Add the live provider branch to the `AuthMode` registration (the scaffold principal stays the default)
+- [ ] Gate both auth modes across DI registration, endpoint mapping, and client affordances
 - [ ] Wire auth middleware, token validation, and role/scope checks
 - [ ] Update appsettings with provider-specific configuration
-- [ ] **Checkpoint:** mode-matrix tests prove DI, route presence/absence, `/auth/mode`, and UI adaptation under every `AuthMode`
+- [ ] **Checkpoint:** mode-matrix tests prove DI, `/auth/mode`, and UI adaptation under both `AuthMode` values
 
 **Identity Provider Options:**
 - **Enterprise / internal users:** Microsoft Entra ID - SSO, conditional access, group-based roles

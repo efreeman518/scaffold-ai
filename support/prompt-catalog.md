@@ -85,7 +85,7 @@ Then append the relevant sub-phase block below.
 ```text
 Follow .instructions/ai/tdd-protocol.md: write domain/rule/repository tests first (red), then implement to green.
 Contracts and entity shells already exist from Phase 4. Activate builders after entity logic is implemented.
-Gate: `dotnet build` + `dotnet test --filter TestCategory=Unit`.
+Gate: `dotnet build` + `dotnet test --filter TestCategory=Unit` + `dotnet test tests/Test.Integration --filter TestCategory=Integration` (repository search and paging on the real database).
 When gate passes, update HANDOFF.md (currentSubPhase: 5b), commit, review and finish per .instructions/support/OPERATIONS.md Git Checkpoint Protocol, and close session.
 ```
 
@@ -122,7 +122,7 @@ Update HANDOFF.md, commit, review and finish per .instructions/support/OPERATION
 ### 5e - Integration (Auth + AI)
 
 ```text
-Finalize auth: replace stubs with config-driven scaffold principal ({Entra|OAuth2|social|hybrid}).
+Finalize auth: add the live provider (Entra ID or Entra External ID; another provider is recorded in HANDOFF.md as deployment work) to the AuthMode registration; the scaffold principal stays the default. A login-free app adds none.
 If `includeAiServices: true`, also scaffold AI integration: {search indexing/agent service} as enabled in .scaffold/resource-implementation.yaml.
 Gate: `dotnet build` + `dotnet test --filter TestCategory=Endpoint` (auth) + `dotnet test --filter TestCategory=Unit` (AI). When all enabled capabilities pass, update HANDOFF.md, commit, review and finish per .instructions/support/OPERATIONS.md Git Checkpoint Protocol, and close session.
 ```

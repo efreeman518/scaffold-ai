@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Generates** | `tests/Test.Endpoints/Endpoints/{Entity}EndpointsTests.cs`, `tests/Test.Endpoints/Middleware/ExceptionMappingTests.cs`, `tests/Test.Endpoints/HealthProbeContractTests.cs` |
+| **Generates** | `tests/Test.Endpoints/Endpoints/{Entity}EndpointsTests.cs`, `tests/Test.Endpoints/Middleware/ExceptionMappingTests.cs`, `tests/Test.Endpoints/AuthenticationContractTests.cs`, `tests/Test.Endpoints/HealthProbeContractTests.cs` |
 | **Requires** | [endpoint-template](endpoint-template.md), [exception-handler-template](exception-handler-template.md), [health-check-template](health-check-template.md), CustomApiFactory from Phase 4, DTOs from Phase 4 |
 | **Phase** | 5b (App Core TDD) |
 | **Protocol** | Write these tests BEFORE implementing endpoints. See [../ai/tdd-protocol.md](../ai/tdd-protocol.md). |
@@ -34,7 +34,7 @@ If the test base evolves to wrap `HttpClient` in an extension method (e.g. `clie
 
 The plumbing for swapping the production DbContext + interceptors + pooled factories with a test-mode store ships in the `EF.IntegrationTesting` package as `EF.IntegrationTesting.AspNetCore.EfWebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>`. `Test.Support` carries only a thin app adapter, `WebApplicationFactoryBase<TProgram, TTrxnContext, TQueryContext>`, and both `Test.Endpoints` (in-memory) and `Test.E2E` (Testcontainers database) derive specializations that declare the store and the lane.
 
-The adapter pins every mode-selecting config key (auth mode, provider toggles) explicitly - a Development-environment test host loads the developer's **user secrets**, which override both appsettings files and can flip test topology on one machine while CI stays green. Test factories extend base configuration; they never replace it wholesale, or the pinned keys silently vanish in derived factories.
+The derived factories pin the lane, the auth mode and the provider toggles explicitly - a Development-environment test host loads the developer's **user secrets**, which override both appsettings files and can flip test topology on one machine while CI stays green. Test factories extend base configuration; they never replace it wholesale, or the pinned keys silently vanish in derived factories.
 
 > **Phase 4 generates this file.** The adapter is part of the contract-scaffolding output (see [../ai/contract-scaffolding.md](../ai/contract-scaffolding.md), `### 4. Test Infrastructure`) so the solution builds and both `Test.Endpoints` and `Test.E2E` compile before Phase 5 begins; the swap takes effect in 5b.
 
@@ -200,7 +200,7 @@ public sealed class CustomApiFactory : WebApplicationFactoryBase<Program, {App}D
 
 `DbContextBase` stamps `Version` and the timestamps on save, so the in-memory contexts carry the ETag contract without an extra interceptor. The API host registers no outbox dispatcher, so staged rows stay in the in-memory database and no transport needs replacing.
 
-> **`NonAzure` pin:** `Hosting:Lane=NonAzure` with inert `Redis1` (`abortConnect=false`), `Storage:S3:*`, and `Messaging:RabbitMq:ConnectionString` values, and a `CacheSettings` Redis connection name with no connection string so the cache and the rate limiter stay in process. **Azure pin:** inert Blob, Table, Cosmos and Service Bus endpoints; the SDK clients are lazy.
+> **`NonAzure` pin:** `Hosting:Lane=NonAzure` and `AuthMode=Scaffold`, with inert `Redis1` (`abortConnect=false`), `Storage:S3:*`, and `Messaging:RabbitMq:ConnectionString` values, and a `CacheSettings` Redis connection name with no connection string so the cache and the rate limiter stay in process. **Azure pin:** inert Blob, Table, Cosmos and Service Bus endpoints; the SDK clients are lazy.
 
 The pooled-context swap, interceptor removal, factory plumbing, and reflection-based context creation are inherited. `Test.E2E` derives `DbApiFactory` from the same base on a real database container: [test-templates-e2e.md](test-templates-e2e.md) section DbApiFactory. Full distributed-app tests use `AspireTestHost` ([test-templates-aspire.md](test-templates-aspire.md)); one-class-vs-one-store tests use the `Test.Integration` fixtures ([test-templates-integration.md](test-templates-integration.md)). The WAF base is for HTTP-in-API-out testing.
 
@@ -508,6 +508,113 @@ public sealed class ExceptionMappingTests
 ```
 
 Add one case per row the app adds to `MapExceptions`. Correlation assertions (`requestId` separate from W3C `traceId`/`spanId`) run here too: start a W3C `Activity`, set `context.TraceIdentifier`, and assert the three properties on the body.
+
+---
+
+## Authentication Contract Tests
+
+### File: `tests/Test.Endpoints/AuthenticationContractTests.cs`
+
+**Generate this with the first API host wiring.** The fixed principal authenticates every request of the default test host, so the 401 test runs a host whose default scheme authenticates no request. The fallback policy is what guards an endpoint mapped with no policy of its own, so the second test fails when it is removed or allows anonymous callers ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration).
+
+```csharp
+using System.Net;
+using System.Text.Encodings.Web;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Infrastructure;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace Test.Endpoints;
+
+[TestClass]
+[TestCategory("Endpoint")]
+public sealed class AuthenticationContractTests
+{
+    private const string NoIdentityScheme = "NoIdentity";
+    private static CustomApiFactory _factory = null!;
+    private static WebApplicationFactory<Program> _noIdentity = null!;
+
+    public TestContext TestContext { get; set; } = null!;
+
+    [ClassInitialize]
+    public static void ClassInit(TestContext _)
+    {
+        _factory = new CustomApiFactory();
+        // Registered after the host's own scheme, so it becomes the default: no request carries an identity.
+        _noIdentity = _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services
+            .AddAuthentication(NoIdentityScheme)
+            .AddScheme<AuthenticationSchemeOptions, NoIdentityHandler>(NoIdentityScheme, null)));
+    }
+
+    [ClassCleanup]
+    public static void ClassCleanup()
+    {
+        _noIdentity?.Dispose();
+        _factory?.Dispose();
+    }
+
+    [TestMethod]
+    public async Task Given_NoIdentity_When_ApiRouteRequested_Then_Returns401()
+    {
+        // Arrange
+        using var client = _noIdentity.CreateClient();
+
+        // Act
+        using var response = await client.GetAsync(
+            $"v1/tenant/{Guid.NewGuid()}/{entities}/{Guid.NewGuid()}", TestContext.CancellationToken);
+
+        // Assert
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Given_EndpointWithoutExplicitPolicy_When_PolicyResolved_Then_FallbackRequiresAuthenticatedUser()
+    {
+        // Arrange
+        var policies = _factory.Services.GetRequiredService<IAuthorizationPolicyProvider>();
+
+        // Act - the policy the framework applies to every endpoint that carries no authorization metadata
+        var fallback = await policies.GetFallbackPolicyAsync();
+
+        // Assert
+        Assert.IsNotNull(fallback, "An endpoint mapped with no policy must not be anonymous.");
+        Assert.IsTrue(fallback.Requirements.OfType<DenyAnonymousAuthorizationRequirement>().Any());
+    }
+
+    [TestMethod]
+    public void Given_MappedEndpoints_When_AnonymousOnesListed_Then_OnlyTheClosedSetIsAnonymous()
+    {
+        // Arrange - add "auth/mode" when this host is the one clients call (no Gateway)
+        string[] expected = ["healthz", "healthz/live", "healthz/ready"];
+
+        // Act - every route that opted out of the fallback policy
+        var anonymous = _factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .Where(e => e.Metadata.GetMetadata<IAllowAnonymous>() is not null)
+            .Select(e => e.RoutePattern.RawText?.Trim('/') ?? string.Empty)
+            .Distinct()
+            .ToArray();
+
+        // Assert
+        CollectionAssert.AreEquivalent(expected, anonymous);
+    }
+
+    /// <summary>Authenticates no request; the base challenge answers 401.</summary>
+    private sealed class NoIdentityHandler(
+        IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync() =>
+            Task.FromResult(AuthenticateResult.NoResult());
+    }
+}
+```
 
 ---
 

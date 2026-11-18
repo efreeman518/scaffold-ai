@@ -18,10 +18,6 @@ services.AddTenantRateLimiting(config);
 if (services.HasSharedRedis())            // the EF.Cache default instance has Redis configured
     services.AddRedisRateLimiting();      // one shared budget across replicas, over the EF.Cache connection
 
-// Per-IP policies that must work without Redis (health probes) stay in process.
-services.AddRateLimiter(options => options
-    .AddPerClientIpFixedWindowPolicy("HealthFull", permitLimit: 3, window: TimeSpan.FromSeconds(30), queueLimit: 1));
-
 // An endpoint that spends only its own budget:
 group.MapGet("/export", Export).RequireTenantBudget("export");
 
@@ -49,6 +45,7 @@ Run the rate limiter after `UseAuthentication()` and `UseAuthorization()` whenev
 - **The Redis rate limiter shares the EF.Cache connection.** `AddRedisRateLimiting()` resolves the `IConnectionMultiplexer` that `AddTypedCache` registered (the unkeyed default instance, or `AddRedisRateLimiting(cacheInstanceName)` for a named one); register `AddTypedCache` first and never open a second Redis connection for the limiter. A Redis outage at boot does not fail startup ([caching.md](caching.md)).
 - When Redis is unavailable the package fails open and increments `ratelimit.backend_failure`; alert on it, because limits are not enforced while it moves. A failure or a call slower than `FailOpenOptions.BackendTimeout` opens a `FailOpenCircuit` shared by every partition for `BreakDuration` (must exceed `BackendTimeout`, or construction throws); requests are admitted without calling Redis meanwhile, then one probes. Tune with `services.Configure<FailOpenOptions>(...)`; no short `asyncTimeout` is needed ([../support/scalability-and-hosting.md](../support/scalability-and-hosting.md) section Edge, TLS, and Rate Limits). Export meter `EF.RateLimiting` from ServiceDefaults.
 - Health endpoints mapped by `MapEfHealthEndpoints` carry `DisableRateLimiting()` and skip every limiter.
+- A request with no tenant claim (under `Entra`, an anonymous route such as `GET /auth/mode`) spends the `RateLimiting:Tenants:Anonymous` allowance (default 20 per 60 s), partitioned per client address; `UseProxyForwarding` supplies that address. Under `Scaffold` every request carries the dev tenant and counts against it. On a Gateway the edge limiter (`RateLimiting:Edge`) counts the route per client.
 
 ### Testing
 

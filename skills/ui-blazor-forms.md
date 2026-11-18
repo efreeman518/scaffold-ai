@@ -264,28 +264,44 @@ When a page edits an aggregate root whose children are synced by the server `Upd
 public interface I{Project}AttachmentService
 {
     Task<Result<DefaultResponse<AttachmentDto>>> UploadAsync(
-        Stream content, string fileName, string contentType,
+        Stream content, string fileName,
         string ownerType, Guid ownerId, CancellationToken ct = default);
 }
 ```
 
-**API endpoint** - `[Multipart]` consumer with antiforgery disabled (browser form posts without an antiforgery token from the Blazor host):
+**API endpoint** - `multipart/form-data` consumer; the server enforces size, file count and content type:
 
 ```csharp
+// File: Application.Contracts/AttachmentLimits.cs - the one place the upload limits are decided
+public static class AttachmentLimits
+{
+    public const long MaxFileBytes = 25 * 1024 * 1024;              // the client reads up to the same limit
+    public const long MaxRequestBytes = MaxFileBytes + 64 * 1024;   // one file plus its form fields
+    public static readonly IReadOnlySet<string> ContentTypes =
+        new HashSet<string> { "application/pdf", "image/png", "image/jpeg" };
+}
+
 group.MapPost("/upload", async (
-    [FromForm] IFormFile file,
+    IFormFileCollection files,          // binds every uploaded file, so the count is checked
     [FromForm] string ownerType,
     [FromForm] Guid ownerId,
-    I{Project}AttachmentService service,
+    [FromServices] I{Project}AttachmentService service,
     CancellationToken ct) =>
 {
-    await using var stream = file.OpenReadStream();
-    var result = await service.UploadAsync(stream, file.FileName, file.ContentType, ownerType, ownerId, ct);
+    if (files.Count != 1 || files[0].Length is 0 or > AttachmentLimits.MaxFileBytes)
+        return TypedResults.Problem(ProblemDetailsHelper.Create(
+            StatusCodes.Status400BadRequest, "Exactly one file within the size limit is required."));
+
+    // The service resolves ownerType against the attachable entity types, authorizes the caller for ownerId,
+    // and accepts only content whose leading bytes match AttachmentLimits.ContentTypes (Non-negotiables).
+    await using var stream = files[0].OpenReadStream();
+    var result = await service.UploadAsync(stream, files[0].FileName, ownerType, ownerId, ct);
     return result.ToHttpResult();
 })
-.DisableAntiforgery()
+.WithMetadata(new RequestSizeLimitAttribute(AttachmentLimits.MaxRequestBytes))   // body refused above the limit
+.DisableAntiforgery()   // this host has no cookie authentication
 .WithMetadata(new ConsumesAttribute("multipart/form-data"))
-.RequireAuthorization(); // omit during auth-off scaffolding
+.RequireAuthorization();
 ```
 
 **Refit method** - `[Multipart]` attribute, `StreamPart` for the file body, `[AliasAs]` for each form field:
@@ -321,8 +337,9 @@ public interface I{Project}ApiClient
 ```
 
 **Non-negotiables:**
-- `OpenReadStream(maxAllowedSize: ...)` - the default is 512 KB and silently truncates larger files in WASM.
-- `.DisableAntiforgery()` on the endpoint - without it, browser-originated multipart posts are rejected. Re-enable per-route when antiforgery is wired post-scaffold.
+- `OpenReadStream(maxAllowedSize: ...)` - the default is 512 KB and silently truncates larger files in WASM. The client limit is a convenience; the server limits decide.
+- Authorization on the endpoint is unconditional, and `.DisableAntiforgery()` carries its reason at the site: the API host has no cookie authentication in either `AuthMode`.
+- The service matches the file's leading bytes against a content-type allowlist (not the extension or the `Content-Type` the client sent) and rejects anything else. It resolves `ownerType` against the app's closed list of attachable entity types and checks, through the access decision, that the caller may attach to `ownerId` before it stores anything. The server makes the storage key from validated values only, keeps the client's file name only as sanitized display metadata, and stores the detected type: [azure-blob-storage.md](azure-blob-storage.md) section Attachment Rules.
 - `[Multipart]` on the Refit method **and** `[AliasAs]` on every parameter - Refit's default name mangler emits PascalCase which the model binder fails to match.
 - Stream the file (`OpenReadStream`) instead of buffering to a byte array - large uploads OOM the circuit otherwise.
 

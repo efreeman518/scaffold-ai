@@ -48,7 +48,7 @@ Host/{Gateway}.Gateway/
           "api": { "Address": "https://localhost:7065" }
         },
         "Metadata": {
-          "TokenScope": "api://{api-client-id}/.default",
+          "TokenScope": "",
           "RelayUserClaims": "true"
         }
       }
@@ -71,15 +71,18 @@ With Aspire, destination resolution can be service-discovery driven. A cluster w
 ## Service Registration Pattern
 
 ```csharp
+using EF.Auth.Fixed;
 using EF.Auth.Tokens;
 using EF.Gateway;
 using EF.Host;
+using Microsoft.AspNetCore.Authorization;
 
 public static IServiceCollection AddGatewayServices(this IServiceCollection services, IConfiguration config)
 {
     services.AddAzureTokenCredential(config);   // EF.Host: one TokenCredential (ManagedIdentityClientId / AzureTenantId)
     services.AddAccessTokenCache();             // EF.Auth: single-flight token cache over that credential
     services.AddEfProblemDetails();
+    AddAuthentication(services, config);        // section Authentication Model
 
     services.AddReverseProxy()
         .LoadFromConfig(config.GetSection("ReverseProxy"))
@@ -87,6 +90,7 @@ public static IServiceCollection AddGatewayServices(this IServiceCollection serv
         .AddDownstreamAuthTransforms(config);   // binds ForwardedClaims, the same section the API binds
 
     services.AddCorsPolicyFromConfiguration("{Project}UI", config.GetSection("CorsSettings"));
+    // The edge rate limiter (UseEdgeLimiter) is registered here: security.md section Rate Limiting.
     services.AddHealthChecks().AddDownstreamHealthCheck("{project}-api", o =>
     {
         o.Url = new Uri(config["AggregateHealthCheck:{Project}ApiHealthUrl"]!);   // missing or relative fails startup
@@ -131,19 +135,31 @@ The Gateway authenticates the user token (Entra External/B2C), sends its own `Ac
 ```csharp
 private static void AddAuthentication(IServiceCollection services, IConfiguration config)
 {
-    services.AddAuthentication(options =>
+    // The one mode decision and the same fixed principal as the API.
+    var mode = AuthModeResolver.Resolve(config["AuthMode"]);
+    if (mode == AuthMode.Scaffold)
     {
-        options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
-    })
-    .AddMicrosoftIdentityWebApi(config.GetSection("Gateway_EntraExt"));
-    services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, o =>
-        { o.MapInboundClaims = false; o.TokenValidationParameters.RoleClaimType = "roles"; o.TokenValidationParameters.NameClaimType = "name"; });
+        services.AddAuthentication(ScaffoldPrincipal.SchemeName)
+            .AddFixedPrincipal(ScaffoldPrincipal.SchemeName, o =>
+            {
+                o.Claims = [.. ScaffoldPrincipal.Claims.Select(c => new FixedClaim(c.Type, c.Value))];
+                o.AllowedEnvironments = [.. ScaffoldPrincipal.AllowedEnvironments];
+            });
+    }
+    else
+    {
+        // AuthMode.Entra: Phase 5e puts the live provider registration here; without it the mode fails startup.
+        throw new InvalidOperationException("AuthMode 'Entra' has no provider registration");
+    }
 
+    // Every AuthMode: a route with no policy of its own still requires an authenticated user.
+    services.AddAuthorizationBuilder()
+        .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
     services.AddSingleton<IAuthorizationHandler, TenantMatchHandler>();
 }
 ```
 
-Both hosts' claim types match `ForwardedClaims:ClaimTypes` ([identity-management.md](identity-management.md) section Claim-type contract); scaffold mode registers the fixed principal instead (same file, Pre-Auth Stub Pattern).
+Both hosts' claim types match `ForwardedClaims:ClaimTypes` ([identity-management.md](identity-management.md) section Claim-type contract). The mode decision, the principal and the anonymous set are owned by [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration. Phase 5e adds the `Entra` registration from the identity skill's Gateway toggle.
 
 ---
 
@@ -159,6 +175,9 @@ app.UseAuthorization();
 app.UseRateLimiter();       // UseEdgeLimiter partitions on the forwarded client IP
 app.UseRequestTimeouts();
 app.MapDefaultEndpoints();  // MapEfHealthEndpoints
+var authMode = AuthModeResolver.Resolve(app.Configuration["AuthMode"]);
+app.MapGet("/auth/mode", () => TypedResults.Ok(new { mode = authMode.ToString() }))
+    .AllowAnonymous();      // read before sign-in; the public mode only (patterns/api-host-wiring.md)
 app.MapReverseProxy().RequireAuthorization();
 ```
 
@@ -222,6 +241,8 @@ Pick one convention per project and apply it everywhere. Never use dual-prefix p
 
 ## Verification
 
+- [ ] `AuthMode` resolves through `AuthModeResolver`, the fallback policy is set, and the only anonymous routes are the health probes and `GET /auth/mode`
+- [ ] Gateway auth tests follow the proof class `../scaffold-proof/tests/Test.Unit/Gateway/GatewayAuthModeTests.cs`, which builds the Gateway host in process: an unsupported mode is rejected at registration and `GET /auth/mode` is anonymous and returns the mode; the same host also gets the fallback-policy and closed-anonymous-set assertions of `AuthenticationContractTests`
 - [ ] YARP routes/clusters load from config
 - [ ] `AddDownstreamAuthTransforms(config)` registered; clusters declare `TokenScope` / `RelayUserClaims` metadata; no app token service or relay transform
 - [ ] Gateway and API bind the same `ForwardedClaims` section

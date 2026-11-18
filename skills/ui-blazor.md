@@ -7,7 +7,7 @@ Scaffold a Blazor UI (Server or WebAssembly) that calls the **Gateway** (YARP), 
 - **UI**: MudBlazor shell + components
 - **State**: `FloatService` (scoped singleton) shared across layout and pages - **not** cascading parameters
 - **Client**: Refit (`Refit.HttpClientFactory`) against the Gateway base URL
-- **Auth**: MSAL WebAssembly for WASM builds; JWT bearer cookie/claims for Server. Scaffold auth-off and add after first vertical slice works
+- **Auth**: MSAL WebAssembly for WASM builds; JWT bearer cookie/claims for Server. In `Scaffold` mode the client adds no sign-in: the Gateway and API authenticate each request as the fixed principal
 
 Reference app: [TaskFlow.Blazor](https://github.com/efreeman518/scaffold-proof/tree/main/src/UI/TaskFlow.Blazor) and the Caller Portal ([Portal.UI1](https://github.com/efreeman518/Portal/tree/main/src/Portal/Portal.UI1)) - canonical source of the FloatService + Refit + MudBlazor layering.
 
@@ -67,13 +67,15 @@ csproj references:
   <PackageReference Include="MudBlazor" />
   <PackageReference Include="Refit" />
   <PackageReference Include="Refit.HttpClientFactory" />
-  <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+  <PackageReference Include="Microsoft.Extensions.Http.Resilience" /> <!-- WebAssembly only -->
 </ItemGroup>
 
 <ItemGroup>
   <!-- Direct project reference to shared DTOs avoids duplicating contracts. -->
   <ProjectReference Include="..\..\Application\{Project}.Application.Models\{Project}.Application.Models.csproj" />
   <ProjectReference Include="..\..\Domain\{Project}.Domain.Shared\{Project}.Domain.Shared.csproj" />
+  <!-- Server only: AddServiceDefaults and MapDefaultEndpoints. -->
+  <ProjectReference Include="..\..\Host\Aspire\ServiceDefaults\ServiceDefaults.csproj" />
 </ItemGroup>
 ```
 
@@ -97,6 +99,10 @@ using {Project}.Blazor.Components;
 using {Project}.Blazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// First registration, as in every server-hosted host: telemetry, health, service discovery and the standard
+// resilience handler (safe methods only) on every HttpClient below.
+builder.AddServiceDefaults();
 
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 
@@ -128,10 +134,12 @@ builder.Services
         c.BaseAddress = new Uri(gatewayUrl);
         c.DefaultRequestHeaders.Add("Accept", "application/json");
     })
-    // Add auth handler here once auth is wired (see Auth section).
-    .AddStandardResilienceHandler();
+    // A token handler, when the Auth section calls for one, is chained here. No resilience handler is added:
+    // the client inherits the standard one from AddServiceDefaults, which does not retry a POST; a second one would.
+    ;
 
 var app = builder.Build();
+app.MapDefaultEndpoints(); // the /healthz probes ServiceDefaults owns
 if (!app.Environment.IsDevelopment()) { app.UseExceptionHandler("/Error", createScopeForErrors: true); app.UseHsts(); }
 // Emit only when this host owns public TLS. Omit when Container Apps, Caddy, or another edge owns TLS.
 if (builder.Configuration.GetValue<bool>("Hosting:RedirectToHttps")) app.UseHttpsRedirection();
@@ -148,6 +156,7 @@ app.Run();
 Differences from Server:
 
 - `builder = WebAssemblyHostBuilder.CreateDefault(args)` - no `ConfigureWebHost`
+- No `AddServiceDefaults()`, `MapDefaultEndpoints()` or ServiceDefaults project reference: the browser app is not a server host. Its Refit client therefore inherits no resilience handler and adds the one it has: `.AddStandardResilienceHandler(o => o.Retry.DisableForUnsafeHttpMethods())`
 - Load `appsettings.json` from `wwwroot` via `HttpClient.GetStringAsync("appsettings.json")`
 - Use `AddMsalAuthentication` for Entra External ID (see Auth section)
 - Register a `DelegatingHandler` that acquires an access token from `IAccessTokenProvider` and sets `Authorization: Bearer <token>`. Attach via `.AddHttpMessageHandler<ApiAuthHandler>()` on the Refit client
@@ -332,7 +341,7 @@ Pass a `SystemTextJsonContentSerializer` with `PropertyNameCaseInsensitive = tru
 
 ## Tenant on Outbound Calls
 
-The Blazor host sends no tenant header. The API and Gateway authenticate every request as a principal that carries the tenant (the `Scaffold` fixed principal's `tenant_id` claim in scaffold mode, the user's token claims in live modes), and the fail-closed tenant filter reads nothing for a request without one ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section No Tenant Means No Rows). Generate no tenant-header handler and no dev tenant setting.
+The Blazor host sends no tenant header. The API and Gateway authenticate every request as a principal that carries the tenant (the `Scaffold` fixed principal's `tenant_id` claim in scaffold mode, the user's token claims in `Entra` mode), and the fail-closed tenant filter reads nothing for a request without one ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section No Tenant Means No Rows). Generate no tenant-header handler and no dev tenant setting.
 
 - Do **not** read the tenant id from a Blazor `IRequestContext` - Blazor Server runs server-side per circuit and there is no inbound tenant header to read from.
 - Create DTOs must **not** carry a client-populated `TenantId` or owner - the API stamps both server-side from the request context. See [../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Dev-Mode Write Identity. The UI sends the domain fields; identity is the server's job.
@@ -365,7 +374,7 @@ The MudBlazor analyzer emits `MUD0002 Illegal Attribute` warnings for several of
 
 ## Auth
 
-**Scaffold with auth off.** Gateway dev mode ships a no-op JWT bearer handler that accepts unauthenticated calls - lean on it for the first vertical slice, add auth once CRUD is wired.
+**`Scaffold` mode needs no client sign-in.** The Gateway and API authenticate every request as the fixed principal ([../patterns/api-host-wiring.md](../patterns/api-host-wiring.md) section Conditional Auth Configuration), so the first vertical slice calls them without a token. The sections below apply under `Entra`.
 
 ### WebAssembly -> MSAL
 
@@ -382,7 +391,8 @@ builder.Services.AddScoped<ApiAuthHandler>();  // DelegatingHandler
 
 builder.Services.AddRefitClient<I{Project}ApiClient>(...)
     .ConfigureHttpClient(c => c.BaseAddress = new Uri(gatewayUrl))
-    .AddHttpMessageHandler<ApiAuthHandler>();
+    .AddHttpMessageHandler<ApiAuthHandler>()
+    .AddStandardResilienceHandler(o => o.Retry.DisableForUnsafeHttpMethods()); // the one handler (no ServiceDefaults here)
 ```
 
 `ApiAuthHandler` reads the token from `IAccessTokenProvider` in `SendAsync` and sets `Authorization: Bearer <token>`.
@@ -501,7 +511,7 @@ The consumption-side preference ("prefer stable selectors") lives in
 - [ ] `includeBlazorUI: true` set in domain inputs
 - [ ] `Gateway:BaseUrl` present in `appsettings*.json`
 - [ ] MudBlazor + Refit + Refit.HttpClientFactory versions in `Directory.Packages.props`
-- [ ] `Program.cs` registers `FloatService` as scoped, MudBlazor services, Refit client with JSON options + resilience
+- [ ] `Program.cs` registers `FloatService` as scoped, MudBlazor services and the Refit client with JSON options; Server calls `AddServiceDefaults()` and `MapDefaultEndpoints()` and adds no resilience handler, WebAssembly adds the one safe-methods-only standard handler
 - [ ] `App.razor` and `Routes.razor` apply `@rendermode="InteractiveServer"` (Server) or use `Router` under the WASM root (WASM)
 - [ ] `MainLayout.razor` wires all four Mud providers, `FloatService.StateHasChanged` bound in `OnInitialized`, cleared in `Dispose`
 - [ ] Refit interface uses `DefaultRequest<T>` for POST/PUT bodies, `DefaultResponse<T>` for single-item returns, `SearchRequest<T>`/`PagedResponse<T>` for search
