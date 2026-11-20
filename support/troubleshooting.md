@@ -205,10 +205,10 @@ var taskflowDb = builder.AddSqlServer("sql")
     .WithImageSHA256("<resolved-sql-manifest-sha256>")
     .AddDatabase("taskflow-db");
 
-var api = builder.AddProject<Projects.TaskFlow_Api>("api")
+var api = builder.AddDotnetProject("api", "../../TaskFlow.Api/TaskFlow.Api.csproj")
     .WithReference(taskflowDb);  // uses default connection name
 
-var functions = builder.AddProject<Projects.TaskFlow_Functions>("functions")
+var functions = builder.AddDotnetProject("functions", "../../TaskFlow.Functions/TaskFlow.Functions.csproj")
     .WithReference(taskflowDb, connectionName: "TaskFlowDbContextQuery");  // explicit name
 ```
 
@@ -279,7 +279,7 @@ For phase gates and validation commands, see [execution-gates.md](execution-gate
 | WasmUI passes locally but fails under VS coverage/profiler | Test runner profiler env vars leak into child `dotnet restore` / `dotnet build` | Clear `CORECLR_*`, `COR_*`, and Coverlet profiler vars for child processes; set profiling disabled flags |
 | `NotSupportedException` deserializing `Result<T>` in tests | `Result<T>` lacks parameterless constructor | Use `JsonDocument` parsing instead of `ReadFromJsonAsync<Result<T>>()`. Search endpoints serialize just the `PagedResponse<T>` value, not the wrapper. |
 | Aspire dashboard never opens / blank terminal | Missing `Properties/launchSettings.json` in AppHost | Create launchSettings.json with OTLP endpoints - see [aspire.md](../skills/aspire.md) -> Preflight |
-| `MSB4057` "GetTargetPath" target missing | Uno.Sdk project referenced directly from AppHost | Remove the direct Uno ProjectReference/AddProject and register the ASP.NET Core `{Project}.Uno.WasmHost` wrapper instead |
+| `MSB4057` "GetTargetPath" target missing | Uno.Sdk project referenced directly from AppHost | Remove the direct Uno ProjectReference/AddDotnetProject and register the ASP.NET Core `{Project}.Uno.WasmHost` wrapper instead |
 | Functions storage/messaging clients refuse `127.0.0.1:10000/10001/10002` | `local.settings.json` fallbacks (`UseDevelopmentStorage=true`, empty Service Bus strings) beat Aspire-injected env values; Azurite under Aspire uses dynamic ports | Give Functions its own `.WithReference(...)` / host storage wiring and resolve shared client connection strings env-first before `local.settings.json` fallbacks. See [function-app.md](../skills/function-app.md) -> Aspire Integration and [aspire.md](../skills/aspire.md) -> Azure Service Bus Topics and Subscriptions. |
 | Audit rows show wrong user id / correlation id looks like the audit id | `RequestContext` constructor arguments were passed in the wrong order | Use `new RequestContext<string, Guid?>(correlationId, auditId, tenantId, roles)`. See [api-host-wiring.md](../patterns/api-host-wiring.md) -> Request Context Resolution. |
 | Every UI-driven create hits the user/tenant FK; create DTO has empty `TenantId`/owner | Nothing stamps identity server-side, and the dev principal carries no tenant/role (emits `"roles"` not `ClaimTypes.Role`, no `tenant_id`) | Stamp owner+tenant from `IRequestContext` on the create path; align the Scaffold fixed principal's claim types to the reader; seed a fixed dev user. See [api-host-wiring.md](../patterns/api-host-wiring.md) -> Dev-Mode Write Identity and [identity-management.md](../skills/identity-management.md) -> Claim-type contract. |

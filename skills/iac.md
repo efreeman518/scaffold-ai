@@ -16,7 +16,7 @@ Use this skill to generate `infra/` Bicep templates that mirror the runtime topo
 |---|---|---|
 | `AddSqlServer().AddDatabase()` | Azure SQL server + DB | `Microsoft.Sql/servers`, `Microsoft.Sql/servers/databases` |
 | `AddRedis()` | Azure Cache for Redis | `Microsoft.Cache/redis` |
-| `AddProject<Api/Gateway/Scheduler/...>()` | Container App or App Service | `Microsoft.App/containerApps` / `Microsoft.Web/sites` |
+| `AddDotnetProject(...)` (Api, Gateway, Scheduler, ...) | Container App or App Service | `Microsoft.App/containerApps` / `Microsoft.Web/sites` |
 | ServiceDefaults telemetry | **One shared** workspace-based App Insights + Log Analytics | `Microsoft.Insights/components`, `Microsoft.OperationalInsights/workspaces` |
 
 Rule: every `WithReference(resource, connectionName: "X")` in Aspire requires `ConnectionStrings__X` in app env settings.

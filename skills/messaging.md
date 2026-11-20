@@ -227,7 +227,7 @@ services.AddAzureClients(builder =>
 
 ```csharp
 var lane = HostingLaneResolver.Resolve(builder.Configuration);
-var api = builder.AddProject<Projects.{Project}_Api>("{project}-api");
+var api = builder.AddDotnetProject("{project}-api", "../../{Project}.Api/{Project}.Api.csproj");
 
 if (lane.Messaging == "RabbitMq") // NonAzure lane (default)
 {

@@ -99,7 +99,7 @@ DCP (the Aspire orchestrator) starts every child resource with `--no-launch-prof
 Inject the destination from AppHost using the resolved endpoint and double-underscore config keys:
 
 ```csharp
-var gateway = builder.AddProject<Projects.{Gateway}_Gateway>("{gateway}")
+var gateway = builder.AddDotnetProject("{gateway}", "../../{Gateway}.Gateway/{Gateway}.Gateway.csproj")
     .WithReference(api)
     .WithEnvironment("ReverseProxy__Routes__api-route__Match__Path", "/api/{**catch-all}")
     .WithEnvironment("ReverseProxy__Clusters__api-cluster__Destinations__api__Address", api.GetEndpoint("http"))
@@ -142,7 +142,7 @@ if (!builder.ExecutionContext.IsPublishMode)
 var projectDb = sql.AddDatabase("{project}db");
 
 // Ingress: WithExternalHttpEndpoints ONLY on services that must be public.
-var gateway = builder.AddProject<Projects.{Gateway}_Gateway>("{gateway}")
+var gateway = builder.AddDotnetProject("{gateway}", "../../{Gateway}.Gateway/{Gateway}.Gateway.csproj")
     .WithReference(api)
     .WithExternalHttpEndpoints();   // public -> ACA ingress.external=true
 ```
@@ -490,24 +490,35 @@ Use persistent `tunnelId` for stable callback URLs. The tunnel requires sign-in:
 
 ## AppHost.csproj Essentials
 
-Use the `Aspire.AppHost.Sdk` MSBuild SDK. It handles `Projects.*` type proxy generation, `IsAspireHost`, and `AspireHostingSDKVersion` automatically.
+The AppHost is a plain `Microsoft.NET.Sdk` executable that references the `Aspire.Hosting.AppHost` and `Aspire.Hosting.Dotnet` packages. Do not use the `Aspire.AppHost.Sdk` MSBuild SDK, as the project SDK or as an `<Sdk Name="Aspire.AppHost.Sdk" ... />` element: it raises build warning `ASPIRE012`.
 
 ```xml
-<Project Sdk="Aspire.AppHost.Sdk/<latest-stable>">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>$(LatestStableTfm)</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" />
+    <PackageReference Include="Aspire.Hosting.Dotnet" />
     <PackageReference Include="Aspire.Hosting.SqlServer" />
     <PackageReference Include="Aspire.Hosting.Redis" />
     <!-- Include only when registering React/Vite UI with AddViteApp. -->
     <PackageReference Include="Aspire.Hosting.JavaScript" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Build order only: AppHost.cs registers each host by path. -->
+    <ProjectReference Include="..\..\{Host}.Api\{Host}.Api.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\{Gateway}.Gateway\{Gateway}.Gateway.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
 </Project>
 ```
 
-Substitute `<latest-stable>` and the TFM at scaffold time. Do not hard-code versions in templates - see [package-dependencies.md](package-dependencies.md) -> *Latest, Not Pinned*.
+- **Hosts are registered by path.** `builder.AddDotnetProject("{host}api", "../../{Host}.Api/{Host}.Api.csproj")` takes the host's `.csproj` path relative to the AppHost directory (path form: [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md) derivation rule 7). There is no generic `AddDotnetProject<T>` and no generated `Projects.*` types. The fluent calls that follow (`WithReference`, `WithEnvironment`, `WaitFor`, `WaitForCompletion`, `WithReplicas`, `WithExternalHttpEndpoints`, `GetEndpoint`) apply to the returned builder.
+- **The Functions host uses the path overload:** `builder.AddAzureFunctionsProject("{host}functions", "../../{Host}.Functions/{Host}.Functions.csproj")`.
+- **Keep a `<ProjectReference ... ReferenceOutputAssembly="false" />` to every host the AppHost registers,** so a solution or test-project build builds the hosts before the AppHost. A shared library the AppHost code itself uses stays an ordinary `ProjectReference`.
+
+Package versions come from `Directory.Packages.props`; substitute the TFM at scaffold time. Do not hard-code versions in templates - see [package-dependencies.md](package-dependencies.md) -> *Latest, Not Pinned*.
 
 > **Publish-mode package gaps (`deployTarget: ContainerApps`).** The local-only baseline does not pull the packages the publish-mode branch needs. Add to `Directory.Packages.props` + AppHost.csproj when targeting Container Apps:
 > - `Aspire.Hosting.Azure.AppContainers` - `AddAzureContainerAppEnvironment`, dashboard, scale.
@@ -648,7 +659,7 @@ Uno.Sdk projects (`<Project Sdk="Uno.Sdk/..."`) do not expose the `GetTargetPath
 
 Do not register the Uno SDK project directly. Host browserwasm through the ASP.NET Core wrapper under `src/Host/{Project}.Uno.WasmHost/`, then register that wrapper in AppHost. The wrapper participates in Aspire, so AppHost-backed `WasmUI` tests can start Gateway/API/resources and resolve the UI URL from the wrapper resource's named endpoint.
 
-If a legacy scaffold already added the Uno SDK project to AppHost, remove that direct `ProjectReference` / `AddProject` pair and replace it with the wrapper host. Running Uno separately is only a temporary manual diagnostic path, not the scaffold pattern.
+If a legacy scaffold already added the Uno SDK project to AppHost, remove that direct `ProjectReference` / `AddDotnetProject` pair and replace it with the wrapper host. Running Uno separately is only a temporary manual diagnostic path, not the scaffold pattern.
 
 ---
 

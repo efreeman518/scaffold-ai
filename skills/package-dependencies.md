@@ -29,7 +29,7 @@ These two repos define the canonical contract surface for all modes. In `local` 
 
 In instruction docs:
 
-- Use the `<latest-stable>` placeholder in xml/json snippets (e.g., `Sdk="Aspire.AppHost.Sdk/<latest-stable>"`, `<TargetFramework>$(LatestStableTfm)</TargetFramework>`).
+- Use the `<latest-stable>` placeholder in xml/json snippets (e.g., `<PackageVersion Include="Aspire.Hosting.AppHost" Version="<latest-stable>" />`, `<TargetFramework>$(LatestStableTfm)</TargetFramework>`).
 - Do **not** write a hard-coded `Version="<copied-version>"` or target framework into a template - it goes stale silently and contradicts this rule on every PR diff.
 - Do **not** cite dependency versions in prose either. Describe current behavior as present truth - the baseline tracks latest, so the current API is the only one that matters.
 - Do **not** add version-history or backwards-compat framing ("resolved in X", "pre-X bug", "obsolete in X", "verified <date>", "regression guard for the old behavior"). State what the API does now; drop how it got there. ("Legacy" is fine only when it names a non-version concept - the `.sln` format, the `datetime` SQL type - never a package version.)
@@ -70,7 +70,7 @@ These are already part of the reference app and may be added without developer d
 | `BenchmarkDotNet` | Microbenchmarks | [testing.md](testing.md) |
 | `dotnet-stryker` (local tool) | Mutation testing runner | [testing-quality.md](testing-quality.md) |
 | `MudBlazor` | Blazor component library | [ui-blazor.md](ui-blazor.md) |
-| `Refit` / `Refit.HttpClientFactory` | Typed HTTP clients | [external-api.md](external-api.md) |
+| `Refit` / `Refit.HttpClientFactory` / `Refit.HttpClientFactory.Reflection` | Typed HTTP clients | [external-api.md](external-api.md) |
 | `Azure.*` (Identity, Storage, KeyVault, Cosmos, ServiceBus, EventGrid, EventHubs, AI) | Azure SDK | [azure-data-storage.md](azure-data-storage.md), [security.md](security.md), [messaging.md](messaging.md), [ai-integration.md](ai-integration.md) |
 | `Aspire.*` (Hosting + client integrations like `Aspire.Azure.AI.Inference` + `Aspire.Hosting.Testing`) | Orchestration + integration tests | [bootstrapper.md](bootstrapper.md), [aspire.md](aspire.md), [testing.md](testing.md) |
 | `Microsoft.Extensions.AI` / `Microsoft.Agents.AI` (+ `.OpenAI`) | `IChatClient` + Microsoft Agent Framework agents | [ai-integration.md](ai-integration.md) |
@@ -414,7 +414,7 @@ Durable, JSON-defined workflow orchestration engine. Add only when the requireme
 
 ## Public Packages Used with EF.*
 
-- `Refit` / `Refit.HttpClientFactory` (typed clients; `RefitCallHelper` in EF.UI.Refit)
+- `Refit` / `Refit.HttpClientFactory` / `Refit.HttpClientFactory.Reflection` (typed clients; `RefitCallHelper` in EF.UI.Refit)
 - `Microsoft.Extensions.Http.Resilience` (ServiceDefaults standard handler; EF.Http.Resilience builds on it)
 
 Pattern reference: [external-api.md](external-api.md)
