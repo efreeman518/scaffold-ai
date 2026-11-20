@@ -118,7 +118,7 @@ Both contexts define the same `DbSet<{Entity}>`; query context is configured for
 Minimal shape - each pooled DbContext gets its own `WithReference(..., connectionName:)`, Redis is `Redis1`, and the migrator completes before DB-touching hosts:
 
 ```csharp
-var api = builder.AddProject<Projects.{Host}_Api>("{host}api")
+var api = builder.AddDotnetProject("{host}api", "../../{Host}.Api/{Host}.Api.csproj")
     .WithReference(db, connectionName: "{Project}DbContextTrxn")
     .WithReference(db, connectionName: "{Project}DbContextQuery")
     .WithReference(redis, connectionName: "Redis1")
@@ -126,7 +126,7 @@ var api = builder.AddProject<Projects.{Host}_Api>("{host}api")
     .WithExternalHttpEndpoints();
 ```
 
-Use underscores in `Projects.{Host}_Api` style identifiers. Canonical full graph (SQL/Redis params, migrator, Scheduler, Gateway, Vite, rules): [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section Aspire Resource Wiring.
+The second argument is the host's `.csproj` path relative to the AppHost directory. Canonical full graph (SQL/Redis params, migrator, Scheduler, Gateway, Vite, rules): [../patterns/infrastructure-wiring.md](../patterns/infrastructure-wiring.md) section Aspire Resource Wiring.
 
 ---
 

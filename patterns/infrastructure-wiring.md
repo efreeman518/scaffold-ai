@@ -95,7 +95,7 @@ Readiness is host-specific. Exclude an optional cache or telemetry sink when the
 
 **Source:** `Host/Aspire/AppHost/AppHost.cs`
 
-Canonical tokens (see [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md)): `{Host}` = host project prefix, `{Project}` = DB/connection-name prefix, `{Gateway}` = `{Host}`. Aspire maps `.csproj` dots/hyphens to `_` in `Projects.*` (derivation rule 7).
+Canonical tokens (see [../ai/placeholder-tokens.md](../ai/placeholder-tokens.md)): `{Host}` = host project prefix, `{Project}` = DB/connection-name prefix, `{Gateway}` = `{Host}`. Each host is registered by its `.csproj` path relative to the AppHost directory (derivation rule 7).
 
 Wire the lane's relational server with a secret password parameter (PostgreSQL on the default `NonAzure` lane, SQL Server on the `Azure` lane; persistent volume + fixed port in dev; non-persistent + random port under test so each run is clean), then Redis, then each host keyed by `connectionName`. **Give each pooled DbContext its own `WithReference(db, connectionName: ...)`** even when they map to one database - the runtime binds by connection name (`{Project}DbContextTrxn`, `{Project}DbContextQuery`, plus any extra contexts). Reference Redis as `Redis1`.
 
@@ -138,14 +138,14 @@ if (!isTesting)
 // -- Database migrator: sole migration owner, runs to completion before any runtime host.
 //    One local database, multiple schemas + logical connection names (extra names only
 //    when the matching feature is enabled).
-var migrator = builder.AddProject<Projects.{Host}_DatabaseMigrator>("{host}migrator")
+var migrator = builder.AddDotnetProject("{host}migrator", "../../{Host}.DatabaseMigrator/{Host}.DatabaseMigrator.csproj")
     .WithReference(db, connectionName: "{Project}DbContextTrxn")
     .WithReference(db, connectionName: "{Project}FlowEngineDbContext")
     .WithReference(db, connectionName: "{App}SchedulerDbContext")
     .WaitFor(db);
 
 // -- API: one WithReference per pooled DbContext connection name, plus Redis
-var api = builder.AddProject<Projects.{Host}_Api>("{host}api")
+var api = builder.AddDotnetProject("{host}api", "../../{Host}.Api/{Host}.Api.csproj")
     .WithReference(db, connectionName: "{Project}DbContextTrxn")
     .WithReference(db, connectionName: "{Project}DbContextQuery")
     .WithReference(redis, connectionName: "Redis1")
@@ -155,7 +155,7 @@ var api = builder.AddProject<Projects.{Host}_Api>("{host}api")
     .WithExternalHttpEndpoints();
 
 // -- Scheduler: same DB refs plus its store
-var scheduler = builder.AddProject<Projects.{Host}_Scheduler>("{host}scheduler")
+var scheduler = builder.AddDotnetProject("{host}scheduler", "../../{Host}.Scheduler/{Host}.Scheduler.csproj")
     .WithReference(db, connectionName: "{Project}DbContextTrxn")
     .WithReference(db, connectionName: "{Project}DbContextQuery")
     .WithReference(db, connectionName: "{App}SchedulerDbContext")
@@ -164,7 +164,7 @@ var scheduler = builder.AddProject<Projects.{Host}_Scheduler>("{host}scheduler")
 
 // -- Gateway (YARP): references API only. Destinations are injected here from resolved
 //    endpoints, never read from the Gateway's own config (see aspire.md Gateway Reverse-Proxy).
-var gateway = builder.AddProject<Projects.{Gateway}_Gateway>("{gateway}")
+var gateway = builder.AddDotnetProject("{gateway}", "../../{Gateway}.Gateway/{Gateway}.Gateway.csproj")
     .WithReference(api)
     .WaitFor(api);
 
@@ -181,7 +181,7 @@ await builder.Build().RunAsync();
 **Rules:**
 - Wait for the logical resource each consumer binds, such as `db`, not only its parent server/container. Declare the intended database explicitly (for PostgreSQL, set `POSTGRES_DB` when the image would otherwise create a different default), and leave a topology test that asserts every consumer's exact reference name and readiness edge.
 - **Every runtime host that touches the database declares `.WaitForCompletion(migrator)`** (API, Scheduler, Functions, workers). Runtime hosts never migrate - the migrator host owns schema (canonical rules: [../support/data-persistence-advanced.md](../support/data-persistence-advanced.md) section Migration Ownership: Dedicated Migrator Host).
-- **`.WithExternalHttpEndpoints()` on every host a developer must reach in a browser** (`api`, `gateway`, and UI hosts registered via `AddProject`). Without it the Aspire dashboard shows no URL and does not proxy browser traffic. `AddViteApp` applies it automatically; `AddProject` hosts do not.
+- **`.WithExternalHttpEndpoints()` on every host a developer must reach in a browser** (`api`, `gateway`, and UI hosts registered via `AddDotnetProject`). Without it the Aspire dashboard shows no URL and does not proxy browser traffic. `AddViteApp` applies it automatically; `AddDotnetProject` hosts do not.
 - Only include `AddViteApp(...)` when `includeReactUI: true`; if Gateway is disabled, reference the API project and pass its endpoint to `VITE_API_BASE_URL`.
 - A static UI reused across environments may read a same-origin `/app-config.json` generated at container startup. Serve it with `Cache-Control: no-store`, exclude it from immutable asset caching and SPA fallback, and fail deployment startup when required public values are absent. Keep local development on relative `/api` plus the Vite/Aspire proxy; a missing deployment config must not invent or require a workstation URL.
 - Gateway (YARP) destinations must be injected from the AppHost as resolved `api.GetEndpoint("http")` values - never read from the Gateway's own `appsettings.json` (DCP starts children with `--no-launch-profile` on dynamic ports). Depth: [../skills/aspire.md](../skills/aspire.md) -> *Gateway Reverse-Proxy Destinations Under Aspire (DCP)*.
@@ -196,7 +196,7 @@ Wire the model with `Aspire.Hosting.Foundry` so it provisions Azure on publish. 
 ```csharp
 IResourceBuilder<FoundryDeploymentResource>? chat = null;
 var provider = AiProviderResolver.Resolve(builder.Configuration); // closed and lane-aware
-var api = builder.AddProject<Projects.MyApp_Api>("api");
+var api = builder.AddDotnetProject("api", "../../MyApp.Api/MyApp.Api.csproj");
 
 if (provider == AiProvider.AzureInference)
 {

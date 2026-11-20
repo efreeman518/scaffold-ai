@@ -139,7 +139,7 @@ public class Program
 ```
 
 5. **Global using for ImmutableList**: MVUX `IListFeed<T>` requires `IImmutableList<T>`. Add `<Using Include="System.Collections.Immutable" />` to the `{Project}.Uno.Presentation` csproj where the MVUX records live.
-6. **Aspire AppHost reference**: Do not add a direct Aspire `AddProject` reference to the Uno SDK project. Host browserwasm through a small ASP.NET Core wrapper project under `src/Host/{Project}.Uno.WasmHost/`, then register that wrapper in AppHost.
+6. **Aspire AppHost reference**: Do not add a direct Aspire `AddDotnetProject` reference to the Uno SDK project. Host browserwasm through a small ASP.NET Core wrapper project under `src/Host/{Project}.Uno.WasmHost/`, then register that wrapper in AppHost.
 
 ### Testable Core Library
 
@@ -418,7 +418,7 @@ Wrapper rules:
 - In Aspire, register the wrapper, not the Uno SDK project:
 
 ```csharp
-builder.AddProject<Projects.{Project}_Uno_WasmHost>("{project}-uno")
+builder.AddDotnetProject("{project}-uno", "../../{Project}.Uno.WasmHost/{Project}.Uno.WasmHost.csproj")
     .WithReference(gateway)
     .WaitFor(gateway)
     .WithExternalHttpEndpoints();

@@ -110,7 +110,7 @@ var tables = storage.AddTables("TableStorage1");
 // Cosmos DB
 var cosmos = builder.AddAzureCosmosDB("CosmosDb1").RunAsEmulator();
 
-builder.AddProject<Projects.{Project}_Api>("{project}-api")
+builder.AddDotnetProject("{project}-api", "../../{Project}.Api/{Project}.Api.csproj")
     .WithReference(blobs)
     .WithReference(tables)
     .WithReference(cosmos);

@@ -260,7 +260,7 @@ Fix both problems in AppHost:
 var storage = builder.AddAzureStorage("AzureStorage").RunAsEmulator();
 var blobs = storage.AddBlobs("BlobStorage1");
 
-builder.AddProject<Projects.{Host}_Functions>("{host}functions")
+builder.AddDotnetProject("{host}functions", "../../{Host}.Functions/{Host}.Functions.csproj")
     .WithReference(blobs)
     .WithReference(serviceBus)
     .WithEnvironment("AzureWebJobsSecretStorageType", "Files")
@@ -299,7 +299,7 @@ Override the SDK-computed property after `_FunctionsComputeRunArguments` in the 
 Keep the ordinary AppHost registration:
 
 ```csharp
-builder.AddAzureFunctionsProject<Projects.{Project}_Functions>("{project}-functions")
+builder.AddAzureFunctionsProject("{project}-functions", "../../{Project}.Functions/{Project}.Functions.csproj")
     .WithHostStorage(storage);
 ```
 

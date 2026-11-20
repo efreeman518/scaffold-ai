@@ -160,7 +160,7 @@ Preflight (run before first launch - see [../skills/aspire.md](../skills/aspire.
 - [ ] `dotnet restore` on AppHost succeeds
 
 Gate:
-- [ ] `src/Host/Aspire/AppHost/AppHost.csproj` uses `Aspire.AppHost.Sdk` MSBuild SDK
+- [ ] `src/Host/Aspire/AppHost/AppHost.csproj` is a `Microsoft.NET.Sdk` project that references `Aspire.Hosting.AppHost` and `Aspire.Hosting.Dotnet` (no `Aspire.AppHost.Sdk`), and `AppHost.cs` registers each host by `.csproj` path
 - [ ] Required Aspire CLI env vars are set before terminal `dotnet run`
 - [ ] `dotnet build src/Host/Aspire/AppHost` succeeds
 - [ ] `dotnet run --project src/Host/Aspire/AppHost` starts resources

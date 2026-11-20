@@ -25,10 +25,21 @@ Rule: Application layer depends on `I{ServiceName}Service` (contracts), not Refi
 
 ```xml
 <PackageReference Include="Refit.HttpClientFactory" />
+<PackageReference Include="Refit.HttpClientFactory.Reflection" />
 <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
 ```
 
 Version all packages in `Directory.Packages.props`.
+
+Each Refit registration API has one package:
+
+| API | Package |
+|---|---|
+| `AddRefitGeneratedClient<T>()` (source-generated client) | `Refit.HttpClientFactory` |
+| `AddRefitClient<T>()` / `AddKeyedRefitClient<T>()` (reflection-based client) | `Refit.HttpClientFactory.Reflection` |
+| `RestService.For<T>()` | `Refit.Reflection` |
+
+A client the source generator cannot build (diagnostic `RF006`, for example one with a `StreamPart` multipart upload) is registered with `AddRefitClient` and needs the `Refit.HttpClientFactory.Reflection` reference.
 
 ---
 
@@ -173,7 +184,7 @@ When an external provider posts callbacks into your system:
 ## Verification
 
 - [ ] `Infrastructure.{ServiceName}` contains contract, handler, settings, wrapper, DI extension
-- [ ] Refit package declared centrally
+- [ ] Refit packages declared centrally, including `Refit.HttpClientFactory.Reflection` for the `AddRefitClient` registration
 - [ ] The client inherits the ServiceDefaults standard handler and adds no second one; an override follows [resilience.md](resilience.md) section Per-Client Override.
 - [ ] Wrapper implements `Application.Contracts` abstraction
 - [ ] No raw `HttpClient` usage in app/domain layers
