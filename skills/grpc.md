@@ -155,10 +155,10 @@ HTTP/2 multiplexes every call over one long-lived connection, so a layer-4 balan
 
 ```csharp
 // AppHost/Program.cs
-var grpcService = builder.AddProject<Projects.{Project}_GrpcService>("{project}-grpc")
+var grpcService = builder.AddDotnetProject("{project}-grpc", "../../{Project}.GrpcService/{Project}.GrpcService.csproj")
     .WithReference(sqlDb);
 
-var api = builder.AddProject<Projects.{Project}_Api>("{project}-api")
+var api = builder.AddDotnetProject("{project}-api", "../../{Project}.Api/{Project}.Api.csproj")
     .WithReference(grpcService);  // Service discovery provides the URL
 ```
 

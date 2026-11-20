@@ -337,7 +337,7 @@ if (provider == AiProvider.AzureInference)
 }
 // OpenAICompatible is configured in the consuming host from its own settings. None wires no provider.
 
-var api = builder.AddProject<Projects.MyApp_Api>("api")
+var api = builder.AddDotnetProject("api", "../../MyApp.Api/MyApp.Api.csproj")
     .WithEnvironment("AiServices__Provider", provider.ToString());
 
 // Azure only: wire the deployment (ConnectionStrings:chat + CHAT_* env).

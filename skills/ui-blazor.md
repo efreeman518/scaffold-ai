@@ -6,7 +6,7 @@ Scaffold a Blazor UI (Server or WebAssembly) that calls the **Gateway** (YARP), 
 
 - **UI**: MudBlazor shell + components
 - **State**: `FloatService` (scoped singleton) shared across layout and pages - **not** cascading parameters
-- **Client**: Refit (`Refit.HttpClientFactory`) against the Gateway base URL
+- **Client**: Refit (`Refit.HttpClientFactory`, with `Refit.HttpClientFactory.Reflection` for `AddRefitClient`) against the Gateway base URL
 - **Auth**: MSAL WebAssembly for WASM builds; JWT bearer cookie/claims for Server. In `Scaffold` mode the client adds no sign-in: the Gateway and API authenticate each request as the fixed principal
 
 Reference app: [TaskFlow.Blazor](https://github.com/efreeman518/scaffold-proof/tree/main/src/UI/TaskFlow.Blazor) and the Caller Portal ([Portal.UI1](https://github.com/efreeman518/Portal/tree/main/src/Portal/Portal.UI1)) - canonical source of the FloatService + Refit + MudBlazor layering.
@@ -56,6 +56,7 @@ Add to `Directory.Packages.props`:
 <PackageVersion Include="MudBlazor" Version="<latest-stable>" />
 <PackageVersion Include="Refit" Version="<latest-stable>" />
 <PackageVersion Include="Refit.HttpClientFactory" Version="<latest-stable>" />
+<PackageVersion Include="Refit.HttpClientFactory.Reflection" Version="<latest-stable>" />
 ```
 
 Resolve `<latest-stable>` at scaffold time. See [package-dependencies.md](package-dependencies.md) -> *Latest, Not Pinned*.
@@ -67,6 +68,7 @@ csproj references:
   <PackageReference Include="MudBlazor" />
   <PackageReference Include="Refit" />
   <PackageReference Include="Refit.HttpClientFactory" />
+  <PackageReference Include="Refit.HttpClientFactory.Reflection" />
   <PackageReference Include="Microsoft.Extensions.Http.Resilience" /> <!-- WebAssembly only -->
 </ItemGroup>
 
@@ -510,7 +512,7 @@ The consumption-side preference ("prefer stable selectors") lives in
 
 - [ ] `includeBlazorUI: true` set in domain inputs
 - [ ] `Gateway:BaseUrl` present in `appsettings*.json`
-- [ ] MudBlazor + Refit + Refit.HttpClientFactory versions in `Directory.Packages.props`
+- [ ] MudBlazor + Refit + Refit.HttpClientFactory + Refit.HttpClientFactory.Reflection versions in `Directory.Packages.props`
 - [ ] `Program.cs` registers `FloatService` as scoped, MudBlazor services and the Refit client with JSON options; Server calls `AddServiceDefaults()` and `MapDefaultEndpoints()` and adds no resilience handler, WebAssembly adds the one safe-methods-only standard handler
 - [ ] `App.razor` and `Routes.razor` apply `@rendermode="InteractiveServer"` (Server) or use `Router` under the WASM root (WASM)
 - [ ] `MainLayout.razor` wires all four Mud providers, `FloatService.StateHasChanged` bound in `OnInitialized`, cleared in `Dispose`

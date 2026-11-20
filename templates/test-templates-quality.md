@@ -211,7 +211,7 @@ public class PlaywrightStackFixture
             Environment.SetEnvironmentVariable("{APP}_ASPIRE_TESTING", "true");
             var builder = await _hostContext.RunStartupStepAsync(
                 "create Playwright Aspire test host",
-                token => DistributedApplicationTestingBuilder.CreateAsync<Projects.{App}_AppHost>(cancellationToken: token),
+                token => DistributedApplicationTestingBuilder.CreateAsync(Type.GetType("Program, AppHost", throwOnError: true)!, cancellationToken: token),
                 context.CancellationToken);
             _app = await _hostContext.RunStartupStepAsync("build Playwright Aspire test host", token => builder.BuildAsync(token), context.CancellationToken);
             _hostContext.Attach(_app);
