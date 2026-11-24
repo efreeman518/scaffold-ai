@@ -1,0 +1,3 @@
+# Check out text as LF on every platform so the installer copies LF payload files
+# byte-for-byte, matching the LF it writes for merged entrypoints.
+* text=auto eol=lf
