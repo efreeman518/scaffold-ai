@@ -277,7 +277,7 @@ def remove_managed_block(path: Path) -> None:
     _managed, after = rest.split(MERGE_SENTINEL_END, 1)
     remaining = (before.rstrip() + "\n\n" + after.lstrip()).strip()
     if remaining:
-        path.write_text(remaining + "\n", encoding="utf-8")
+        path.write_text(remaining + "\n", encoding="utf-8", newline="\n")
     else:
         path.unlink()
 
@@ -305,7 +305,13 @@ def write_manifest(target_root: Path, manifest: dict, dry_run: bool) -> None:
         return
     path = target_root / MANIFEST_REL
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
+
+
+def place_after(preceding: str, block: str) -> str:
+    """Put block after preceding content, separated by one blank line only when content precedes it."""
+    preceding = preceding.rstrip()
+    return f"{preceding}\n\n{block}" if preceding else block
 
 
 def adapt_installed_entrypoint_links(src: Path, content: str) -> str:
@@ -398,22 +404,22 @@ class Planner:
             if MERGE_SENTINEL_START in dst_content and MERGE_SENTINEL_END in dst_content:
                 before, rest = dst_content.split(MERGE_SENTINEL_START, 1)
                 _, after = rest.split(MERGE_SENTINEL_END, 1)
-                merged = before.rstrip("\n") + "\n\n" + block + after
+                merged = place_after(before, block) + after
             elif dst_content.strip() == src_content.strip():
                 merged = block + "\n"
             else:
-                merged = dst_content.rstrip("\n") + "\n\n" + block + "\n"
+                merged = place_after(dst_content, block) + "\n"
             action = "[dry-run]" if self.dry_run else "[merge]"
             print(f"  {action} {label}")
             if not self.dry_run:
-                dst.write_text(merged, encoding="utf-8")
+                dst.write_text(merged, encoding="utf-8", newline="\n")
             self.merged += 1
         else:
             action = "[dry-run]" if self.dry_run else "[copy]"
             print(f"  {action} {label}")
             if not self.dry_run:
                 dst.parent.mkdir(parents=True, exist_ok=True)
-                dst.write_text(block + "\n", encoding="utf-8")
+                dst.write_text(block + "\n", encoding="utf-8", newline="\n")
             self.copied += 1
 
     def summary(self) -> None:
