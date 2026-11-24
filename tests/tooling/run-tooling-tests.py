@@ -136,6 +136,29 @@ class InstallerTests(unittest.TestCase):
         self.assertTrue(merged.startswith("pre-existing app instructions"))
         self.assertIn(installer.MERGE_SENTINEL_START, merged)
 
+    def test_merge_file_separator_only_after_content_and_writes_lf(self):
+        src = self.tmp / "notes.md"
+        src.write_text("managed body\n", encoding="utf-8")
+        block = installer.MERGE_SENTINEL_START + "\nmanaged body\n" + installer.MERGE_SENTINEL_END
+        cases = {
+            "empty existing file": ("", block + "\n"),
+            "whitespace-only file": ("\n\n  \n", block + "\n"),
+            "file holding only the block": (
+                installer.MERGE_SENTINEL_START + "\nold body\n" + installer.MERGE_SENTINEL_END + "\n",
+                block + "\n",
+            ),
+            "content before the block": (
+                "app header\n" + installer.MERGE_SENTINEL_START + "\nold body\n" + installer.MERGE_SENTINEL_END + "\n",
+                "app header\n\n" + block + "\n",
+            ),
+        }
+        for name, (existing, expected) in cases.items():
+            with self.subTest(name):
+                dst = self.tmp / f"{name}.md"
+                dst.write_bytes(existing.replace("\n", "\r\n").encode("utf-8"))
+                self._planner().merge_file(src, dst, dst.name)
+                self.assertEqual(dst.read_bytes(), expected.encode("utf-8"))
+
     def test_adapt_installed_entrypoint_links(self):
         adapted = installer.adapt_installed_entrypoint_links(
             Path("AGENTS.md"), "see [README.md](README.md) for detail"

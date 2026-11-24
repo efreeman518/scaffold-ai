@@ -233,7 +233,7 @@ at the root.
   graphify writes only fixed-name files into `graphify-out/` and has no clean/prune command;
   it never creates dated subfolders. Any `graphify-out/<YYYY-MM-DD>/` folders (e.g.
   `2026-06-11/`) are leftover manual snapshots, not graph artifacts - they accumulate
-  unbounded, so delete them as part of the end-of-session graph refresh.
+  unbounded, so delete them in the graph refresh commit.
 
 ## Keeping the graph fresh (optional hook, not scaffold default)
 
@@ -250,7 +250,7 @@ graphify hook uninstall
 
 Behavior (read before enabling):
 
-- The scaffold does not install this hook. Prefer manual refresh after material code or architecture changes; enable the hook only when the operator accepts generated churn from small code commits.
+- The scaffold does not install this hook. Prefer an offered, separately committed refresh after material code or architecture changes (section Refresh timing for scaffolded apps); enable the hook only when the operator accepts generated churn from small code commits.
 - The hook and a **tracked** `graphify-out/` are coupled choices, not independent ones. With committed artifacts, the post-commit rebuild re-dirties the tree the moment a commit finishes (observed: an aborted `git checkout` mid-merge), and regeneration is non-deterministic - one refresh with no content change rewrote ~63k lines, burying the PR's real diff. Hooks fit a gitignored graph; a tracked graph wants hooks off and an explicit refresh at task completion, so every rebuild is a deliberate, reviewable commit.
 
 - **Post-commit**: re-extracts only the changed code files in the BACKGROUND (`git
@@ -295,10 +295,10 @@ keeps the graph current.
 
 ## Refresh timing for scaffolded apps
 
-Build/refresh only when graphify is already enabled and the change materially affects code structure, architecture, or the semantic knowledge layer. Do not refresh generated graph artifacts for action-version pins, prose-only edits, formatting, or other unrelated changes; keep graph churn out of those PRs.
+Offer a build/refresh only when graphify is already enabled and the change materially affects code structure, architecture, or the semantic knowledge layer. Never regenerate graph artifacts silently: offer the refresh, and when the operator accepts, land it as its own commit so the graph diff never mixes with the change that prompted it. Do not offer a refresh for action-version pins, prose-only edits, formatting, or other unrelated changes; keep graph churn out of those PRs.
 
-- After Phase 1 artifacts exist, run `graphify .` (full layer) if graphify was enabled.
-- After a material Phase 4/5 code or architecture change passes its gate, run `graphify update .` and regenerate the wiki only when its source graph materially changed.
+- After Phase 1 artifacts exist, offer `graphify .` (full layer) if graphify was enabled.
+- After a material Phase 4/5 code or architecture change passes its gate, offer `graphify update .`, plus `graphify export wiki` when `graphify-out/wiki/` exists and its source graph materially changed.
 
 Drift rule (per START-AI.md, Phase-1 Artifact Lifecycle Rule, and
 support/OPERATIONS.md Mid-Session Rollback Protocol): when artifact and code

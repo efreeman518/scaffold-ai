@@ -113,7 +113,7 @@ public class {Entity}Tests
 
 ---
 
-## Domain Rule Test## Transition Tests
+## Transition Tests
 
 ### File: `tests/Test.Unit/Domain/{Entity}StatusTransitionTests.cs`
 
@@ -167,7 +167,7 @@ public class {Entity}StatusTransitionTests
 
 ---
 
-on (Phase 5a)
+## Builder Activation (Phase 5a)
 
 After entity `Create()` is implemented, activate the builder in `tests/Test.Support/Builders/{Entity}Builder.cs`:
 
